@@ -4,6 +4,14 @@
 
 ---
 
+## 📥 Download APK
+
+Get the latest release of **Music** here:
+
+[Download Music APK](https://github.com/EngFred/Modular-Jetpack-Compose-Offline-Music-App/releases/download/v2.1.0/Music.apk)
+
+---
+
 <div align="center">
   <img src="https://github.com/user-attachments/assets/81440998-7936-41d7-894f-4666628eac6b" alt="Music Screenshot 1" width="30%"/>
   <img src="https://github.com/user-attachments/assets/995f5919-aafb-41ec-b2ea-16e48df9909e" alt="Music Screenshot 2" width="30%"/>
