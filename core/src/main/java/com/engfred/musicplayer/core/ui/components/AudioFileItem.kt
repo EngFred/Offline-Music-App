@@ -163,7 +163,7 @@ fun AudioFileItem(
                         .border(1.dp, MaterialTheme.colorScheme.surface, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-// If playCount is greater than 30 show a small dot instead of the number
+                    // If playCount is greater than 30 show a small dot instead of the number
                     if (playCount > 9) {
                         Box(
                             modifier = Modifier
@@ -237,7 +237,6 @@ fun AudioFileItem(
                         text = { Text("Play Next") },
                         onClick = {
                             onPlayNext(audioFile)
-                            Toast.makeText(context, "Added '${audioFile.title}' to play next.", Toast.LENGTH_SHORT).show()
                             showMenu = false
                         },
                         leadingIcon = {

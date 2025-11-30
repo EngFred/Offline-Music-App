@@ -220,7 +220,7 @@ class LibraryViewModel @Inject constructor(
 
                 is LibraryEvent.PlayedNext -> {
                     playbackController.addAudioToQueueNext(event.audioFile)
-                    _uiEvent.emit("'${event.audioFile.title}' will play next in the queue.")
+                    _uiEvent.emit("'${event.audioFile.title}' has been added to the queue and will play next.")
                 }
 
                 LibraryEvent.Retry -> loadAudioFiles()
