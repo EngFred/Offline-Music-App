@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -55,6 +56,8 @@ fun AlbumArtDisplay(
             if (isPlaying) compactBaseSize else compactPausedSize
         } else compactPausedSize // Always paused size for Medium & Expanded
 
+        val defaultArtSize = if (isPlaying) 200.dp else 100.dp
+
 
         val animatedAlbumArtSize by animateDpAsState(
             targetValue = targetSize,
@@ -79,12 +82,6 @@ fun AlbumArtDisplay(
                 modifier = Modifier
                     .size(animatedAlbumArtSize) // Animate only the inner album art
                     .clip(RoundedCornerShape(12.dp))
-                    .shadow(
-                        elevation = albumArtShadowElevation,
-                        shape = RoundedCornerShape(12.dp),
-                        ambientColor = Color.Black.copy(alpha = 0.4f),
-                        spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                    )
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)),
                 contentAlignment = Alignment.Center
             ) {
@@ -96,18 +93,27 @@ fun AlbumArtDisplay(
                     ),
                     modifier = Modifier.fillMaxSize(),
                     failure = {
-                        Icon(
-                            imageVector = Icons.Rounded.MusicNote,
-                            contentDescription = "No Album Art",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        )
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MusicNote,
+                                contentDescription = "No Album Art",
+                                modifier = Modifier.size(defaultArtSize),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
                     },
                     loading = {
-                        Icon(
-                            imageVector = Icons.Rounded.MusicNote,
-                            contentDescription = "Loading Album Art",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        )
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ){
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
                     }
                 )
             }

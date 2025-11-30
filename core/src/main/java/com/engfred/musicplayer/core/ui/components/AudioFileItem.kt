@@ -1,5 +1,6 @@
 package com.engfred.musicplayer.core.ui.components
 
+import android.graphics.Color
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -120,28 +121,40 @@ fun AudioFileItem(
         Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
             Box(
                 modifier = Modifier
+                    .fillMaxSize()
                     .size(56.dp)
-                    .clip(CircleShape)
-                    .graphicsLayer { rotationZ = rotationDegrees }
+                    .clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)
+                    .graphicsLayer { rotationZ = rotationDegrees },
+                contentAlignment = Alignment.Center
             ) {
                 CoilImage(
                     imageModel = { audioFile.albumArtUri },
                     modifier = Modifier.fillMaxSize(),
                     loading = {
-                        Icon(
-                            imageVector = Icons.Rounded.MusicNote,
-                            contentDescription = "Loading icon",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.size(28.dp)
-                        )
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MusicNote,
+                                contentDescription = "Loading icon",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.size(45.dp)
+                            )
+                        }
                     },
                     failure = {
-                        Icon(
-                            imageVector = Icons.Rounded.MusicNote,
-                            contentDescription = "No album art available",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.size(28.dp)
-                        )
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MusicNote,
+                                contentDescription = "No album art available",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.size(45.dp)
+                            )
+                        }
                     }
                 )
             }
