@@ -50,9 +50,10 @@ import com.engfred.musicplayer.core.domain.repository.ShuffleMode
 import com.engfred.musicplayer.core.util.MediaUtils.shareAudioFile
 import com.engfred.musicplayer.feature_player.presentation.components.ControlBar
 import com.engfred.musicplayer.feature_player.presentation.components.QueueBottomSheet
-import com.engfred.musicplayer.feature_player.presentation.components.RotatingWaveAlbumArt
+//import com.engfred.musicplayer.feature_player.presentation.components.RotatingWaveAlbumArt
 import com.engfred.musicplayer.feature_player.presentation.components.SeekBarSection
 import com.engfred.musicplayer.feature_player.presentation.components.TopBar
+import com.engfred.musicplayer.feature_player.presentation.components.VinylRecordView
 import com.engfred.musicplayer.feature_player.presentation.viewmodel.PlayerEvent
 import kotlinx.coroutines.launch
 
@@ -165,11 +166,18 @@ fun MinimalistGrooveLayout(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    RotatingWaveAlbumArt(
+                    VinylRecordView(
                         albumArtUri = uiState.currentAudioFile?.albumArtUri,
                         isPlaying = uiState.isPlaying,
+                        onPlayPauseToggle = { onEvent(PlayerEvent.PlayPause) },
+                        onPlay = {
+                            if (!uiState.isPlaying) onEvent(PlayerEvent.PlayPause)
+                        },
+                        onPause = {
+                            if (uiState.isPlaying) onEvent(PlayerEvent.PlayPause)
+                        },
                         modifier = Modifier
-                            .aspectRatio(if (isTablet) 1f else 1f)
+                            .aspectRatio(1f)
                             .weight(1f)
                     )
                     Spacer(modifier = Modifier.width(artAndControlsSpacing))
@@ -238,10 +246,17 @@ fun MinimalistGrooveLayout(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.SpaceAround
                     ) {
-                        RotatingWaveAlbumArt(
+                        VinylRecordView(
                             albumArtUri = uiState.currentAudioFile?.albumArtUri,
                             isPlaying = uiState.isPlaying,
-                            modifier = Modifier.size(if (isTablet) 360.dp else 260.dp)
+                            onPlayPauseToggle = { onEvent(PlayerEvent.PlayPause) },
+                            onPlay = {
+                                if (!uiState.isPlaying) onEvent(PlayerEvent.PlayPause)
+                            },
+                            onPause = {
+                                if (uiState.isPlaying) onEvent(PlayerEvent.PlayPause)
+                            },
+                            modifier = Modifier.size(if (isTablet) 360.dp else 280.dp) // Adjusted size for Vinyl aesthetics
                         )
                         Spacer(modifier = Modifier.height( if (isTablet) 36.dp else 28.dp))
                         SongInfoSection(
