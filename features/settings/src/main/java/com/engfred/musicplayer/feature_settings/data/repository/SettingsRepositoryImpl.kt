@@ -13,6 +13,7 @@ import com.engfred.musicplayer.core.domain.model.FilterOption
 import com.engfred.musicplayer.core.domain.model.LastPlaybackState
 import com.engfred.musicplayer.core.domain.model.PlayerLayout
 import com.engfred.musicplayer.core.domain.model.PlaylistLayoutType
+import com.engfred.musicplayer.core.domain.model.PlaylistSortOption
 import com.engfred.musicplayer.core.domain.model.WidgetBackgroundMode
 import com.engfred.musicplayer.core.domain.repository.RepeatMode
 import com.engfred.musicplayer.core.domain.repository.SettingsRepository
@@ -33,6 +34,7 @@ class SettingsRepositoryImpl @Inject constructor(
         private val SELECTED_THEME = stringPreferencesKey("selected_theme")
         private val SELECTED_PLAYER_LAYOUT = stringPreferencesKey("selected_player_layout")
         private val PLAYLIST_LAYOUT_TYPE = stringPreferencesKey("playlist_layout_type")
+        private val PLAYLIST_SORT_OPTION = stringPreferencesKey("playlist_sort_option")
         private val SELECTED_FILTER_OPTION = stringPreferencesKey("selected_filter_option")
         private val REPEAT_MODE = stringPreferencesKey("repeat_mode")
         private val SELECTED_AUDIO_PRESET = stringPreferencesKey("selected_audio_preset")
@@ -70,6 +72,12 @@ class SettingsRepositoryImpl @Inject constructor(
                     preferences[SELECTED_AUDIO_PRESET] ?: AudioPreset.NONE.name
                 )
 
+                val playlistSortOption = try {
+                    PlaylistSortOption.valueOf(
+                        preferences[PLAYLIST_SORT_OPTION] ?: PlaylistSortOption.DATE_CREATED_ASC.name
+                    )
+                } catch(e: Exception) { PlaylistSortOption.DATE_CREATED_ASC }
+
                 val widgetMode = preferences[SELECT_WIDGET_BACKGROUND_MODE]?.let {
                     try {
                         WidgetBackgroundMode.valueOf(it)
@@ -80,6 +88,7 @@ class SettingsRepositoryImpl @Inject constructor(
                     selectedTheme = selectedTheme,
                     selectedPlayerLayout = selectedPlayerLayout,
                     playlistLayoutType = playlistLayoutType,
+                    playlistSortOption = playlistSortOption,
                     repeatMode = repeatMode,
                     audioPreset = selectedAudioPreset,
                     widgetBackgroundMode = widgetMode
@@ -174,6 +183,12 @@ class SettingsRepositoryImpl @Inject constructor(
     override suspend fun updatePlaylistLayout(layout: PlaylistLayoutType) {
         dataStore.edit { preferences ->
             preferences[PLAYLIST_LAYOUT_TYPE] = layout.name
+        }
+    }
+
+    override suspend fun updatePlaylistSortOption(sortOption: PlaylistSortOption) {
+        dataStore.edit { preferences ->
+            preferences[PLAYLIST_SORT_OPTION] = sortOption.name
         }
     }
 

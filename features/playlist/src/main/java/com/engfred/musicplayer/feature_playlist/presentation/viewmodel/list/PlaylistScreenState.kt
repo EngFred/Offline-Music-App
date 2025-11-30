@@ -3,6 +3,7 @@ package com.engfred.musicplayer.feature_playlist.presentation.viewmodel.list
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.model.PlaylistLayoutType
 import com.engfred.musicplayer.core.domain.model.Playlist
+import com.engfred.musicplayer.core.domain.model.PlaylistSortOption
 
 /**
  * Represents the UI state for the Playlists screen.
@@ -13,5 +14,6 @@ data class PlaylistScreenState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val currentPlaybackAudioFile: AudioFile? = null,
-    val currentLayout: PlaylistLayoutType = PlaylistLayoutType.LIST
+    val currentLayout: PlaylistLayoutType = PlaylistLayoutType.LIST,
+    val currentSortOption: PlaylistSortOption = PlaylistSortOption.DATE_CREATED_ASC
 )

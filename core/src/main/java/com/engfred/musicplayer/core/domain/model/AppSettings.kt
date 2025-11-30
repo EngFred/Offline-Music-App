@@ -11,6 +11,7 @@ data class AppSettings(
     val selectedTheme: AppThemeType = AppThemeType.CLASSIC_LIGHT,
     val selectedPlayerLayout: PlayerLayout,
     val playlistLayoutType: PlaylistLayoutType,
+    val playlistSortOption: PlaylistSortOption = PlaylistSortOption.DATE_CREATED_ASC,
     val repeatMode: RepeatMode = RepeatMode.OFF,
     val audioPreset: AudioPreset = AudioPreset.NONE,
     val widgetBackgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.STATIC

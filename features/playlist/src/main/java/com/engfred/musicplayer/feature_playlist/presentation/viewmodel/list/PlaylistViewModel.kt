@@ -5,17 +5,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.engfred.musicplayer.core.domain.model.Playlist
 import com.engfred.musicplayer.core.domain.model.PlaylistLayoutType
+import com.engfred.musicplayer.core.domain.model.PlaylistSortOption
 import com.engfred.musicplayer.core.domain.repository.PlaybackController
 import com.engfred.musicplayer.core.domain.repository.PlaylistRepository
 import com.engfred.musicplayer.core.domain.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -50,8 +51,8 @@ class PlaylistViewModel @Inject constructor(
             ensureFavoritesPlaylistExists()
         }
 
-        // Initial loading of playlists
-        loadPlaylists()
+        // Initial loading of playlists & settings combined
+        observeData()
 
         // Observe changes to the current playback state
         playbackController.getPlaybackState().onEach { state ->
@@ -59,22 +60,6 @@ class PlaylistViewModel @Inject constructor(
                 currentState.copy(currentPlaybackAudioFile = state.currentAudioFile)
             }
         }.launchIn(viewModelScope)
-
-        // Load the saved playlist layout from settings
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-               settingsRepository.getAppSettings().collect {
-                    _uiState.update { currentState ->
-                        currentState.copy(currentLayout = it.playlistLayoutType)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to load playlist layout from settings: ${e.message}", e)
-                _uiState.update { currentState ->
-                    currentState.copy(currentLayout = PlaylistLayoutType.LIST)
-                }
-            }
-        }
     }
 
     /**
@@ -88,6 +73,54 @@ class PlaylistViewModel @Inject constructor(
             val favorites = Playlist(name = "Favorites", isAutomatic = false, type = null)
             playlistRepository.createPlaylist(favorites)
         }
+    }
+
+    /**
+     * Combines Playlist data and Settings (Layout + Sort) into one flow.
+     */
+    private fun observeData() {
+        _uiState.update { it.copy(isLoading = true) }
+
+        // Combine DB playlists with DataStore settings
+        combine(
+            playlistRepository.getPlaylists(),
+            settingsRepository.getAppSettings()
+        ) { allPlaylists, settings ->
+
+            // 1. Separate Lists
+            val automatic = allPlaylists.filter { it.isAutomatic }
+            val userAll = allPlaylists.filter { !it.isAutomatic }
+
+            // 2. Identify Favorites (Always keeps separate or at top)
+            val favorites = userAll.find { it.name.equals("Favorites", ignoreCase = true) }
+            val others = userAll.filter { !it.name.equals("Favorites", ignoreCase = true) }
+
+            // 3. Sort 'others' based on setting
+            val sortedOthers = when (settings.playlistSortOption) {
+                PlaylistSortOption.NAME_ASC -> others.sortedBy { it.name.lowercase() }
+                PlaylistSortOption.NAME_DESC -> others.sortedByDescending { it.name.lowercase() }
+                PlaylistSortOption.DATE_CREATED_ASC -> others.sortedBy { it.createdAt }
+                PlaylistSortOption.DATE_CREATED_DESC -> others.sortedByDescending { it.createdAt }
+            }
+
+            // 4. Recombine: Favorites first, then sorted others
+            val userSorted = listOfNotNull(favorites) + sortedOthers
+
+            // 5. Return result as Triple to destructure in onEach
+            Triple(automatic, userSorted, settings)
+
+        }.onEach { (automatic, userSorted, settings) ->
+            _uiState.update {
+                it.copy(
+                    automaticPlaylists = automatic,
+                    userPlaylists = userSorted,
+                    currentLayout = settings.playlistLayoutType,
+                    currentSortOption = settings.playlistSortOption,
+                    isLoading = false,
+                    error = null
+                )
+            }
+        }.launchIn(viewModelScope)
     }
 
     /**
@@ -150,47 +183,23 @@ class PlaylistViewModel @Inject constructor(
                 }
 
                 PlaylistEvent.LoadPlaylists -> {
-                    loadPlaylists()
+                    // No-op, observeData handles updates automatically via Flow
                 }
 
                 PlaylistEvent.ToggleLayout -> {
                     // Toggle the layout and save the preference
-                    _uiState.update {
-                        it.copy(
-                            currentLayout = if (it.currentLayout == PlaylistLayoutType.LIST) {
-                                PlaylistLayoutType.GRID
-                            } else {
-                                PlaylistLayoutType.LIST
-                            }
-                        )
+                    val newLayout = if (_uiState.value.currentLayout == PlaylistLayoutType.LIST) {
+                        PlaylistLayoutType.GRID
+                    } else {
+                        PlaylistLayoutType.LIST
                     }
-                    settingsRepository.updatePlaylistLayout(_uiState.value.currentLayout)
+                    settingsRepository.updatePlaylistLayout(newLayout)
+                }
+
+                is PlaylistEvent.ChangeSortOption -> {
+                    settingsRepository.updatePlaylistSortOption(event.sortOption)
                 }
             }
         }
-    }
-
-    /**
-     * Fetches playlists from the repository and updates the UI state.
-     */
-    private fun loadPlaylists() {
-        _uiState.update { it.copy(isLoading = true, error = null) }
-        playlistRepository.getPlaylists().onEach { allPlaylists ->
-            // Separate and sort playlists for display
-            val automatic = allPlaylists.filter { it.isAutomatic }
-            val user = allPlaylists.filter { !it.isAutomatic }
-            val favorites = user.find { it.name.equals("Favorites", ignoreCase = true) }
-            val others = user.filter { !it.name.equals("Favorites", ignoreCase = true) }.sortedBy { it.name }
-            val userSorted = listOfNotNull(favorites) + others
-
-            _uiState.update {
-                it.copy(
-                    automaticPlaylists = automatic,
-                    userPlaylists = userSorted,
-                    isLoading = false,
-                    error = null
-                )
-            }
-        }.launchIn(viewModelScope)
     }
 }

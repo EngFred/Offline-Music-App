@@ -21,17 +21,26 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.List
+import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.filled.MusicOff
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -42,6 +51,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.engfred.musicplayer.core.domain.model.PlaylistLayoutType
+import com.engfred.musicplayer.core.domain.model.PlaylistSortOption
 import com.engfred.musicplayer.core.ui.components.ErrorIndicator
 import com.engfred.musicplayer.core.ui.components.InfoIndicator
 import com.engfred.musicplayer.core.ui.components.LoadingIndicator
@@ -68,6 +78,9 @@ fun PlaylistsScreen(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val screenWidthDp = configuration.screenWidthDp
+
+    // Sort Menu State
+    var isSortMenuExpanded by rememberSaveable { mutableStateOf(false) }
 
     // Listen for one-time UI events (like Toast messages)
     LaunchedEffect(viewModel.uiEvent) {
@@ -164,14 +177,87 @@ fun PlaylistsScreen(
 
                     // My Playlists section (title as a separate section)
                     if (uiState.userPlaylists.isNotEmpty()) {
+                        // Header with Sort Button
                         item {
-                            Text(
-                                text = "My Playlists",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.padding(horizontal = contentHorizontalPadding, vertical = 8.dp)
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = contentHorizontalPadding, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "My Playlists",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+
+                                // Sort Button & Menu
+                                Box {
+                                    IconButton(onClick = { isSortMenuExpanded = true }) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Rounded.Sort,
+                                            contentDescription = "Sort Playlists",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = isSortMenuExpanded,
+                                        onDismissRequest = { isSortMenuExpanded = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Name (A-Z)") },
+                                            onClick = {
+                                                viewModel.onEvent(PlaylistEvent.ChangeSortOption(PlaylistSortOption.NAME_ASC))
+                                                isSortMenuExpanded = false
+                                            },
+                                            trailingIcon = {
+                                                if (uiState.currentSortOption == PlaylistSortOption.NAME_ASC) {
+                                                    Icon(Icons.Rounded.Check, contentDescription = null)
+                                                }
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Name (Z-A)") },
+                                            onClick = {
+                                                viewModel.onEvent(PlaylistEvent.ChangeSortOption(PlaylistSortOption.NAME_DESC))
+                                                isSortMenuExpanded = false
+                                            },
+                                            trailingIcon = {
+                                                if (uiState.currentSortOption == PlaylistSortOption.NAME_DESC) {
+                                                    Icon(Icons.Rounded.Check, contentDescription = null)
+                                                }
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Oldest First") },
+                                            onClick = {
+                                                viewModel.onEvent(PlaylistEvent.ChangeSortOption(PlaylistSortOption.DATE_CREATED_ASC))
+                                                isSortMenuExpanded = false
+                                            },
+                                            trailingIcon = {
+                                                if (uiState.currentSortOption == PlaylistSortOption.DATE_CREATED_ASC) {
+                                                    Icon(Icons.Rounded.Check, contentDescription = null)
+                                                }
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Newest First") },
+                                            onClick = {
+                                                viewModel.onEvent(PlaylistEvent.ChangeSortOption(PlaylistSortOption.DATE_CREATED_DESC))
+                                                isSortMenuExpanded = false
+                                            },
+                                            trailingIcon = {
+                                                if (uiState.currentSortOption == PlaylistSortOption.DATE_CREATED_DESC) {
+                                                    Icon(Icons.Rounded.Check, contentDescription = null)
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
 
                         // If LIST layout selected -> rendering a flat Column inside a single LazyColumn item

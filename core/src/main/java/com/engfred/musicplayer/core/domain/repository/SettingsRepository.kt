@@ -7,13 +7,11 @@ import com.engfred.musicplayer.core.domain.model.FilterOption
 import com.engfred.musicplayer.core.domain.model.LastPlaybackState
 import com.engfred.musicplayer.core.domain.model.PlayerLayout
 import com.engfred.musicplayer.core.domain.model.PlaylistLayoutType
+import com.engfred.musicplayer.core.domain.model.PlaylistSortOption // Import new enum
 import com.engfred.musicplayer.core.domain.model.WidgetBackgroundMode
 import com.engfred.musicplayer.core.ui.theme.AppThemeType
 import kotlinx.coroutines.flow.Flow
 
-/**
- * Defines the contract for data operations related to application settings.
- */
 interface SettingsRepository {
 
     fun getAppSettings(): Flow<AppSettings>
@@ -23,6 +21,8 @@ interface SettingsRepository {
     suspend fun updatePlayerLayout(layout: PlayerLayout)
 
     suspend fun updatePlaylistLayout(layout: PlaylistLayoutType)
+
+    suspend fun updatePlaylistSortOption(sortOption: PlaylistSortOption)
 
     suspend fun updateFilterOption(filterOption: FilterOption)
     fun getFilterOption(): Flow<FilterOption>
