@@ -19,34 +19,34 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.engfred.musicplayer.core.domain.model.AudioFile
+import com.engfred.musicplayer.core.domain.model.AutomaticPlaylistType
+import com.engfred.musicplayer.core.ui.components.AddSongToPlaylistDialog
+import com.engfred.musicplayer.core.ui.components.AudioFileItem
+import com.engfred.musicplayer.core.ui.components.ConfirmationDialog
 import com.engfred.musicplayer.core.ui.components.ErrorIndicator
 import com.engfred.musicplayer.core.ui.components.InfoIndicator
 import com.engfred.musicplayer.core.ui.components.LoadingIndicator
+import com.engfred.musicplayer.core.ui.components.MiniPlayer
+import com.engfred.musicplayer.core.util.TextUtils.pluralize
 import com.engfred.musicplayer.feature_playlist.presentation.components.detail.AddSongsBottomSheet
 import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistActionButtons
 import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistDetailHeaderSection
+import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistDetailTopBar
 import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistEmptyState
-import com.engfred.musicplayer.core.ui.components.AudioFileItem
+import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistSongs
 import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistSongsHeader
-import com.engfred.musicplayer.core.ui.components.MiniPlayer
+import com.engfred.musicplayer.feature_playlist.presentation.components.detail.RenamePlaylistDialog
 import com.engfred.musicplayer.feature_playlist.presentation.viewmodel.detail.PlaylistDetailEvent
 import com.engfred.musicplayer.feature_playlist.presentation.viewmodel.detail.PlaylistDetailViewModel
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalDensity
-import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistSongs
-import com.engfred.musicplayer.core.domain.model.AudioFile
-import com.engfred.musicplayer.core.ui.components.AddSongToPlaylistDialog
-import com.engfred.musicplayer.core.ui.components.ConfirmationDialog
-import com.engfred.musicplayer.feature_playlist.presentation.components.detail.RenamePlaylistDialog
-import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistDetailTopBar
-import com.engfred.musicplayer.core.domain.model.AutomaticPlaylistType
-import com.engfred.musicplayer.core.util.TextUtils.pluralize
 import com.engfred.musicplayer.feature_playlist.utils.findFirstAlbumArtUri
 import kotlinx.coroutines.launch
 
@@ -100,8 +100,13 @@ fun PlaylistDetailScreen(
         }
     }
 
-    val isAutomatic = uiState.playlist?.isAutomatic == true
-    val isSelectionMode = uiState.selectedSongs.isNotEmpty() && !isAutomatic
+    // Determine if the playlist is "System Managed" (Automatic OR Favorites)
+    // This flag restricts certain actions like mass deletion or cover changes
+    val isAutomaticOrFavorites = uiState.playlist?.isAutomatic == true ||
+            uiState.playlist?.name.equals("Favorites", ignoreCase = true)
+
+    // Selection mode is only available for user created playlists (not automatic/favorites)
+    val isSelectionMode = uiState.selectedSongs.isNotEmpty() && !isAutomaticOrFavorites
     val coroutineScope = rememberCoroutineScope()
 
     // BackHandler: when selection is active, consume back and deselect
@@ -296,22 +301,26 @@ fun PlaylistDetailScreen(
                                 isAudioPlaying = uiState.isPlaying,
                                 onAddToPlaylist = { viewModel.onEvent(PlaylistDetailEvent.ShowPlaylistsDialog(it)) },
                                 onPlayNext = { viewModel.onEvent(PlaylistDetailEvent.SetPlayNext(it)) },
-                                isFromAutomaticPlaylist = uiState.playlist?.isAutomatic ?: false,
+                                isFromAutomaticPlaylist = isAutomaticOrFavorites,
                                 playCount = uiState.playlist?.playCounts?.get(audioFile.id),
                                 onEditInfo = onEditInfo,
                                 onTrimAudio = onTrimAudio,
                                 isSelectionMode = isSelectionMode,
+                                // Pass null if restricted (Automatic or Favorites), hiding the menu option
+                                onSetAsPlaylistCover = if (isAutomaticOrFavorites) null else { audioFile ->
+                                    viewModel.onEvent(PlaylistDetailEvent.SetPlaylistCover(audioFile))
+                                },
                                 isSelected = isSelected,
                                 onToggleSelect = { viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(audioFile)) },
                                 onItemTap = {
-                                    if (isSelectionMode && !isAutomatic) viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(audioFile))
+                                    if (isSelectionMode && !isAutomaticOrFavorites) viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(audioFile))
                                     else viewModel.onEvent(PlaylistDetailEvent.PlayAudio(audioFile))
                                 },
                                 onItemLongPress = {
-                                    if (!isSelectionMode && !isAutomatic) {
+                                    if (!isSelectionMode && !isAutomaticOrFavorites) {
                                         viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(audioFile))
                                     } else {
-                                        Toast.makeText(context, "Cannot select songs from this playlists.", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Cannot select songs from this playlist.", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             )
@@ -377,7 +386,7 @@ fun PlaylistDetailScreen(
                                     songs = uiState.sortedSongs,
                                     currentPlayingId = uiState.currentPlayingAudioFile?.id,
                                     onSongClick = { clickedAudioFile ->
-                                        if (isSelectionMode && !isAutomatic) viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(clickedAudioFile))
+                                        if (isSelectionMode && !isAutomaticOrFavorites) viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(clickedAudioFile))
                                         else viewModel.onEvent(PlaylistDetailEvent.PlayAudio(clickedAudioFile))
                                     },
                                     onSongRemove = { song -> viewModel.onEvent(PlaylistDetailEvent.ShowRemoveSongConfirmation(song)) },
@@ -386,7 +395,10 @@ fun PlaylistDetailScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     onAddToPlaylist = { viewModel.onEvent(PlaylistDetailEvent.ShowPlaylistsDialog(it)) },
                                     onPlayNext = { viewModel.onEvent(PlaylistDetailEvent.SetPlayNext(it)) },
-                                    isFromAutomaticPlaylist = uiState.playlist?.isAutomatic ?: false,
+
+                                    // Ensure this is consistent with portrait logic
+                                    isFromAutomaticPlaylist = isAutomaticOrFavorites,
+
                                     playCountMap = uiState.playlist?.playCounts,
                                     onEditInfo = onEditInfo,
                                     onTrimAudio = onTrimAudio,
@@ -394,7 +406,7 @@ fun PlaylistDetailScreen(
                                     selectedSongs = uiState.selectedSongs,
                                     onToggleSelection = { song -> viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(song)) },
                                     onLongPress = { song ->
-                                        if (!isSelectionMode && !isAutomatic) {
+                                        if (!isSelectionMode && !isAutomaticOrFavorites) {
                                             viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(song))
                                         } else {
                                             Toast.makeText(context, "Cannot select songs from this playlists.", Toast.LENGTH_SHORT).show()
@@ -405,6 +417,22 @@ fun PlaylistDetailScreen(
                         }
                     }
                 }
+            }
+        }
+
+        //=============== DIALOGS ====================
+
+        // Playlist Cover Confirmation Dialog
+        if (uiState.showSetCoverConfirmationDialog) {
+            uiState.potentialCoverAudioFile?.let { audioFile ->
+                ConfirmationDialog(
+                    title = "Set Playlist Cover?",
+                    message = "The album art from '${audioFile.title}' will be used as this playlist's cover.",
+                    confirmButtonText = "Set Cover",
+                    dismissButtonText = "Cancel",
+                    onConfirm = { viewModel.onEvent(PlaylistDetailEvent.ConfirmSetCover) },
+                    onDismiss = { viewModel.onEvent(PlaylistDetailEvent.DismissSetCoverConfirmation) }
+                )
             }
         }
 
@@ -447,7 +475,6 @@ fun PlaylistDetailScreen(
 
             ModalBottomSheet(
                 onDismissRequest = {
-                    // Dismiss via tapping outside -> deselect and dismiss sheet
                     viewModel.onEvent(PlaylistDetailEvent.DeselectAll)
                     viewModel.onEvent(PlaylistDetailEvent.DismissBatchRemoveConfirmation)
                 },
@@ -477,7 +504,6 @@ fun PlaylistDetailScreen(
                         horizontalArrangement = Arrangement.End
                     ) {
                         TextButton(onClick = {
-                            // Cancel -> deselect then dismiss
                             viewModel.onEvent(PlaylistDetailEvent.DeselectAll)
                             allowBatchDismiss = true
                             coroutineScope.launch { batchSheetState.hide() }.invokeOnCompletion {

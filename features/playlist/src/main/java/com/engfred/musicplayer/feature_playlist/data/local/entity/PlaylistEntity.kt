@@ -15,5 +15,6 @@ data class PlaylistEntity(
     val name: String,
     val createdAt: Long = System.currentTimeMillis(),
     val isAutomatic: Boolean = false, // Indicates if this is an automatically generated playlist
-    val type: AutomaticPlaylistType? = null // Specifies the type for automatic playlists
+    val type: AutomaticPlaylistType? = null, // Specifies the type for automatic playlists
+    val customArtUri: String? = null
 )

@@ -1,5 +1,7 @@
 package com.engfred.musicplayer.core.domain.model
 
+import android.net.Uri
+
 /**
  * Represents a user-created playlist in the domain layer.
  */
@@ -10,5 +12,6 @@ data class Playlist(
     val songs: List<AudioFile> = emptyList(),
     val isAutomatic: Boolean,
     val type: AutomaticPlaylistType?,
-    val playCounts: Map<Long, Int>? = null
+    val playCounts: Map<Long, Int>? = null,
+    val customArtUri: Uri? = null
 )

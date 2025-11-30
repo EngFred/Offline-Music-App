@@ -1,5 +1,6 @@
 package com.engfred.musicplayer.feature_playlist.presentation.viewmodel.detail
 
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -362,6 +363,58 @@ class PlaylistDetailViewModel @Inject constructor(
                     } else {
                         _uiEvent.emit(event.errorMessage ?: "Failed to remove selected songs.")
                         _uiState.update { it.copy(showBatchRemoveConfirmationDialog = false) }
+                    }
+                }
+
+                is PlaylistDetailEvent.SetPlaylistCover -> {
+                    if (currentPlaylist?.isAutomatic == true) {
+                        _uiEvent.emit("Cannot set cover for automatic playlists.")
+                        return@launch
+                    }
+                    _uiState.update {
+                        it.copy(
+                            showSetCoverConfirmationDialog = true,
+                            potentialCoverAudioFile = event.audioFile
+                        )
+                    }
+                }
+
+                PlaylistDetailEvent.DismissSetCoverConfirmation -> {
+                    _uiState.update {
+                        it.copy(
+                            showSetCoverConfirmationDialog = false,
+                            potentialCoverAudioFile = null
+                        )
+                    }
+                }
+
+                PlaylistDetailEvent.ConfirmSetCover -> {
+                    val audioFile = _uiState.value.potentialCoverAudioFile
+                    val playlist = _uiState.value.playlist
+
+                    if (audioFile != null && playlist != null && !playlist.isAutomatic) {
+                        try {
+                            val artUri = audioFile.albumArtUri
+                            if (artUri != null) {
+                                val updatedPlaylist = playlist.copy(customArtUri = artUri)
+
+                                playlistRepository.updatePlaylist(updatedPlaylist)
+
+                                _uiEvent.emit("Playlist cover updated!")
+                            } else {
+                                _uiEvent.emit("This song has no album art.")
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to set playlist cover", e)
+                            _uiEvent.emit("Failed to update playlist cover.")
+                        }
+                    }
+                    // Dismiss dialog and cleanup
+                    _uiState.update {
+                        it.copy(
+                            showSetCoverConfirmationDialog = false,
+                            potentialCoverAudioFile = null
+                        )
                     }
                 }
             }

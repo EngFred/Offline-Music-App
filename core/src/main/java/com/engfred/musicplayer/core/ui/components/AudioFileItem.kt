@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.QueuePlayNext
@@ -60,10 +61,6 @@ import com.engfred.musicplayer.core.util.MediaUtils
 import com.skydoves.landscapist.coil.CoilImage
 import kotlinx.coroutines.isActive
 
-/**
-AudioFileItem now uses onEditInfo callback for edit navigation.
-Keep onEditInfo optional so existing call-sites are backwards-compatible.
- */
 @Composable
 fun AudioFileItem(
     modifier: Modifier = Modifier,
@@ -78,6 +75,7 @@ fun AudioFileItem(
     playCount: Int? = null,
     onEditInfo: (AudioFile) -> Unit,
     onTrimAudio: (AudioFile) -> Unit,
+    onSetAsPlaylistCover: ((AudioFile) -> Unit)? = null,
     isSelectionMode: Boolean = false,
     isSelected: Boolean = false,
     onToggleSelect: () -> Unit = {},
@@ -87,6 +85,7 @@ fun AudioFileItem(
     var showMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val rotationAnim = remember { Animatable(0f) }
+
     LaunchedEffect(isCurrentPlayingAudio, isAudioPlaying) {
         if (isCurrentPlayingAudio && isAudioPlaying) {
             while (isActive) {
@@ -101,6 +100,7 @@ fun AudioFileItem(
         }
     }
     val rotationDegrees = if (isCurrentPlayingAudio) (rotationAnim.value % 360f) else 0f
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -158,7 +158,6 @@ fun AudioFileItem(
                         .border(1.dp, MaterialTheme.colorScheme.surface, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    // If playCount is greater than 30 show a small dot instead of the number
                     if (playCount > 9) {
                         Box(
                             modifier = Modifier
@@ -212,7 +211,8 @@ fun AudioFileItem(
             )
             if (isCurrentPlayingAudio && isAudioPlaying) VisualizerBars()
         }
-        if (!isSelectionMode) { // Hide more menu in selection mode to simplify
+
+        if (!isSelectionMode) {
             Box {
                 IconButton(onClick = { showMenu = true }) {
                     Icon(
@@ -248,6 +248,25 @@ fun AudioFileItem(
                             Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
                         }
                     )
+
+                    // Use as Playlist Cover Option
+                    // Only show if:
+                    // 1. Not in automatic playlist (Favorites/Recently Added)
+                    // 2. Not in Library screen (isFromLibrary flag)
+                    // 3. Audio file actually has artwork
+                    if (!isFromAutomaticPlaylist && !isFromLibrary && audioFile.albumArtUri != null && onSetAsPlaylistCover != null ) {
+                        DropdownMenuItem(
+                            text = { Text("Use as Playlist Cover") },
+                            onClick = {
+                                onSetAsPlaylistCover(audioFile)
+                                showMenu = false
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Rounded.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
+                            }
+                        )
+                    }
+
                     if (!isFromAutomaticPlaylist) {
                         DropdownMenuItem(
                             text = { Text(if (isFromLibrary) "Delete File" else "Remove Audio") },
@@ -261,11 +280,12 @@ fun AudioFileItem(
                         )
                     }
 
+                    // ... (Keep Edit Info, Trim, Share) ...
                     DropdownMenuItem(
                         text = { Text("Edit Info") },
                         onClick = {
                             showMenu = false
-                            onEditInfo(audioFile) // single-activity navigation hook
+                            onEditInfo(audioFile)
                         },
                         leadingIcon = {
                             Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
@@ -299,7 +319,6 @@ fun AudioFileItem(
         }
     }
 }
-
 
 @Composable
 private fun VisualizerBars() {

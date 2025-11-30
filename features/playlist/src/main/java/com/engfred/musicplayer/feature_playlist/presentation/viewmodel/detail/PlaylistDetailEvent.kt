@@ -35,4 +35,8 @@ sealed class PlaylistDetailEvent {
         val success: Boolean,
         val errorMessage: String? = null
     ) : PlaylistDetailEvent()
+
+    data class SetPlaylistCover(val audioFile: AudioFile) : PlaylistDetailEvent()
+    data object ConfirmSetCover : PlaylistDetailEvent()
+    data object DismissSetCoverConfirmation : PlaylistDetailEvent()
 }

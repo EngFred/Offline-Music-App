@@ -5,31 +5,35 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.engfred.musicplayer.feature_playlist.data.local.dao.PlaylistDao
 import com.engfred.musicplayer.feature_playlist.data.local.entity.PlaylistEntity
 import com.engfred.musicplayer.feature_playlist.data.local.entity.PlaylistSongEntity
-import com.engfred.musicplayer.feature_playlist.data.local.entity.SongPlayEventEntity // Import the new entity
+import com.engfred.musicplayer.feature_playlist.data.local.entity.SongPlayEventEntity
 
-/**
- * Room Database for managing Playlists and their songs.
- */
 @Database(
     entities = [
         PlaylistEntity::class,
         PlaylistSongEntity::class,
         SongPlayEventEntity::class
     ],
-    version = 2,
-    exportSchema = false // For production, set to true and provide schema exports
+    version = 3,
+    exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class PlaylistDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
+
+    companion object {
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE playlists ADD COLUMN customArtUri TEXT DEFAULT NULL")
+            }
+        }
+    }
 }
 
-/**
- * Type converters for Room to handle custom data types like Uri.
- */
 class Converters {
     @TypeConverter
     fun fromUri(uri: Uri?): String? {

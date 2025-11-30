@@ -6,7 +6,6 @@ import com.engfred.musicplayer.feature_playlist.data.local.dao.PlaylistDao
 import com.engfred.musicplayer.feature_playlist.data.local.db.PlaylistDatabase
 import com.engfred.musicplayer.feature_playlist.data.repository.PlaylistRepositoryImpl
 import com.engfred.musicplayer.core.domain.repository.PlaylistRepository
-import com.engfred.musicplayer.feature_playlist.data.local.dao.PlaylistDatabaseMigrations
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -26,7 +25,7 @@ object PlaylistModule {
             PlaylistDatabase::class.java,
             "music_player_playlist_db"
         )
-            .fallbackToDestructiveMigration()
+            .addMigrations(PlaylistDatabase.MIGRATION_2_3)
             .build()
     }
 

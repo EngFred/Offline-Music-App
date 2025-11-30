@@ -1,5 +1,6 @@
 package com.engfred.musicplayer.feature_playlist.data.repository
 
+import android.net.Uri
 import android.util.Log
 import com.engfred.musicplayer.core.data.SharedAudioDataSource
 import com.engfred.musicplayer.core.domain.model.AudioFile
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
+import androidx.core.net.toUri
 
 @Singleton
 class PlaylistRepositoryImpl @Inject constructor(
@@ -31,8 +33,9 @@ class PlaylistRepositoryImpl @Inject constructor(
             name = this.playlist.name,
             createdAt = this.playlist.createdAt,
             songs = this.songs.map { it.toDomain() },
-            isAutomatic = false,
-            type = null
+            isAutomatic = this.playlist.isAutomatic,
+            type = this.playlist.type,
+            customArtUri = this.playlist.customArtUri?.let { Uri.parse(it) }
         )
     }
 
@@ -41,8 +44,22 @@ class PlaylistRepositoryImpl @Inject constructor(
             id = this.playlistId,
             name = this.name,
             createdAt = this.createdAt,
-            isAutomatic = false,
-            type = null
+            isAutomatic = this.isAutomatic,
+            type = this.type,
+            // Map the String URI from DB to Android Uri
+            customArtUri = this.customArtUri?.toUri()
+        )
+    }
+
+    private fun Playlist.toEntity(): PlaylistEntity {
+        return PlaylistEntity(
+            playlistId = this.id,
+            name = this.name,
+            createdAt = this.createdAt,
+            isAutomatic = this.isAutomatic,
+            type = this.type,
+            // Convert Android Uri back to String for DB
+            customArtUri = this.customArtUri?.toString()
         )
     }
 
@@ -57,14 +74,6 @@ class PlaylistRepositoryImpl @Inject constructor(
             albumArtUri = this.albumArtUri,
             dateAdded = this.dateAdded,
             artistId = null
-        )
-    }
-
-    private fun Playlist.toEntity(): PlaylistEntity {
-        return PlaylistEntity(
-            playlistId = this.id,
-            name = this.name,
-            createdAt = this.createdAt
         )
     }
 
