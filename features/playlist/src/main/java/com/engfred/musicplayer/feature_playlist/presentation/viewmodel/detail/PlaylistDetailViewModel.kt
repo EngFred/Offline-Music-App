@@ -521,7 +521,7 @@ class PlaylistDetailViewModel @Inject constructor(
                         val audioFile = _uiState.value.audioToAddToPlaylist
                         if (audioFile != null) {
                             playlistRepository.addSongToPlaylist(newPlaylistId, audioFile)
-                            _uiEvent.emit("Created '$name' playlist and added the song.")
+                            _uiEvent.emit("Created '$name' playlist and added the selected song.")
                             // Now we can clear it
                             _uiState.update { it.copy(audioToAddToPlaylist = null) }
                         } else {

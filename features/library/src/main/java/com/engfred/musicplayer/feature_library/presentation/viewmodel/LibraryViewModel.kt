@@ -97,6 +97,7 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             when (event) {
                 LibraryEvent.LoadAudioFiles -> {
+                    // Only load if empty or error to avoid resetting unnecessarily
                     if (_uiState.value.audioFiles.isEmpty() || _uiState.value.error != null) { loadAudioFiles() }
                 }
                 is LibraryEvent.PermissionGranted -> {
@@ -107,7 +108,8 @@ class LibraryViewModel @Inject constructor(
                 LibraryEvent.CheckPermission -> {
                     val granted = permissionHandlerUseCase.hasAudioPermission() && permissionHandlerUseCase.hasWriteStoragePermission()
                     _uiState.update { it.copy(hasStoragePermission = granted) }
-                    if (!granted) { _uiEvent.emit("Storage permission denied. Cannot load music.") }
+                    // Removed toast for better UX (don't nag if just resuming)
+                    // if (!granted) { _uiEvent.emit("Storage permission denied. Cannot load music.") }
                 }
                 is LibraryEvent.PlayAudio -> startAudioPlayback(event.audioFile)
                 is LibraryEvent.SearchQueryChanged -> {
@@ -124,7 +126,6 @@ class LibraryViewModel @Inject constructor(
                     if (_uiState.value.selectedAudioFiles.isNotEmpty()) {
                         _uiState.update { it.copy(showAddToPlaylistDialog = true) }
                     } else {
-                        // Crucial: We save the song here
                         _uiState.update { it.copy(showAddToPlaylistDialog = true, audioToAddToPlaylist = event.audioFile) }
                     }
                 }
@@ -141,38 +142,26 @@ class LibraryViewModel @Inject constructor(
                         } catch (e: Exception) { _uiEvent.emit("Failed to add songs: ${e.message}") }
                     } else {
                         val audioFile = _uiState.value.audioToAddToPlaylist
-
                         if (audioFile != null) {
-                            val alreadyIn = event.playlist.songs.any { it.id == audioFile.id }
-                            if (alreadyIn) {
-                                _uiEvent.emit("Song already in playlist")
-                            } else {
-                                try {
-                                    playlistRepository.addSongToPlaylist(event.playlist.id, audioFile)
-                                    _uiEvent.emit("Added successfully!")
-                                } catch (ex: Exception) {
-                                    _uiEvent.emit("Failed to add song to playlist!")
-                                }
-                            }
+                            try {
+                                playlistRepository.addSongToPlaylist(targetPlaylist.id, audioFile)
+                                _uiEvent.emit("Added to ${targetPlaylist.name}")
+                            } catch (e: Exception) { _uiEvent.emit("Failed to add song.") }
+                            _uiState.update { it.copy(audioToAddToPlaylist = null) }
                         }
                     }
                     _uiState.update { it.copy(showAddToPlaylistDialog = false) }
                 }
 
                 LibraryEvent.DismissAddToPlaylistDialog -> {
-                    // This clears the data, which is fine for normal dismiss,
-                    // but we avoided calling this for New Playlist creation.
                     _uiState.update { it.copy(showAddToPlaylistDialog = false, audioToAddToPlaylist = null) }
                 }
 
                 LibraryEvent.ShowCreatePlaylistDialog -> {
-                    // Close the "Add To" dialog BUT do NOT clear audioToAddToPlaylist.
-                    // We transition state from showing one dialog to the other.
                     _uiState.update { it.copy(showCreatePlaylistDialog = true, showAddToPlaylistDialog = false) }
                 }
 
                 LibraryEvent.DismissCreatePlaylistDialog -> {
-                    // If user cancels creation, we can clear the single selection state
                     _uiState.update { it.copy(showCreatePlaylistDialog = false, audioToAddToPlaylist = null) }
                 }
 
@@ -195,14 +184,10 @@ class LibraryViewModel @Inject constructor(
                     }
 
                     try {
-                        // 1. Create the playlist
-                        val newPlaylistId = playlistRepository.createPlaylist(
-                            Playlist(name = name, isAutomatic = false, type = null)
-                        )
+                        val newPlaylistId = playlistRepository.createPlaylist(Playlist(name = name, isAutomatic = false, type = null))
 
-                        // 2. Add songs to the NEW playlist ID
+                        // Check batch first
                         if (_uiState.value.selectedAudioFiles.isNotEmpty()) {
-                            // Batch add
                             val selectedSongs = _uiState.value.selectedAudioFiles.toList()
                             playlistRepository.addSongsToPlaylist(newPlaylistId, selectedSongs)
                             _uiEvent.emit("Created '$name' and added ${selectedSongs.size} songs.")
@@ -212,16 +197,12 @@ class LibraryViewModel @Inject constructor(
                             val audioFile = _uiState.value.audioToAddToPlaylist
                             if (audioFile != null) {
                                 playlistRepository.addSongToPlaylist(newPlaylistId, audioFile)
-                                _uiEvent.emit("Created '$name' playlist and added the song.")
+                                _uiEvent.emit("Created '$name' playlist and added the selected song.")
                                 _uiState.update { it.copy(audioToAddToPlaylist = null) }
-
                             } else {
-                                // Fallback if still null
                                 _uiEvent.emit("Created playlist '$name'.")
-                                Log.w("LibraryViewModel", "Created playlist '$name' but no songs were added. audioToAddToPlaylist was null.")
                             }
                         }
-
                         _uiState.update { it.copy(showCreatePlaylistDialog = false) }
 
                     } catch (e: Exception) {
@@ -255,13 +236,20 @@ class LibraryViewModel @Inject constructor(
                     if (event.success) {
                         _uiState.update { currentState ->
                             val updatedList = currentState.audioFiles.filter { it.id != audioFile.id }
-                            val filteredList = updatedList.filter {
-                                it.title.contains(currentState.searchQuery, ignoreCase = true) ||
-                                        it.artist?.contains(currentState.searchQuery, ignoreCase = true) == true ||
-                                        it.album?.contains(currentState.searchQuery, ignoreCase = true) == true
+
+                            // Re-apply search/filter logic immediately on the new list
+                            val filteredList = if (currentState.searchQuery.isBlank()) {
+                                updatedList
+                            } else {
+                                updatedList.filter {
+                                    it.title.contains(currentState.searchQuery, ignoreCase = true) ||
+                                            it.artist?.contains(currentState.searchQuery, ignoreCase = true) == true ||
+                                            it.album?.contains(currentState.searchQuery, ignoreCase = true) == true
+                                }
                             }
                             val sorted = sortAudioFiles(filteredList, currentState.currentFilterOption)
                             sharedAudioDataSource.setPlayingQueue(sorted)
+
                             currentState.copy(audioFiles = updatedList, filteredAudioFiles = sorted, showDeleteConfirmationDialog = false, audioFileToDelete = null)
                         }
                         playbackController.onAudioFileRemoved(audioFile)
@@ -314,13 +302,20 @@ class LibraryViewModel @Inject constructor(
                         val selected = _uiState.value.selectedAudioFiles
                         _uiState.update { currentState ->
                             val updatedList = currentState.audioFiles.filterNot { selected.contains(it) }
-                            val filteredList = updatedList.filter {
-                                it.title.contains(currentState.searchQuery, ignoreCase = true) ||
-                                        it.artist?.contains(currentState.searchQuery, ignoreCase = true) == true ||
-                                        it.album?.contains(currentState.searchQuery, ignoreCase = true) == true
+
+                            // Re-apply search/filter logic immediately
+                            val filteredList = if (currentState.searchQuery.isBlank()) {
+                                updatedList
+                            } else {
+                                updatedList.filter {
+                                    it.title.contains(currentState.searchQuery, ignoreCase = true) ||
+                                            it.artist?.contains(currentState.searchQuery, ignoreCase = true) == true ||
+                                            it.album?.contains(currentState.searchQuery, ignoreCase = true) == true
+                                }
                             }
                             val sorted = sortAudioFiles(filteredList, currentState.currentFilterOption)
                             sharedAudioDataSource.setPlayingQueue(sorted)
+
                             currentState.copy(audioFiles = updatedList, filteredAudioFiles = sorted, selectedAudioFiles = emptySet(), showBatchDeleteConfirmationDialog = false)
                         }
                         selected.forEach { audioFile ->
@@ -341,13 +336,20 @@ class LibraryViewModel @Inject constructor(
 
     private fun applySearchAndFilter() {
         _uiState.update { current ->
-            val filtered = if (current.searchQuery.isBlank()) { current.audioFiles } else {
-                current.audioFiles.filter { it.title.contains(current.searchQuery, ignoreCase = true) || it.artist?.contains(current.searchQuery, ignoreCase = true) == true || it.album?.contains(current.searchQuery, ignoreCase = true) == true }
+            val filtered = if (current.searchQuery.isBlank()) {
+                current.audioFiles
+            } else {
+                current.audioFiles.filter {
+                    it.title.contains(current.searchQuery, ignoreCase = true) ||
+                            it.artist?.contains(current.searchQuery, ignoreCase = true) == true ||
+                            it.album?.contains(current.searchQuery, ignoreCase = true) == true
+                }
             }
             val sortedFiltered = sortAudioFiles(filtered, current.currentFilterOption)
             current.copy(filteredAudioFiles = sortedFiltered)
         }
     }
+
     private fun sortAudioFiles(list: List<AudioFile>, filterOption: FilterOption): List<AudioFile> {
         return when (filterOption) {
             FilterOption.DATE_ADDED_ASC -> list.sortedBy { it.dateAdded }
@@ -358,12 +360,17 @@ class LibraryViewModel @Inject constructor(
             FilterOption.ALPHABETICAL_DESC -> list.sortedByDescending { it.title.lowercase() }
         }
     }
+
     private suspend fun startAudioPlayback(audioFile: AudioFile) {
         val list = _uiState.value.filteredAudioFiles.ifEmpty { _uiState.value.audioFiles }
         sharedAudioDataSource.setPlayingQueue(list)
         playbackController.initiatePlayback(audioFile.uri)
     }
-    fun getRequiredPermission(): String { return permissionHandlerUseCase.getRequiredReadPermission() }
+
+    fun getRequiredPermission(): String {
+        return permissionHandlerUseCase.getRequiredReadPermission()
+    }
+
     private fun loadAudioFiles() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
@@ -372,15 +379,40 @@ class LibraryViewModel @Inject constructor(
                     when (result) {
                         is Resource.Success -> {
                             val audioFiles = result.data ?: emptyList()
-                            val sortedFiltered = sortAudioFiles(audioFiles, currentState.currentFilterOption)
+
+                            // Re-apply the SEARCH QUERY filtering on the newly loaded list
+                            val filteredList = if (currentState.searchQuery.isBlank()) {
+                                audioFiles
+                            } else {
+                                audioFiles.filter {
+                                    it.title.contains(currentState.searchQuery, ignoreCase = true) ||
+                                            it.artist?.contains(currentState.searchQuery, ignoreCase = true) == true ||
+                                            it.album?.contains(currentState.searchQuery, ignoreCase = true) == true
+                                }
+                            }
+
+                            val sortedFiltered = sortAudioFiles(filteredList, currentState.currentFilterOption)
+
                             sharedAudioDataSource.setDeviceAudioFiles(audioFiles)
-                            currentState.copy(audioFiles = audioFiles, filteredAudioFiles = sortedFiltered, isLoading = false, error = null)
+
+                            currentState.copy(
+                                audioFiles = audioFiles,
+                                filteredAudioFiles = sortedFiltered,
+                                isLoading = false,
+                                error = null
+                            )
                         }
+
                         is Resource.Error -> {
                             sharedAudioDataSource.clearPlayingQueue()
                             _uiEvent.emit("Failed to load songs: ${result.message}")
-                            currentState.copy(isLoading = false, error = result.message, filteredAudioFiles = emptyList())
+                            currentState.copy(
+                                isLoading = false,
+                                error = result.message,
+                                filteredAudioFiles = emptyList()
+                            )
                         }
+
                         is Resource.Loading -> currentState
                     }
                 }

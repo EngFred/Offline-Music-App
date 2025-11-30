@@ -1,29 +1,16 @@
 package com.engfred.musicplayer.feature_library.presentation.screens
 
 import android.app.Activity
-import android.app.PendingIntent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -31,20 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -91,7 +66,7 @@ fun EditAudioInfoScreenContainer(
             viewModel.continueSaveAfterPermission(context)
         } else {
             Toast.makeText(context, "Access to song denied. Cannot edit.", Toast.LENGTH_LONG).show()
-            onFinish()
+            // We don't force finish here anymore, user might want to try again or change something else
         }
     }
 
@@ -99,24 +74,8 @@ fun EditAudioInfoScreenContainer(
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted: Boolean ->
-        if (granted) {
-            // If Q+, handle per-file write via createWriteRequest (R+) or exception (Q)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    val uri = Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, audioId.toString())
-                    val pendingIntent: PendingIntent = MediaStore.createWriteRequest(context.contentResolver, listOf(uri))
-                    pendingIntent.intentSender.let { sender ->
-                        val req = IntentSenderRequest.Builder(sender).build()
-                        intentSenderLauncher.launch(req)
-                    }
-                }
-                // For Q (not R), do nothing upfront—let save trigger RecoverableSecurityException
-            } else {
-                // pre-Q: permission already grants write access
-                Toast.makeText(context, "Permission granted", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            Toast.makeText(context, "Storage permission denied. Cannot edit song.", Toast.LENGTH_LONG).show()
+        if (!granted) {
+            Toast.makeText(context, "Storage permission denied. Cannot load song info.", Toast.LENGTH_LONG).show()
             onFinish()
         }
     }
@@ -133,7 +92,7 @@ fun EditAudioInfoScreenContainer(
                     Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
                 }
                 is EditFileViewModel.Event.RequestWritePermission -> {
-                    // Launch system prompt for RecoverableSecurityException (fallback for Q or un-granted)
+                    // Launch system prompt for RecoverableSecurityException when SAVE is clicked
                     val req = IntentSenderRequest.Builder(event.intentSender).build()
                     intentSenderLauncher.launch(req)
                 }
@@ -141,11 +100,13 @@ fun EditAudioInfoScreenContainer(
         }
     }
 
-    // Request permissions/upfront flows on enter (but UI is always visible)
+    // Load data and check basic READ permissions on entry
     LaunchedEffect(audioId) {
         viewModel.loadAudioFile(audioId)
 
         // Determine runtime permission to request (read for Q+ query; write for pre-Q)
+        // Note: For Android 13+ (Tiramisu), READ_MEDIA_AUDIO is sufficient to query.
+        // Editing is handled via RecoverableSecurityException or createWriteRequest during save.
         val perm = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> android.Manifest.permission.READ_MEDIA_AUDIO
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> android.Manifest.permission.READ_EXTERNAL_STORAGE
@@ -153,24 +114,15 @@ fun EditAudioInfoScreenContainer(
         }
 
         val granted = ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
-        if (granted) {
-            // Proceed to per-file if R+
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val uri = Uri.withAppendedPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, audioId.toString())
-                val pendingIntent: PendingIntent = MediaStore.createWriteRequest(context.contentResolver, listOf(uri))
-                pendingIntent.intentSender.let { sender ->
-                    val req = IntentSenderRequest.Builder(sender).build()
-                    intentSenderLauncher.launch(req)
-                }
-            }
-            // For Q, no upfront; handled by exception
-        } else {
-            // Launch runtime permission request; the result handler will handle the rest.
+
+        // Removed the proactive request for write access on Android R+.
+        // We only request the basic READ permission if not granted.
+        // Write permission will be requested "Just-In-Time" when the user clicks SAVE.
+        if (!granted) {
             permissionLauncher.launch(perm)
         }
     }
 
-    // ALWAYS show the Edit UI (no gating)
     EditFileInfoScreen(
         uiState = state,
         onPickImage = { pickImageLauncher.launch("image/*") },
