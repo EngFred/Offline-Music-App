@@ -41,15 +41,17 @@ Music is an offline-first music player focused on a clean, modular architecture.
 
 The project uses Gradle modularization. Key modules included in `settings.gradle.kts`:
 
-```
+```kotlin
 rootProject.name = "MusicPlayer"
 include(":app")
 include(":core")
-include(":feature-library")
-include(":feature-player")
-include(":feature-playlist")
-include(":feature-settings")
-include(":feature-audio-trim")
+
+// Feature modules are organized under the 'features' directory
+include(":features:library")
+include(":features:player")
+include(":features:playlist")
+include(":features:settings")
+include(":features:audio_trim")
 ```
 
 ---
@@ -77,7 +79,7 @@ Refer to the `libs.versions.toml` for the full catalog.
 
 ### Clean Architecture (feature-first)
 
-* Each feature module (`feature-player`, `feature-library`, etc.) contains `data`, `domain`, and `presentation` packages to enforce separation of concerns.
+* Each feature module (`:features:player`, `:features:library`, etc.) contains `data`, `domain`, and `presentation` packages to enforce separation of concerns.
 * `core` module holds cross-cutting concerns (DI setup, common models, utilities, theme, and UI components).
 
 ### Dependency Injection
@@ -86,7 +88,7 @@ Refer to the `libs.versions.toml` for the full catalog.
 
 ### Media Playback
 
-* Media3 (the modern successor to ExoPlayer) is used for playback and session management. Playback logic is isolated in the `feature-player` module with use-cases in `domain`.
+* Media3 (the modern successor to ExoPlayer) is used for playback and session management. Playback logic is isolated in the `:features:player` module with use-cases in `domain`.
 
 ### Persistence & Settings
 
@@ -101,23 +103,24 @@ Refer to the `libs.versions.toml` for the full catalog.
 
 ## Folder Layout (feature-first example)
 
-```
+```text
 app/
 core/
-  ├─ di/
-  ├─ ui/
-  └─ utils/
-feature-library/
-  ├─ data/
-  ├─ domain/
-  └─ presentation/
-feature-player/
-  ├─ data/
-  ├─ domain/
-  └─ presentation/
-feature-playlist/
-feature-settings/
-feature-audio-trim/
+ ├─ di/
+ ├─ ui/
+ └─ utils/
+features/
+ ├─ library/
+ │   ├─ data/
+ │   ├─ domain/
+ │   └─ presentation/
+ ├─ player/
+ │   ├─ data/
+ │   ├─ domain/
+ │   └─ presentation/
+ ├─ playlist/
+ ├─ settings/
+ └─ audio_trim/
 ```
 
 Each feature follows the same `data/domain/presentation` pattern. Keeping public interfaces in `domain` and implementation details in `data`.
