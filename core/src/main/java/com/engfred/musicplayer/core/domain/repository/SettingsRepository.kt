@@ -36,4 +36,7 @@ interface SettingsRepository {
     fun getLastPlaybackState(): Flow<LastPlaybackState>
     suspend fun saveLastPlaybackState(state: LastPlaybackState)
     suspend fun updateWidgetBackgroundMode(mode: WidgetBackgroundMode)
+
+    suspend fun getLastScanTimestamp(): Long
+    suspend fun updateLastScanTimestamp(timestamp: Long)
 }

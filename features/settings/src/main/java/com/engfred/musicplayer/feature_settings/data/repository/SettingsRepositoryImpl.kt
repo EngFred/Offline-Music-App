@@ -20,6 +20,7 @@ import com.engfred.musicplayer.core.domain.repository.SettingsRepository
 import com.engfred.musicplayer.core.ui.theme.AppThemeType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 import javax.inject.Inject
@@ -44,6 +45,8 @@ class SettingsRepositoryImpl @Inject constructor(
         private val LAST_PLAYED_AUDIO_ID = longPreferencesKey("last_played_audio_id")
         private val LAST_POSITION_MS = longPreferencesKey("last_position_ms")
         private val LAST_QUEUE_IDS = stringPreferencesKey("last_queue_ids")
+
+        private val LAST_SCAN_TIMESTAMP = longPreferencesKey("last_scan_timestamp")
     }
 
     override fun getAppSettings(): Flow<AppSettings> {
@@ -76,7 +79,7 @@ class SettingsRepositoryImpl @Inject constructor(
                     PlaylistSortOption.valueOf(
                         preferences[PLAYLIST_SORT_OPTION] ?: PlaylistSortOption.DATE_CREATED_ASC.name
                     )
-                } catch(e: Exception) { PlaylistSortOption.DATE_CREATED_ASC }
+                } catch(_: Exception) { PlaylistSortOption.DATE_CREATED_ASC }
 
                 val widgetMode = preferences[SELECT_WIDGET_BACKGROUND_MODE]?.let {
                     try {
@@ -141,7 +144,7 @@ class SettingsRepositoryImpl @Inject constructor(
                 }
             }
             .map { preferences ->
-                val queueIds = preferences[LAST_QUEUE_IDS]?.takeIf { it.isNotBlank() }?.split(",")?.mapNotNull { it.trim().toLongOrNull() } ?: null
+                val queueIds = preferences[LAST_QUEUE_IDS]?.takeIf { it.isNotBlank() }?.split(",")?.mapNotNull { it.trim().toLongOrNull() }
                 LastPlaybackState(
                     audioId = preferences[LAST_PLAYED_AUDIO_ID],
                     positionMs = preferences[LAST_POSITION_MS] ?: 0L,
@@ -220,5 +223,13 @@ class SettingsRepositoryImpl @Inject constructor(
         dataStore.edit { preferences ->
             preferences[SELECT_WIDGET_BACKGROUND_MODE] = mode.name
         }
+    }
+
+    override suspend fun getLastScanTimestamp(): Long {
+        return dataStore.data.first()[LAST_SCAN_TIMESTAMP] ?: 0L
+    }
+
+    override suspend fun updateLastScanTimestamp(timestamp: Long) {
+        dataStore.edit { it[LAST_SCAN_TIMESTAMP] = timestamp }
     }
 }

@@ -49,7 +49,16 @@ android {
 }
 
 dependencies {
-// Android Core & Lifecycle
+
+    // Project Modules
+    implementation(project(":core"))
+    implementation(project(":features:library"))
+    implementation(project(":features:player"))
+    implementation(project(":features:playlist"))
+    implementation(project(":features:settings"))
+    implementation(project(":features:audio_trim"))
+
+    // Android Core & Lifecycle
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -95,13 +104,10 @@ dependencies {
     // Landscapist with Coil engine
     implementation(libs.landscapist.coil)
 
-    // Project Modules
-    implementation(project(":core"))
-    implementation(project(":features:library"))
-    implementation(project(":features:player"))
-    implementation(project(":features:playlist"))
-    implementation(project(":features:settings"))
-    implementation(project(":features:audio_trim"))
+    //worker
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.compiler)
 
     // Testing Dependencies
     testImplementation(libs.junit)

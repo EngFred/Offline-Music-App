@@ -1,6 +1,6 @@
 [versions]
 accompanistSystemuicontroller = "0.36.0"
-agp = "8.11.1"
+agp = "8.13.1"
 animation = "1.9.5"
 guava = "33.5.0-android"
 jaudiotaggerAndroid = "2.3.15"
@@ -42,6 +42,9 @@ material = "1.13.0"
 materialIconsExtended = "1.7.8"
 splashscreen = "1.2.0"
 imageCropper = "4.7.0"
+
+workRuntimeKtx = "2.11.0"
+hiltWork = "1.3.0"
 
 [libraries]
 accompanist-systemuicontroller = { module = "com.google.accompanist:accompanist-systemuicontroller", version.ref = "accompanistSystemuicontroller" }
@@ -113,6 +116,11 @@ androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscree
 media3-transformer = { group = "androidx.media3", name = "media3-transformer", version.ref = "media3" }
 
 image-cropper = { group = "com.vanniktech", name = "android-image-cropper", version.ref = "imageCropper" }
+
+# worker
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntimeKtx" }
+androidx-hilt-work = { group = "androidx.hilt", name = "hilt-work", version.ref = "hiltWork" }
+androidx-hilt-compiler = { group = "androidx.hilt", name = "hilt-compiler", version.ref = "hiltWork" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

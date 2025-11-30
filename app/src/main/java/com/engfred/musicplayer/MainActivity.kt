@@ -2,6 +2,7 @@ package com.engfred.musicplayer
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -17,9 +18,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.app.ActivityCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.engfred.musicplayer.core.common.Resource
 import com.engfred.musicplayer.core.data.SharedAudioDataSource
 import com.engfred.musicplayer.core.domain.model.AppSettings
@@ -32,6 +38,7 @@ import com.engfred.musicplayer.core.domain.usecases.PermissionHandlerUseCase
 import com.engfred.musicplayer.core.ui.theme.AppThemeType
 import com.engfred.musicplayer.core.ui.theme.MusicPlayerAppTheme
 import com.engfred.musicplayer.core.util.MediaUtils
+import com.engfred.musicplayer.feature_library.data.worker.NewAudioScanWorker
 import com.engfred.musicplayer.feature_settings.domain.usecases.GetAppSettingsUseCase
 import com.engfred.musicplayer.helpers.IntentPermissionHelper
 import com.engfred.musicplayer.helpers.PlaybackQueueHelper
@@ -43,6 +50,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 private const val TAG = "MainActivity"
@@ -68,6 +76,9 @@ class MainActivity : ComponentActivity() {
 
     private var lastPlaybackAudio: AudioFile? by mutableStateOf(null)
 
+    // State to trigger navigation to NowPlaying if launched from notification
+    private var navigateToNowPlayingOnStart by mutableStateOf(false)
+
     private val uiScope get() = lifecycleScope
 
     @UnstableApi
@@ -78,11 +89,15 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
 
+        // Setup permission launcher first
         permissionLauncher = registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) { granted ->
             if (granted) {
                 Log.d(TAG, "Read permission granted by the user.")
+                // 1. Schedule the Background Worker only if permission granted now
+                scheduleBackgroundScan()
+
                 externalPlaybackUri = pendingPlaybackUri
                 pendingPlaybackUri = null
             } else {
@@ -93,6 +108,11 @@ class MainActivity : ComponentActivity() {
                 ).show()
                 pendingPlaybackUri = null
             }
+        }
+
+        // 1. Check if permission already exists on app start
+        if (ActivityCompat.checkSelfPermission(this, getRequiredReadPermission()) == PackageManager.PERMISSION_GRANTED) {
+            scheduleBackgroundScan()
         }
 
         uiScope.launch {
@@ -143,6 +163,10 @@ class MainActivity : ComponentActivity() {
                         null
                     }
                 } else null
+
+                // 2. Check if launched from Notification to play new songs
+                checkIntentForNewMusic(intent)
+
                 Log.d(TAG, "preparePlayingQueue returned startAudio=${lastPlaybackAudio?.id}")
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed to prepare playing queue: ${t.message}")
@@ -157,6 +181,14 @@ class MainActivity : ComponentActivity() {
 
             MusicPlayerAppTheme(selectedTheme = selectedTheme) {
                 val navController = androidx.navigation.compose.rememberNavController()
+
+                // Navigate if requested by notification
+                LaunchedEffect(navigateToNowPlayingOnStart) {
+                    if (navigateToNowPlayingOnStart) {
+                        navController.navigate(AppDestinations.NowPlaying.route)
+                        navigateToNowPlayingOnStart = false
+                    }
+                }
 
                 AppNavHost(
                     rootNavController = navController,
@@ -231,8 +263,6 @@ class MainActivity : ComponentActivity() {
                             navController.navigate(AppDestinations.NowPlaying.route)
                         }
                     },
-//                    isPlayerActive = playbackState.currentAudioFile != null,
-//                    isPlayingExternalUri = externalPlaybackUri != null,
                     onPlayAll = { PlaybackQueueHelper.playAll(this, sharedAudioDataSource, playbackController, settingsRepository) },
                     onShuffleAll = { PlaybackQueueHelper.shuffleAll(this, sharedAudioDataSource, playbackController, settingsRepository) },
                     audioItems = audioItems,
@@ -259,6 +289,68 @@ class MainActivity : ComponentActivity() {
         Log.d(TAG, "onNewIntent called")
         setIntent(intent)
         handleIncomingIntent(intent)
+
+        // Check if new intent is from notification click
+        uiScope.launch {
+            checkIntentForNewMusic(intent)
+        }
+    }
+
+    // --- Work Manager & Notification Logic ---
+
+    private fun scheduleBackgroundScan() {
+        // --- TESTING MODE: ONE-TIME WORKER ---
+        // Used to verify worker startup immediately on app launch
+//        val testWorkRequest = OneTimeWorkRequestBuilder<NewAudioScanWorker>()
+//            .build()
+//
+//        WorkManager.getInstance(this).enqueue(testWorkRequest)
+//        Log.d(TAG, "scheduleBackgroundScan: Enqueued OneTimeWorkRequest for testing.")
+
+        val workRequest = PeriodicWorkRequestBuilder<NewAudioScanWorker>(
+            15, TimeUnit.MINUTES // Run every 15 minutes (minimum allowed interval)
+        ).build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            NewAudioScanWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP, // Don't restart if already running
+            workRequest
+        )
+        Log.d(TAG, "scheduleBackgroundScan: Enqueued PeriodicWorkRequest.")
+    }
+
+    private suspend fun checkIntentForNewMusic(intent: Intent?) {
+        if (intent?.getBooleanExtra("PLAY_NEW_SONGS", false) == true) {
+            Log.d(TAG, "Launched from New Music Notification")
+
+            // Get the most recently added song
+            // We can fetch 'Recently Added' via LibraryRepo or just getAllAudioFiles sorted
+            // For simplicity, let's just get the absolute latest song
+
+            // Wait a moment for SharedAudio to populate if app was dead
+            if (sharedAudioDataSource.deviceAudioFiles.value.isEmpty()) {
+                delay(500)
+            }
+
+            val allSongs = sharedAudioDataSource.deviceAudioFiles.value.ifEmpty {
+                // Fallback to direct fetch if shared is empty (cold start)
+                libraryRepository.getAllAudioFiles().first()
+            }
+
+            val newestSong = allSongs.maxByOrNull { it.dateAdded }
+
+            if (newestSong != null) {
+                // Set queue to Recently Added (sorted by date descending)
+                val recentQueue = allSongs.sortedByDescending { it.dateAdded }.take(50)
+                sharedAudioDataSource.setPlayingQueue(recentQueue)
+
+                // Play
+                playbackController.initiatePlayback(newestSong.uri)
+
+                // Trigger nav
+                navigateToNowPlayingOnStart = true
+            }
+        }
     }
 
     // --- Helpers ---
