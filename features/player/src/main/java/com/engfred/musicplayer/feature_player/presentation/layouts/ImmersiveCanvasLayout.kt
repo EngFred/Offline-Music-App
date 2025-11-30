@@ -24,10 +24,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -151,11 +153,19 @@ fun ImmersiveCanvasLayout(
                     customActions = listOf(
                         CustomAccessibilityAction(
                             label = "Skip to previous song",
-                            action = { onEvent(PlayerEvent.SkipToPrevious); view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); true }
+                            action = {
+                                onEvent(PlayerEvent.SkipToPrevious); view.performHapticFeedback(
+                                HapticFeedbackConstants.KEYBOARD_TAP
+                            ); true
+                            }
                         ),
                         CustomAccessibilityAction(
                             label = "Skip to next song",
-                            action = { onEvent(PlayerEvent.SkipToNext); view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); true }
+                            action = {
+                                onEvent(PlayerEvent.SkipToNext); view.performHapticFeedback(
+                                HapticFeedbackConstants.KEYBOARD_TAP
+                            ); true
+                            }
                         )
                     )
                 }
@@ -173,7 +183,9 @@ fun ImmersiveCanvasLayout(
                             }
                             horizontalDragCumulative = 0f
                         },
-                        onHorizontalDrag = { _, dragAmount -> horizontalDragCumulative += dragAmount; true }
+                        onHorizontalDrag = { _, dragAmount ->
+                            horizontalDragCumulative += dragAmount; true
+                        }
                     )
                 }
                 .pointerInput(Unit) {
@@ -185,7 +197,9 @@ fun ImmersiveCanvasLayout(
                             }
                             verticalDragCumulative = 0f
                         },
-                        onVerticalDrag = { _, dragAmount -> verticalDragCumulative += dragAmount; true }
+                        onVerticalDrag = { _, dragAmount ->
+                            verticalDragCumulative += dragAmount; true
+                        }
                     )
                 }
                 .pointerInput(Unit) {
@@ -201,17 +215,62 @@ fun ImmersiveCanvasLayout(
                 }
         ) {
             // --- 1. FULL SCREEN ANIMATED BACKGROUND ---
-            CoilImage(
-                imageModel = { uiState.currentAudioFile?.albumArtUri },
-                imageOptions = ImageOptions(contentScale = ContentScale.Crop),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        alpha = 0.8f // Slight dim to blend with black background
+
+            // Reusable Fallback Component (Defined here to use in both else branch and failure callback)
+            val DefaultArtworkContent: @Composable () -> Unit = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.DarkGray,
+                                    Color(0xFF121212),
+                                    Color.Black
+                                )
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Audiotrack,
+                        contentDescription = "Default Artwork",
+                        modifier = Modifier
+                            .size(200.dp)
+                            .graphicsLayer {
+                                // Apply the same Ken Burns breathe effect to the icon
+                                scaleX = scale
+                                scaleY = scale
+                                alpha = 0.5f // Increased alpha for better visibility
+                            },
+                        tint = Color.White
+                    )
+                }
+            }
+
+            val albumArtUri = uiState.currentAudioFile?.albumArtUri
+            val hasValidArt = albumArtUri != null && albumArtUri.toString().isNotEmpty()
+
+            if (hasValidArt) {
+                CoilImage(
+                    imageModel = { albumArtUri },
+                    imageOptions = ImageOptions(contentScale = ContentScale.Crop),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = 0.8f // Slight dim to blend with black background
+                        },
+                    // If Coil fails to load the image (e.g. invalid URI), show fallback
+                    failure = {
+                        DefaultArtworkContent()
                     }
-            )
+                )
+            } else {
+                // If No Art URI at all, show Default Music Note
+                DefaultArtworkContent()
+            }
 
             // --- 2. GRADIENT SCRIM (READABILITY LAYER) ---
             Box(
@@ -270,13 +329,19 @@ fun ImmersiveCanvasLayout(
                             title = uiState.currentAudioFile?.title,
                             artist = uiState.currentAudioFile?.artist,
                             playerLayout = PlayerLayout.IMMERSIVE_CANVAS,
-                            modifier = Modifier.weight(1f).padding(end = 8.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
                         )
                         FavoriteButton(
                             isFavorite = uiState.isFavorite,
                             onToggleFavorite = {
                                 uiState.currentAudioFile?.let {
-                                    if (uiState.isFavorite) onEvent(PlayerEvent.RemoveFromFavorites(it.id))
+                                    if (uiState.isFavorite) onEvent(
+                                        PlayerEvent.RemoveFromFavorites(
+                                            it.id
+                                        )
+                                    )
                                     else onEvent(PlayerEvent.AddToFavorites(it))
                                 }
                                 view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
@@ -298,18 +363,38 @@ fun ImmersiveCanvasLayout(
                                 coroutineScope.launch {
                                     val bitmap = loadBitmapFromUri(context, uri)
                                     if (bitmap != null) {
-                                        val fname = uiState.currentAudioFile?.title?.replace(" ", "_") ?: "album_art"
-                                        val success = saveBitmapToPictures(context, bitmap, "${fname}album_art.jpg", "image/jpeg")
-                                        val msg = if (success) "Album art saved!" else "Failed to save album art."
+                                        val fname =
+                                            uiState.currentAudioFile?.title?.replace(" ", "_")
+                                                ?: "album_art"
+                                        val success = saveBitmapToPictures(
+                                            context,
+                                            bitmap,
+                                            "${fname}album_art.jpg",
+                                            "image/jpeg"
+                                        )
+                                        val msg =
+                                            if (success) "Album art saved!" else "Failed to save album art."
                                         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                     } else {
-                                        Toast.makeText(context, "No album art found.", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(
+                                            context,
+                                            "No album art found.",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     }
                                 }
-                            } ?: Toast.makeText(context, "No artwork available.", Toast.LENGTH_SHORT).show()
+                            } ?: Toast.makeText(
+                                context,
+                                "No artwork available.",
+                                Toast.LENGTH_SHORT
+                            ).show()
                             view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                         }) {
-                            Icon(Icons.Rounded.Download, contentDescription = "Download", tint = Color.White.copy(0.7f))
+                            Icon(
+                                Icons.Rounded.Download,
+                                contentDescription = "Download",
+                                tint = Color.White.copy(0.7f)
+                            )
                         }
 
                         IconButton(onClick = {
@@ -317,14 +402,22 @@ fun ImmersiveCanvasLayout(
                                 shareAudioFile(context, playingQueue[currentSongIndex])
                             }
                         }) {
-                            Icon(Icons.Rounded.Share, contentDescription = "Share", tint = Color.White.copy(0.7f))
+                            Icon(
+                                Icons.Rounded.Share,
+                                contentDescription = "Share",
+                                tint = Color.White.copy(0.7f)
+                            )
                         }
 
                         IconButton(onClick = {
                             coroutineScope.launch { sheetState.show() }
                             showQueueBottomSheet = true
                         }) {
-                            Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Queue", tint = Color.White.copy(0.7f))
+                            Icon(
+                                Icons.AutoMirrored.Rounded.QueueMusic,
+                                contentDescription = "Queue",
+                                tint = Color.White.copy(0.7f)
+                            )
                         }
                     }
 
@@ -433,7 +526,11 @@ fun ImmersiveCanvasLayout(
                                         isFavorite = uiState.isFavorite,
                                         onToggleFavorite = {
                                             uiState.currentAudioFile?.let {
-                                                if (uiState.isFavorite) onEvent(PlayerEvent.RemoveFromFavorites(it.id))
+                                                if (uiState.isFavorite) onEvent(
+                                                    PlayerEvent.RemoveFromFavorites(
+                                                        it.id
+                                                    )
+                                                )
                                                 else onEvent(PlayerEvent.AddToFavorites(it))
                                             }
                                             view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
@@ -466,7 +563,13 @@ fun ImmersiveCanvasLayout(
                                         onEvent(PlayerEvent.SetSeeking(true))
                                         onEvent(PlayerEvent.SeekTo(it.toLong()))
                                     },
-                                    onSliderValueChangeFinished = { onEvent(PlayerEvent.SetSeeking(false)) },
+                                    onSliderValueChangeFinished = {
+                                        onEvent(
+                                            PlayerEvent.SetSeeking(
+                                                false
+                                            )
+                                        )
+                                    },
                                     playerLayout = PlayerLayout.IMMERSIVE_CANVAS,
                                     isPlaying = uiState.isPlaying
                                 )
