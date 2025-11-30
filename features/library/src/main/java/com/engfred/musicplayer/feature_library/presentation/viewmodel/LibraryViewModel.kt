@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
@@ -165,7 +166,18 @@ class LibraryViewModel @Inject constructor(
                 is LibraryEvent.CreatePlaylistAndAddSongs -> {
                     val name = event.playlistName
                     if (name.isBlank()) {
-                        _uiEvent.emit("Playlist name cannot be empty")
+                        _uiState.update { it.copy(error = "Playlist name cannot be empty.") }
+                        return@launch
+                    }
+
+                    if (name.equals("Favorites", ignoreCase = true) || name.equals("Favorite", ignoreCase = true)) {
+                        _uiState.update { it.copy(error = "Cannot create playlist! Use another name.") }
+                        return@launch
+                    }
+
+                    val existingPlaylists = playlistRepository.getPlaylists().first().filter { !it.isAutomatic }
+                    if (existingPlaylists.any { it.name.equals(name, ignoreCase = true) }) {
+                        _uiState.update { it.copy(error = "Playlist with this name already exists.") }
                         return@launch
                     }
 
