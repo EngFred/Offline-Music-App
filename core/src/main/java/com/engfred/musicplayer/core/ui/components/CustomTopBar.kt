@@ -7,17 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -25,16 +15,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.animation.core.animateDpAsState
 
 /**
- * A custom composable for the top application bar, now more flexible with subtitle support.
+ * A custom top bar with a FIXED height to prevent UI shifting.
+ * If a subtitle is present, the title moves up to make room.
+ * If no subtitle, the title centers vertically.
  */
 @Composable
 fun CustomTopBar(
@@ -45,16 +35,14 @@ fun CustomTopBar(
     onNavigateBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
-    val animatedHeight by animateDpAsState(
-        targetValue = 56.dp + if (subtitle != null) 20.dp else 0.dp,
-        animationSpec = tween(durationMillis = 300),
-        label = "topBarHeight"
-    )
+    // Standard Material 3 Medium/Large top bar height or a custom fixed size.
+    // 64.dp is usually enough for Title + small Subtitle.
+    val fixedBarHeight = 64.dp
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(animatedHeight)
+            .height(fixedBarHeight) // <--- FIXED HEIGHT
             .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.CenterStart
     ) {
@@ -62,7 +50,7 @@ fun CustomTopBar(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.CenterVertically, // Center the Row contents
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             if (showNavigationIcon) {
@@ -77,14 +65,19 @@ fun CustomTopBar(
                     )
                 }
             } else {
-                Spacer(modifier = Modifier.width(0.dp))
+                Spacer(modifier = Modifier.width(12.dp)) // Add a little start padding if no icon
             }
 
-            Column(  // Wrap title/subtitle in Column for vertical stack
-                horizontalAlignment = Alignment.Start,  // Left-aligned (start)
+            Column(
+                horizontalAlignment = Alignment.Start,
+                // This centers the block vertically.
+                // If subtitle is gone, Title is centered.
+                // If subtitle exists, the whole block is centered.
+                verticalArrangement = Arrangement.Center,
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = if (showNavigationIcon) 0.dp else 16.dp)  // Consistent left padding
+                    .fillMaxHeight() // Ensure column takes full height to allow centering
+                    .padding(start = if (showNavigationIcon) 0.dp else 4.dp)
             ) {
                 Text(
                     text = title,
@@ -94,25 +87,21 @@ fun CustomTopBar(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+
+                // We keep the fade animation for the text itself, but not the container height
                 AnimatedVisibility(
                     visible = subtitle != null,
-                    enter = fadeIn(animationSpec = tween(300)) + slideInVertically(
-                        initialOffsetY = { it / 2 },
-                        animationSpec = tween(300)
-                    ),
-                    exit = fadeOut(animationSpec = tween(300)) + slideOutVertically(
-                        targetOffsetY = { it / 2 },
-                        animationSpec = tween(300)
-                    )
+                    enter = fadeIn(animationSpec = tween(300)) + slideInVertically { it / 2 },
+                    exit = fadeOut(animationSpec = tween(300)) + slideOutVertically { it / 2 }
                 ) {
                     subtitle?.let {
                         Text(
                             text = it,
-                            style = MaterialTheme.typography.bodySmall,  // Smaller, lighter for subtlety
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),  // Faded for hierarchy
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 2.dp)  // Tiny gap between title/subtitle
+                            modifier = Modifier.padding(top = 0.dp)
                         )
                     }
                 }
