@@ -23,5 +23,9 @@ data class PlaylistDetailScreenState(
     val selectedSongs: Set<AudioFile> = emptySet(),
     val showBatchRemoveConfirmationDialog: Boolean = false,
     val showSetCoverConfirmationDialog: Boolean = false,
-    val potentialCoverAudioFile: AudioFile? = null
+    val potentialCoverAudioFile: AudioFile? = null,
+
+    val showCreatePlaylistDialog: Boolean = false,
+
+
 )

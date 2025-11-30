@@ -450,7 +450,7 @@ fun PlaylistDetailScreen(
                 onDismiss = { viewModel.onEvent(PlaylistDetailEvent.DismissAddToPlaylistDialog) },
                 playlists = uiState.playlists,
                 onAddSongToPlaylist = { playlist -> viewModel.onEvent(PlaylistDetailEvent.AddedSongToPlaylist(playlist)) },
-                onCreateNewPlaylist = {}
+                onCreateNewPlaylist = { viewModel.onEvent(PlaylistDetailEvent.ShowCreatePlaylistDialog) }
             )
         }
 
@@ -467,6 +467,32 @@ fun PlaylistDetailScreen(
             } ?: run {
                 viewModel.onEvent(PlaylistDetailEvent.DismissRemoveSongConfirmation)
             }
+        }
+
+        if (uiState.showCreatePlaylistDialog) {
+            var text by remember { mutableStateOf("") }
+            AlertDialog(
+                onDismissRequest = { viewModel.onEvent(PlaylistDetailEvent.DismissCreatePlaylistDialog) },
+                title = { Text("Create Playlist") },
+                text = {
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        label = { Text("Playlist Name") },
+                        singleLine = true
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.onEvent(PlaylistDetailEvent.CreatePlaylistAndAddSongs(text)) }) {
+                        Text("Create & Add")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.onEvent(PlaylistDetailEvent.DismissCreatePlaylistDialog) }) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
 
         // Batch remove bottom sheet

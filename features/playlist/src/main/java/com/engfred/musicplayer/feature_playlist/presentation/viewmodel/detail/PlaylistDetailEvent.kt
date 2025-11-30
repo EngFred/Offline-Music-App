@@ -39,4 +39,8 @@ sealed class PlaylistDetailEvent {
     data class SetPlaylistCover(val audioFile: AudioFile) : PlaylistDetailEvent()
     data object ConfirmSetCover : PlaylistDetailEvent()
     data object DismissSetCoverConfirmation : PlaylistDetailEvent()
+
+    data object ShowCreatePlaylistDialog : PlaylistDetailEvent()
+    data object DismissCreatePlaylistDialog : PlaylistDetailEvent()
+    data class CreatePlaylistAndAddSongs(val playlistName: String) : PlaylistDetailEvent()
 }

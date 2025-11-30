@@ -2,6 +2,7 @@ package com.engfred.musicplayer.feature_library.presentation.viewmodel
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.activity.result.IntentSenderRequest
@@ -60,7 +61,6 @@ class LibraryViewModel @Inject constructor(
         observeFilterOption()
     }
 
-    // ... (Keep existing private observe methods) ...
     private fun observePermissionState() {
         val granted = permissionHandlerUseCase.hasAudioPermission() && permissionHandlerUseCase.hasWriteStoragePermission()
         _uiState.update { it.copy(hasStoragePermission = granted) }
@@ -124,6 +124,7 @@ class LibraryViewModel @Inject constructor(
                     if (_uiState.value.selectedAudioFiles.isNotEmpty()) {
                         _uiState.update { it.copy(showAddToPlaylistDialog = true) }
                     } else {
+                        // Crucial: We save the song here
                         _uiState.update { it.copy(showAddToPlaylistDialog = true, audioToAddToPlaylist = event.audioFile) }
                     }
                 }
@@ -140,55 +141,63 @@ class LibraryViewModel @Inject constructor(
                         } catch (e: Exception) { _uiEvent.emit("Failed to add songs: ${e.message}") }
                     } else {
                         val audioFile = _uiState.value.audioToAddToPlaylist
+
                         if (audioFile != null) {
-                            try {
-                                playlistRepository.addSongToPlaylist(targetPlaylist.id, audioFile)
-                                _uiEvent.emit("Added to ${targetPlaylist.name}")
-                            } catch (e: Exception) { _uiEvent.emit("Failed to add song.") }
-                            _uiState.update { it.copy(audioToAddToPlaylist = null) }
+                            val alreadyIn = event.playlist.songs.any { it.id == audioFile.id }
+                            if (alreadyIn) {
+                                _uiEvent.emit("Song already in playlist")
+                            } else {
+                                try {
+                                    playlistRepository.addSongToPlaylist(event.playlist.id, audioFile)
+                                    _uiEvent.emit("Added successfully!")
+                                } catch (ex: Exception) {
+                                    _uiEvent.emit("Failed to add song to playlist!")
+                                }
+                            }
                         }
                     }
                     _uiState.update { it.copy(showAddToPlaylistDialog = false) }
                 }
 
                 LibraryEvent.DismissAddToPlaylistDialog -> {
+                    // This clears the data, which is fine for normal dismiss,
+                    // but we avoided calling this for New Playlist creation.
                     _uiState.update { it.copy(showAddToPlaylistDialog = false, audioToAddToPlaylist = null) }
                 }
 
                 LibraryEvent.ShowCreatePlaylistDialog -> {
-                    _uiState.update { it.copy(showCreatePlaylistDialog = true) }
+                    // Close the "Add To" dialog BUT do NOT clear audioToAddToPlaylist.
+                    // We transition state from showing one dialog to the other.
+                    _uiState.update { it.copy(showCreatePlaylistDialog = true, showAddToPlaylistDialog = false) }
                 }
 
                 LibraryEvent.DismissCreatePlaylistDialog -> {
-                    _uiState.update { it.copy(showCreatePlaylistDialog = false) }
+                    // If user cancels creation, we can clear the single selection state
+                    _uiState.update { it.copy(showCreatePlaylistDialog = false, audioToAddToPlaylist = null) }
                 }
 
                 is LibraryEvent.CreatePlaylistAndAddSongs -> {
                     val name = event.playlistName
                     if (name.isBlank()) {
-                        _uiState.update { it.copy(error = "Playlist name cannot be empty.") }
+                        _uiEvent.emit("Playlist name cannot be empty.")
                         return@launch
                     }
 
                     if (name.equals("Favorites", ignoreCase = true) || name.equals("Favorite", ignoreCase = true)) {
-                        _uiState.update { it.copy(error = "Cannot create playlist! Use another name.") }
+                        _uiEvent.emit("Cannot use this playlist name! Please choose another name.")
                         return@launch
                     }
 
                     val existingPlaylists = playlistRepository.getPlaylists().first().filter { !it.isAutomatic }
                     if (existingPlaylists.any { it.name.equals(name, ignoreCase = true) }) {
-                        _uiState.update { it.copy(error = "Playlist with this name already exists.") }
+                        _uiEvent.emit("Playlist with this name already exists.")
                         return@launch
                     }
 
                     try {
                         // 1. Create the playlist
                         val newPlaylistId = playlistRepository.createPlaylist(
-                            Playlist(
-                                name = name,
-                                isAutomatic = false,
-                                type = null
-                            )
+                            Playlist(name = name, isAutomatic = false, type = null)
                         )
 
                         // 2. Add songs to the NEW playlist ID
@@ -203,11 +212,13 @@ class LibraryViewModel @Inject constructor(
                             val audioFile = _uiState.value.audioToAddToPlaylist
                             if (audioFile != null) {
                                 playlistRepository.addSongToPlaylist(newPlaylistId, audioFile)
-                                _uiEvent.emit("Created '$name' and added song.")
+                                _uiEvent.emit("Created '$name' playlist and added the song.")
                                 _uiState.update { it.copy(audioToAddToPlaylist = null) }
+
                             } else {
-                                // Just created empty
+                                // Fallback if still null
                                 _uiEvent.emit("Created playlist '$name'.")
+                                Log.w("LibraryViewModel", "Created playlist '$name' but no songs were added. audioToAddToPlaylist was null.")
                             }
                         }
 

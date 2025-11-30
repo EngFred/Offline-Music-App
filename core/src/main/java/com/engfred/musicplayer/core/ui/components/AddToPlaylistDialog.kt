@@ -56,12 +56,15 @@ fun AddSongToPlaylistDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                    // 1. "New Playlist" Option at the top
                     item {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    onDismiss() // Close this dialog first
+                                    // NOT calling onDismiss() here.
+                                    // Calling onDismiss() triggers the ViewModel to clear the 'audioToAddToPlaylist' data.
+                                    // We let the ViewModel handle the dialog transition in onCreateNewPlaylist().
                                     onCreateNewPlaylist()
                                 }
                                 .padding(vertical = 12.dp, horizontal = 8.dp),

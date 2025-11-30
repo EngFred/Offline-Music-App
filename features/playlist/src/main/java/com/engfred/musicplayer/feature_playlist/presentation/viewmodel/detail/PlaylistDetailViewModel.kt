@@ -120,10 +120,16 @@ class PlaylistDetailViewModel @Inject constructor(
                             return@launch
                         }
                         try {
-                            playlistRepository.removeSongFromPlaylist(playlistId, audioFileToRemove.id)
+                            playlistRepository.removeSongFromPlaylist(
+                                playlistId,
+                                audioFileToRemove.id
+                            )
                             //playbackController.removeFromQueue(audioFileToRemove)
                             _uiEvent.emit("Removed '${audioFileToRemove.title}' from playlist.")
-                            Log.d(TAG, "Removed song ID: ${audioFileToRemove.id} from playlist ID: $playlistId")
+                            Log.d(
+                                TAG,
+                                "Removed song ID: ${audioFileToRemove.id} from playlist ID: $playlistId"
+                            )
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to remove song from playlist: ${e.message}", e)
                             _uiEvent.emit("Failed to remove song!")
@@ -153,13 +159,23 @@ class PlaylistDetailViewModel @Inject constructor(
                         return@launch
                     }
 
-                    if (event.newName.equals("Favorites", ignoreCase = true) || event.newName.equals("Favorite", ignoreCase = true)) {
+                    if (event.newName.equals(
+                            "Favorites",
+                            ignoreCase = true
+                        ) || event.newName.equals("Favorite", ignoreCase = true)
+                    ) {
                         _uiEvent.emit("Cannot use this playlist name! Please choose another.")
                         return@launch
                     }
 
-                    val existingPlaylists = playlistRepository.getPlaylists().first().filter { !it.isAutomatic }
-                    if (existingPlaylists.any { it.name.equals(event.newName, ignoreCase = true) }) {
+                    val existingPlaylists =
+                        playlistRepository.getPlaylists().first().filter { !it.isAutomatic }
+                    if (existingPlaylists.any {
+                            it.name.equals(
+                                event.newName,
+                                ignoreCase = true
+                            )
+                        }) {
                         _uiEvent.emit("Playlist with this name already exists.")
                         return@launch
                     }
@@ -199,7 +215,8 @@ class PlaylistDetailViewModel @Inject constructor(
                         return@launch
                     }
                     currentPlaylistId?.let { playlistId ->
-                        val playlistSongs = uiState.value.playlist?.songs?.map { it.id } ?: emptyList()
+                        val playlistSongs =
+                            uiState.value.playlist?.songs?.map { it.id } ?: emptyList()
                         if (!playlistSongs.contains(event.audioFile.id)) {
                             try {
                                 playlistRepository.addSongToPlaylist(playlistId, event.audioFile)
@@ -217,7 +234,7 @@ class PlaylistDetailViewModel @Inject constructor(
 
                 PlaylistDetailEvent.PlayAll -> {
                     uiState.value.playlist?.songs?.let { songs ->
-                        if(songs.isNotEmpty()) {
+                        if (songs.isNotEmpty()) {
                             playbackController.setShuffleMode(ShuffleMode.OFF)
                             startAudioPlayback()
                         } else {
@@ -243,34 +260,6 @@ class PlaylistDetailViewModel @Inject constructor(
                 PlaylistDetailEvent.PlayNext -> playbackController.skipToNext()
                 PlaylistDetailEvent.PlayPause -> playbackController.playPause()
                 PlaylistDetailEvent.PlayPrev -> playbackController.skipToPrevious()
-
-                is PlaylistDetailEvent.AddedSongToPlaylist -> {
-                    val audioFile = _uiState.value.audioToAddToPlaylist
-                    if (audioFile != null) {
-                        val alreadyIn = event.playlist.songs.any { it.id == audioFile.id }
-                        if (alreadyIn) {
-                            _uiEvent.emit("Song already in playlist")
-                        } else {
-                            try {
-                                playlistRepository.addSongToPlaylist(event.playlist.id, audioFile)
-                                _uiEvent.emit("Added successfully!")
-                            } catch (ex: Exception) {
-                                Log.e(TAG, "Failed to add song to another playlist: ${ex.message}", ex)
-                                _uiEvent.emit("Failed to add song to playlist!")
-                            }
-                        }
-                    }
-                }
-
-                PlaylistDetailEvent.DismissAddToPlaylistDialog -> {
-                    _uiState.update { it.copy(audioToAddToPlaylist = null, showAddToPlaylistDialog = false) }
-                }
-
-                is PlaylistDetailEvent.ShowPlaylistsDialog -> {
-                    _uiState.update {
-                        it.copy(audioToAddToPlaylist = event.audioFile, showAddToPlaylistDialog = true)
-                    }
-                }
 
                 is PlaylistDetailEvent.SetPlayNext -> {
                     playbackController.addAudioToQueueNext(event.audioFile)
@@ -327,7 +316,12 @@ class PlaylistDetailViewModel @Inject constructor(
                 }
 
                 PlaylistDetailEvent.DismissBatchRemoveConfirmation -> {
-                    _uiState.update { it.copy(showBatchRemoveConfirmationDialog = false, selectedSongs = emptySet()) }  // Clear selection on dismiss/cancel
+                    _uiState.update {
+                        it.copy(
+                            showBatchRemoveConfirmationDialog = false,
+                            selectedSongs = emptySet()
+                        )
+                    }  // Clear selection on dismiss/cancel
                 }
 
                 PlaylistDetailEvent.ConfirmBatchRemove -> {
@@ -342,7 +336,12 @@ class PlaylistDetailViewModel @Inject constructor(
                         }
                         onEvent(PlaylistDetailEvent.BatchRemoveResult(true, null))
                     } catch (e: Exception) {
-                        onEvent(PlaylistDetailEvent.BatchRemoveResult(false, "Failed to remove songs: ${e.message}"))
+                        onEvent(
+                            PlaylistDetailEvent.BatchRemoveResult(
+                                false,
+                                "Failed to remove songs: ${e.message}"
+                            )
+                        )
                     }
                 }
 
@@ -350,7 +349,8 @@ class PlaylistDetailViewModel @Inject constructor(
                     if (event.success) {
                         val selected = _uiState.value.selectedSongs
                         _uiState.update { currentState ->
-                            val updatedSongs = currentState.sortedSongs.filterNot { selected.contains(it) }
+                            val updatedSongs =
+                                currentState.sortedSongs.filterNot { selected.contains(it) }
                             val updatedPlaylist = currentState.playlist?.copy(songs = updatedSongs)
                             currentState.copy(
                                 playlist = updatedPlaylist,
@@ -359,7 +359,15 @@ class PlaylistDetailViewModel @Inject constructor(
                                 showBatchRemoveConfirmationDialog = false
                             )
                         }
-                        _uiEvent.emit("Successfully removed ${pluralize(selected.size, "song", "songs")} from playlist.")
+                        _uiEvent.emit(
+                            "Successfully removed ${
+                                pluralize(
+                                    selected.size,
+                                    "song",
+                                    "songs"
+                                )
+                            } from playlist."
+                        )
                     } else {
                         _uiEvent.emit(event.errorMessage ?: "Failed to remove selected songs.")
                         _uiState.update { it.copy(showBatchRemoveConfirmationDialog = false) }
@@ -415,6 +423,115 @@ class PlaylistDetailViewModel @Inject constructor(
                             showSetCoverConfirmationDialog = false,
                             potentialCoverAudioFile = null
                         )
+                    }
+                }
+
+                is PlaylistDetailEvent.ShowPlaylistsDialog -> {
+                    _uiState.update {
+                        it.copy(
+                            audioToAddToPlaylist = event.audioFile,
+                            showAddToPlaylistDialog = true
+                        )
+                    }
+                }
+
+                is PlaylistDetailEvent.AddedSongToPlaylist -> {
+                    val audioFile = _uiState.value.audioToAddToPlaylist
+                    if (audioFile != null) {
+                        val alreadyIn = event.playlist.songs.any { it.id == audioFile.id }
+                        if (alreadyIn) {
+                            _uiEvent.emit("Song already in playlist")
+                        } else {
+                            try {
+                                playlistRepository.addSongToPlaylist(event.playlist.id, audioFile)
+                                _uiEvent.emit("Added successfully!")
+                            } catch (ex: Exception) {
+                                _uiEvent.emit("Failed to add song to playlist!")
+                            }
+                        }
+                    }
+                    _uiState.update {
+                        it.copy(
+                            audioToAddToPlaylist = null,
+                            showAddToPlaylistDialog = false
+                        )
+                    }
+                }
+
+                PlaylistDetailEvent.DismissAddToPlaylistDialog -> {
+                    // Clears the selected song on standard dismiss
+                    _uiState.update {
+                        it.copy(
+                            audioToAddToPlaylist = null,
+                            showAddToPlaylistDialog = false
+                        )
+                    }
+                }
+
+                PlaylistDetailEvent.ShowCreatePlaylistDialog -> {
+                    // Close AddDialog, Open CreateDialog, KEEP audioToAddToPlaylist
+                    _uiState.update {
+                        it.copy(
+                            showAddToPlaylistDialog = false,
+                            showCreatePlaylistDialog = true
+                        )
+                    }
+                }
+
+                PlaylistDetailEvent.DismissCreatePlaylistDialog -> {
+                    // Cancel creation -> clear everything
+                    _uiState.update {
+                        it.copy(
+                            showCreatePlaylistDialog = false,
+                            audioToAddToPlaylist = null
+                        )
+                    }
+                }
+
+                is PlaylistDetailEvent.CreatePlaylistAndAddSongs -> {
+                    val name = event.playlistName
+                    if (name.isBlank()) {
+                        _uiEvent.emit("Playlist name cannot be empty.")
+                        return@launch
+                    }
+                    if (name.equals("Favorites", ignoreCase = true) || name.equals(
+                            "Favorite",
+                            ignoreCase = true
+                        )
+                    ) {
+                        _uiEvent.emit("Cannot use this playlist name! Please choose another.")
+                        return@launch
+                    }
+                    val existingPlaylists =
+                        playlistRepository.getPlaylists().first().filter { !it.isAutomatic }
+                    if (existingPlaylists.any { it.name.equals(name, ignoreCase = true) }) {
+                        _uiEvent.emit("Playlist with this name already exists.")
+                        return@launch
+                    }
+
+                    try {
+                        val newPlaylistId = playlistRepository.createPlaylist(
+                            Playlist(
+                                name = name,
+                                isAutomatic = false,
+                                type = null
+                            )
+                        )
+
+                        val audioFile = _uiState.value.audioToAddToPlaylist
+                        if (audioFile != null) {
+                            playlistRepository.addSongToPlaylist(newPlaylistId, audioFile)
+                            _uiEvent.emit("Created '$name' playlist and added the song.")
+                            // Now we can clear it
+                            _uiState.update { it.copy(audioToAddToPlaylist = null) }
+                        } else {
+                            _uiEvent.emit("Created playlist '$name'.")
+                        }
+
+                        _uiState.update { it.copy(showCreatePlaylistDialog = false) }
+
+                    } catch (e: Exception) {
+                        _uiEvent.emit("Failed to create playlist: ${e.message}")
                     }
                 }
             }
