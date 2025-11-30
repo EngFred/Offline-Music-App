@@ -32,7 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextDirection.Companion.Content
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -70,6 +69,7 @@ fun LibraryScreen(
     val lazyListState = rememberLazyListState()
     val owner = LocalLifecycleOwner.current
 
+    // State tracking for permission flows
     var hasRequestedPermission by rememberSaveable { mutableStateOf(false) }
     var isPermissionDialogShowing by rememberSaveable { mutableStateOf(false) }
 
@@ -99,6 +99,7 @@ fun LibraryScreen(
         }
     }
 
+    // Reset loading state when permission status updates
     LaunchedEffect(permissionState.status) {
         isPermissionDialogShowing = false
         if (permissionState.status.isGranted) {
@@ -108,6 +109,7 @@ fun LibraryScreen(
         }
     }
 
+    // Check permission on RESUME (in case user went to settings)
     DisposableEffect(key1 = Unit) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -190,6 +192,7 @@ fun LibraryScreen(
                     }
                 )
             } else {
+                // Permission Granted Content
                 val isSelectionMode = uiState.selectedAudioFiles.isNotEmpty()
 
                 BackHandler(enabled = isSelectionMode) {
@@ -232,8 +235,6 @@ fun LibraryScreen(
                                 }
 
                                 IconButton(onClick = {
-                                    // Trigger event to show playlist selection dialog
-                                    // We use the same AddedToPlaylist event but handle null audioFile in logic
                                     viewModel.onEvent(LibraryEvent.AddedToPlaylist(uiState.selectedAudioFiles.first()))
                                 }) {
                                     Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = "Add selected to playlist", modifier = Modifier.size(30.dp))
@@ -282,16 +283,35 @@ fun LibraryScreen(
             }
         }
 
+        // Floating Action Buttons (Scroll to Top/Bottom)
         Column(
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.End
         ) {
-            AnimatedVisibility(visible = showScrollToTop, enter = slideInVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)), exit = slideOutVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))) {
-                FloatingActionButton(onClick = { coroutineScope.launch { lazyListState.scrollToItem(index = 0) } }, containerColor = MaterialTheme.colorScheme.primary) { Icon(imageVector = Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top") }
+            AnimatedVisibility(
+                visible = showScrollToTop,
+                enter = slideInVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)),
+                exit = slideOutVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
+            ) {
+                FloatingActionButton(
+                    onClick = { coroutineScope.launch { lazyListState.scrollToItem(index = 0) } },
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(imageVector = Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top")
+                }
             }
-            AnimatedVisibility(visible = showScrollToBottom, enter = slideInVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)), exit = slideOutVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))) {
-                FloatingActionButton(onClick = { coroutineScope.launch { val lastIndex = (currentListCount - 1).coerceAtLeast(0); lazyListState.scrollToItem(index = lastIndex) } }, containerColor = MaterialTheme.colorScheme.primary) { Icon(imageVector = Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to bottom") }
+            AnimatedVisibility(
+                visible = showScrollToBottom,
+                enter = slideInVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)),
+                exit = slideOutVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
+            ) {
+                FloatingActionButton(
+                    onClick = { coroutineScope.launch { val lastIndex = (currentListCount - 1).coerceAtLeast(0); lazyListState.scrollToItem(index = lastIndex) } },
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(imageVector = Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to bottom")
+                }
             }
         }
     }
@@ -306,7 +326,6 @@ fun LibraryScreen(
         )
     }
 
-    // Only show custom Delete Dialog if SDK < 30 (Android 11)
     if (uiState.showDeleteConfirmationDialog) {
         uiState.audioFileToDelete?.let { audioFile ->
             ConfirmationDialog(
@@ -320,8 +339,6 @@ fun LibraryScreen(
         }
     }
 
-    // Batch Delete Sheet (Also wrapped with version check logic implicitly via visibility state from ViewModel)
-    // But we keep the UI logic generic here, relying on ViewModel not to set showBatchDeleteConfirmationDialog to true on A11+
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var allowDismiss by remember { mutableStateOf(false) }
     if (uiState.showBatchDeleteConfirmationDialog) {

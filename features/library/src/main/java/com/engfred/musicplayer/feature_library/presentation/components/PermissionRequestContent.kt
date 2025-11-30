@@ -28,7 +28,7 @@ fun PermissionRequestContent(
     onRequestPermission: () -> Unit,
     onOpenAppSettings: () -> Unit
 ) {
-    // Local UI state for the help & rationale dialogs
+    // Local UI state for the help & rationale dialogs (UI Logic only)
     var showHelpDialog by remember { mutableStateOf(false) }
     var showRationaleDialog by remember { mutableStateOf(false) }
 
@@ -106,6 +106,7 @@ fun PermissionRequestContent(
         )
     }
 
+    // Main Content
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -131,8 +132,6 @@ fun PermissionRequestContent(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Note: we intentionally show "dialog is showing" only briefly; UI actions are hidden
-        // while the system dialog is active. After the user responds we reset that flag and show actions.
         Text(
             text = when {
                 isPermissionDialogShowing -> {
@@ -155,12 +154,10 @@ fun PermissionRequestContent(
 
         Spacer(modifier = Modifier.height(28.dp))
 
-        // If system permission dialog is visible, show a small helper (no action) — otherwise show actions.
+        // Actions
         if (isPermissionDialogShowing) {
-            // Optionally show a CircularProgressIndicator so user knows something is happening.
             CircularProgressIndicator()
         } else {
-            // Primary action: Grant Access (or Open Settings when permanently denied)
             if (isPermanentlyDenied) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Button(
@@ -173,17 +170,13 @@ fun PermissionRequestContent(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     TextButton(
-                        onClick = {
-                            // Show help dialog that instructs user what to do in App Settings
-                            showHelpDialog = true
-                        },
+                        onClick = { showHelpDialog = true },
                         modifier = Modifier.fillMaxWidth(0.85f)
                     ) {
                         Text(text = "Need help?", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             } else {
-                // Normal or rationale flows: primary = request permission, secondary = why/retry
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     FilledTonalButton(
                         onClick = { onRequestPermission() },
@@ -195,10 +188,7 @@ fun PermissionRequestContent(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     TextButton(
-                        onClick = {
-                            // Show short rationale dialog explaining why we need the permission
-                            showRationaleDialog = true
-                        },
+                        onClick = { showRationaleDialog = true },
                         modifier = Modifier.fillMaxWidth(0.85f)
                     ) {
                         Text(text = if (shouldShowRationale) "Why we need this" else "Why allow access?")

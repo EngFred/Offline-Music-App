@@ -68,7 +68,12 @@ class MainActivity : ComponentActivity() {
     private var externalPlaybackUri by mutableStateOf<Uri?>(null)
     private var pendingPlaybackUri: Uri? = null
     private var lastHandledUriString: String? = null
+
+    // Launcher for handling External Intents (Single permission - kept for Helper compatibility)
     private lateinit var permissionLauncher: ActivityResultLauncher<String>
+
+    // Launcher for App Startup (Multiple permissions: Storage + Notification)
+    private lateinit var startupPermissionLauncher: ActivityResultLauncher<Array<String>>
 
     private var playbackState by mutableStateOf(PlaybackState())
     private var initialAppSettings: AppSettings? by mutableStateOf(null)
@@ -89,31 +94,48 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
 
-        // Setup permission launcher first
+        // 1. Setup Permission Launchers
+
+        // A. Existing launcher for IntentPermissionHelper (Single String)
         permissionLauncher = registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) { granted ->
             if (granted) {
-                Log.d(TAG, "Read permission granted by the user.")
-                // 1. Schedule the Background Worker only if permission granted now
+                Log.d(TAG, "Read permission granted (via Intent).")
                 scheduleBackgroundScan()
-
                 externalPlaybackUri = pendingPlaybackUri
                 pendingPlaybackUri = null
             } else {
-                Toast.makeText(
-                    this,
-                    "Permission required to play external audio files.",
-                    Toast.LENGTH_SHORT
-                ).show()
+                Toast.makeText(this, "Permission required to play external audio files.", Toast.LENGTH_SHORT).show()
                 pendingPlaybackUri = null
             }
         }
 
-        // 1. Check if permission already exists on app start
-        if (ActivityCompat.checkSelfPermission(this, getRequiredReadPermission()) == PackageManager.PERMISSION_GRANTED) {
-            scheduleBackgroundScan()
+        // B. New launcher for App Startup (Multiple Strings: Storage + Notifications)
+        startupPermissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { permissions ->
+            // Check if Storage was granted (Legacy or Audio)
+            val storageGranted = permissions[Manifest.permission.READ_MEDIA_AUDIO] == true ||
+                    permissions[Manifest.permission.READ_EXTERNAL_STORAGE] == true
+
+            // Check if Notifications were granted (Android 13+)
+            val notificationsGranted = permissions[Manifest.permission.POST_NOTIFICATIONS] == true
+
+            if (storageGranted) {
+                Log.d(TAG, "Storage permission granted.")
+                scheduleBackgroundScan()
+            } else {
+                Toast.makeText(this, "Permission required to scan music library.", Toast.LENGTH_SHORT).show()
+            }
+
+            if (notificationsGranted) {
+                Log.d(TAG, "Notification permission granted.")
+            }
         }
+
+        // 2. Initial Permission Request Logic
+        checkAndRequestStartupPermissions()
 
         uiScope.launch {
             try {
@@ -164,7 +186,7 @@ class MainActivity : ComponentActivity() {
                     }
                 } else null
 
-                // 2. Check if launched from Notification to play new songs
+                // 3. Check if launched from Notification to play new songs
                 checkIntentForNewMusic(intent)
 
                 Log.d(TAG, "preparePlayingQueue returned startAudio=${lastPlaybackAudio?.id}")
@@ -296,6 +318,33 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // --- Permissions Logic ---
+
+    private fun checkAndRequestStartupPermissions() {
+        val permissionsToRequest = mutableListOf<String>()
+
+        // 1. Storage Permission
+        val storagePerm = getRequiredReadPermission()
+        if (ActivityCompat.checkSelfPermission(this, storagePerm) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(storagePerm)
+        } else {
+            // Already have storage, ensure worker is scheduled
+            scheduleBackgroundScan()
+        }
+
+        // 2. Notification Permission (Android 13+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
+        // Launch if we have anything to ask
+        if (permissionsToRequest.isNotEmpty()) {
+            startupPermissionLauncher.launch(permissionsToRequest.toTypedArray())
+        }
+    }
+
     // --- Work Manager & Notification Logic ---
 
     private fun scheduleBackgroundScan() {
@@ -322,10 +371,6 @@ class MainActivity : ComponentActivity() {
     private suspend fun checkIntentForNewMusic(intent: Intent?) {
         if (intent?.getBooleanExtra("PLAY_NEW_SONGS", false) == true) {
             Log.d(TAG, "Launched from New Music Notification")
-
-            // Get the most recently added song
-            // We can fetch 'Recently Added' via LibraryRepo or just getAllAudioFiles sorted
-            // For simplicity, let's just get the absolute latest song
 
             // Wait a moment for SharedAudio to populate if app was dead
             if (sharedAudioDataSource.deviceAudioFiles.value.isEmpty()) {
@@ -371,7 +416,7 @@ class MainActivity : ComponentActivity() {
                 ::getRequiredReadPermission,
                 { uri -> this.externalPlaybackUri = uri },
                 { pending -> this.pendingPlaybackUri = pending },
-                permissionLauncher,
+                permissionLauncher, // This is kept as Single-String launcher for Helper compatibility
                 ::tryOpenUriStream,
                 { s -> this.lastHandledUriString = s },
                 { s -> this.lastHandledUriString == s }

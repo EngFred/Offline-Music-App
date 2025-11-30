@@ -2,8 +2,6 @@ package com.engfred.musicplayer.feature_library.data.worker
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -39,7 +37,7 @@ class NewAudioScanWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         Log.d("NewAudioScanWorker", "Worker started!!!!")
 
-        // 1. Check Permissions (Cannot scan without READ_MEDIA or STORAGE)
+        // 1. Check Permissions
         val perm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
             Manifest.permission.READ_MEDIA_AUDIO
         else
@@ -57,7 +55,6 @@ class NewAudioScanWorker @AssistedInject constructor(
         val allFiles = dataSource.getAllAudioFilesFlow().first()
 
         // 4. Filter for files added AFTER the last scan
-        // MediaStore dateAdded is usually in seconds, converting to millis to match system time
         val newFiles = allFiles.filter { (it.dateAdded * 1000L) > lastScanTime }
 
         if (newFiles.isNotEmpty()) {
@@ -73,21 +70,22 @@ class NewAudioScanWorker @AssistedInject constructor(
 
     @SuppressLint("MissingPermission")
     private fun showNotification(count: Int, firstSongName: String) {
+        // Check permission for Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 return
             }
         }
 
-        createNotificationChannel()
+        // REMOVED: createNotificationChannel() call.
+        // It is already created by MusicPlayerApplication.onCreate()
 
-        // Get the Intent dynamically since we can't see MainActivity
+        // Get the Intent dynamically
         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra("PLAY_NEW_SONGS", true)
         }
 
-        // If intent is null (app uninstalled?), abort
         if (intent == null) return
 
         val pendingIntent = PendingIntent.getActivity(
@@ -103,8 +101,6 @@ class NewAudioScanWorker @AssistedInject constructor(
             "$count new songs added including $firstSongName"
         }
 
-        // Will Replace android.R.drawable.stat_sys_headset with your own icon from :core module if available
-        // e.g. com.engfred.musicplayer.core.R.drawable.ic_music_note
         val iconResId = android.R.drawable.stat_sys_headset
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -117,19 +113,5 @@ class NewAudioScanWorker @AssistedInject constructor(
             .build()
 
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "New Music Updates"
-            val descriptionText = "Notifications when new music is found on device"
-            val importance = NotificationManager.IMPORTANCE_DEFAULT
-            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
-                description = descriptionText
-            }
-            val notificationManager: NotificationManager =
-                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
-        }
     }
 }
