@@ -295,12 +295,13 @@ fun LibraryScreen(
         }
     }
 
-    // Dialogs
+    // ============== Dialogs ===============
     if (uiState.showAddToPlaylistDialog) {
         AddSongToPlaylistDialog(
             onDismiss = { viewModel.onEvent(LibraryEvent.DismissAddToPlaylistDialog) },
             playlists = uiState.playlists,
-            onAddSongToPlaylist = { playlist -> viewModel.onEvent(LibraryEvent.AddedSongToPlaylist(playlist)) }
+            onAddSongToPlaylist = { playlist -> viewModel.onEvent(LibraryEvent.AddedSongToPlaylist(playlist)) },
+            onCreateNewPlaylist = { viewModel.onEvent(LibraryEvent.ShowCreatePlaylistDialog) }
         )
     }
 
@@ -369,5 +370,31 @@ fun LibraryScreen(
                 }
             }
         }
+    }
+
+    if (uiState.showCreatePlaylistDialog) {
+        var text by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { viewModel.onEvent(LibraryEvent.DismissCreatePlaylistDialog) },
+            title = { Text("Create Playlist") },
+            text = {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Playlist Name") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.onEvent(LibraryEvent.CreatePlaylistAndAddSongs(text)) }) {
+                    Text("Create & Add")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.onEvent(LibraryEvent.DismissCreatePlaylistDialog) }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }

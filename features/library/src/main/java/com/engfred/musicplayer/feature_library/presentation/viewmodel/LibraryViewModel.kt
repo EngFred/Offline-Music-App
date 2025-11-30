@@ -9,6 +9,7 @@ import com.engfred.musicplayer.core.common.Resource
 import com.engfred.musicplayer.core.data.SharedAudioDataSource
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.model.FilterOption
+import com.engfred.musicplayer.core.domain.model.Playlist
 import com.engfred.musicplayer.core.domain.repository.PlaybackController
 import com.engfred.musicplayer.core.domain.repository.PlaylistRepository
 import com.engfred.musicplayer.core.domain.repository.SettingsRepository
@@ -58,6 +59,7 @@ class LibraryViewModel @Inject constructor(
         observeFilterOption()
     }
 
+    // ... (Keep existing private observe methods) ...
     private fun observePermissionState() {
         val granted = permissionHandlerUseCase.hasAudioPermission() && permissionHandlerUseCase.hasWriteStoragePermission()
         _uiState.update { it.copy(hasStoragePermission = granted) }
@@ -94,35 +96,23 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             when (event) {
                 LibraryEvent.LoadAudioFiles -> {
-                    if (_uiState.value.audioFiles.isEmpty() || _uiState.value.error != null) {
-                        loadAudioFiles()
-                    }
+                    if (_uiState.value.audioFiles.isEmpty() || _uiState.value.error != null) { loadAudioFiles() }
                 }
-
                 is LibraryEvent.PermissionGranted -> {
-                    val granted = permissionHandlerUseCase.hasAudioPermission() &&
-                            permissionHandlerUseCase.hasWriteStoragePermission()
+                    val granted = permissionHandlerUseCase.hasAudioPermission() && permissionHandlerUseCase.hasWriteStoragePermission()
                     _uiState.update { it.copy(hasStoragePermission = granted) }
-                    if (granted && _uiState.value.audioFiles.isEmpty()) {
-                        loadAudioFiles()
-                    }
+                    if (granted && _uiState.value.audioFiles.isEmpty()) { loadAudioFiles() }
                 }
-
                 LibraryEvent.CheckPermission -> {
-                    val granted = permissionHandlerUseCase.hasAudioPermission() &&
-                            permissionHandlerUseCase.hasWriteStoragePermission()
+                    val granted = permissionHandlerUseCase.hasAudioPermission() && permissionHandlerUseCase.hasWriteStoragePermission()
                     _uiState.update { it.copy(hasStoragePermission = granted) }
-                    if (!granted) {
-                        _uiEvent.emit("Storage permission denied. Cannot load music.")
-                    }
+                    if (!granted) { _uiEvent.emit("Storage permission denied. Cannot load music.") }
                 }
-
                 is LibraryEvent.PlayAudio -> startAudioPlayback(event.audioFile)
                 is LibraryEvent.SearchQueryChanged -> {
                     _uiState.update { it.copy(searchQuery = event.query) }
                     applySearchAndFilter()
                 }
-
                 is LibraryEvent.FilterSelected -> {
                     _uiState.update { it.copy(currentFilterOption = event.filterOption) }
                     settingsRepository.updateFilterOption(event.filterOption)
@@ -130,109 +120,113 @@ class LibraryViewModel @Inject constructor(
                 }
 
                 is LibraryEvent.AddedToPlaylist -> {
-                    // Logic to check if this is a single add or potentially batch add
                     if (_uiState.value.selectedAudioFiles.isNotEmpty()) {
-                        // If items are selected, we show dialog but know it's for batch
                         _uiState.update { it.copy(showAddToPlaylistDialog = true) }
                     } else {
-                        // Single item mode
-                        _uiState.update {
-                            it.copy(showAddToPlaylistDialog = true, audioToAddToPlaylist = event.audioFile)
-                        }
+                        _uiState.update { it.copy(showAddToPlaylistDialog = true, audioToAddToPlaylist = event.audioFile) }
                     }
                 }
 
                 is LibraryEvent.AddedSongToPlaylist -> {
-                    // This event is triggered when user picks a playlist from dialog
                     val targetPlaylist = event.playlist
-
                     if (_uiState.value.selectedAudioFiles.isNotEmpty()) {
-                        // --- BATCH ADD LOGIC ---
                         val selectedSongs = _uiState.value.selectedAudioFiles.toList()
                         try {
                             val addedCount = playlistRepository.addSongsToPlaylist(targetPlaylist.id, selectedSongs)
                             val skippedCount = selectedSongs.size - addedCount
-
-                            val message = if (skippedCount > 0) {
-                                "$addedCount songs added, $skippedCount skipped (already in playlist)"
-                            } else {
-                                "$addedCount songs added to ${targetPlaylist.name}"
-                            }
-                            _uiEvent.emit(message)
+                            _uiEvent.emit(if (skippedCount > 0) "$addedCount songs added, $skippedCount skipped" else "$addedCount songs added to ${targetPlaylist.name}")
                             onEvent(LibraryEvent.DeselectAll)
-                        } catch (e: Exception) {
-                            _uiEvent.emit("Failed to add songs: ${e.message}")
-                        }
-                        _uiState.update { it.copy(showAddToPlaylistDialog = false) }
-
+                        } catch (e: Exception) { _uiEvent.emit("Failed to add songs: ${e.message}") }
                     } else {
-                        // --- SINGLE ADD LOGIC ---
                         val audioFile = _uiState.value.audioToAddToPlaylist
                         if (audioFile != null) {
-                            val songAlreadyExists = targetPlaylist.songs.any { it.id == audioFile.id }
-                            if (songAlreadyExists) {
-                                _uiEvent.emit("Song already in playlist")
-                            } else {
-                                try {
-                                    playlistRepository.addSongToPlaylist(targetPlaylist.id, audioFile)
-                                    _uiEvent.emit("Added to playlist successfully!")
-                                } catch (e: Exception) {
-                                    _uiEvent.emit("Failed to add song: ${e.message}")
-                                }
-                            }
-                            _uiState.update { it.copy(audioToAddToPlaylist = null, showAddToPlaylistDialog = false) }
-                        } else {
-                            _uiState.update { it.copy(showAddToPlaylistDialog = false) }
+                            try {
+                                playlistRepository.addSongToPlaylist(targetPlaylist.id, audioFile)
+                                _uiEvent.emit("Added to ${targetPlaylist.name}")
+                            } catch (e: Exception) { _uiEvent.emit("Failed to add song.") }
+                            _uiState.update { it.copy(audioToAddToPlaylist = null) }
                         }
                     }
+                    _uiState.update { it.copy(showAddToPlaylistDialog = false) }
                 }
 
                 LibraryEvent.DismissAddToPlaylistDialog -> {
-                    _uiState.update {
-                        it.copy(showAddToPlaylistDialog = false, audioToAddToPlaylist = null)
+                    _uiState.update { it.copy(showAddToPlaylistDialog = false, audioToAddToPlaylist = null) }
+                }
+
+                LibraryEvent.ShowCreatePlaylistDialog -> {
+                    _uiState.update { it.copy(showCreatePlaylistDialog = true) }
+                }
+
+                LibraryEvent.DismissCreatePlaylistDialog -> {
+                    _uiState.update { it.copy(showCreatePlaylistDialog = false) }
+                }
+
+                is LibraryEvent.CreatePlaylistAndAddSongs -> {
+                    val name = event.playlistName
+                    if (name.isBlank()) {
+                        _uiEvent.emit("Playlist name cannot be empty")
+                        return@launch
+                    }
+
+                    try {
+                        // 1. Create the playlist
+                        val newPlaylistId = playlistRepository.createPlaylist(
+                            Playlist(
+                                name = name,
+                                isAutomatic = false,
+                                type = null
+                            )
+                        )
+
+                        // 2. Add songs to the NEW playlist ID
+                        if (_uiState.value.selectedAudioFiles.isNotEmpty()) {
+                            // Batch add
+                            val selectedSongs = _uiState.value.selectedAudioFiles.toList()
+                            playlistRepository.addSongsToPlaylist(newPlaylistId, selectedSongs)
+                            _uiEvent.emit("Created '$name' and added ${selectedSongs.size} songs.")
+                            onEvent(LibraryEvent.DeselectAll)
+                        } else {
+                            // Single add
+                            val audioFile = _uiState.value.audioToAddToPlaylist
+                            if (audioFile != null) {
+                                playlistRepository.addSongToPlaylist(newPlaylistId, audioFile)
+                                _uiEvent.emit("Created '$name' and added song.")
+                                _uiState.update { it.copy(audioToAddToPlaylist = null) }
+                            } else {
+                                // Just created empty
+                                _uiEvent.emit("Created playlist '$name'.")
+                            }
+                        }
+
+                        _uiState.update { it.copy(showCreatePlaylistDialog = false) }
+
+                    } catch (e: Exception) {
+                        _uiEvent.emit("Failed to create playlist: ${e.message}")
                     }
                 }
 
                 is LibraryEvent.ShowDeleteConfirmation -> {
-                    // ANDROID 11+ (SDK 30+): Skip Custom Dialog
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        // Directly trigger deletion, system will show its own dialog
                         _uiState.update { it.copy(audioFileToDelete = event.audioFile) }
                         onEvent(LibraryEvent.ConfirmDeleteAudioFile)
                     } else {
-                        // API < 30: Show custom confirmation
-                        _uiState.update {
-                            it.copy(showDeleteConfirmationDialog = true, audioFileToDelete = event.audioFile)
-                        }
+                        _uiState.update { it.copy(showDeleteConfirmationDialog = true, audioFileToDelete = event.audioFile) }
                     }
                 }
-
                 LibraryEvent.DismissDeleteConfirmationDialog -> {
-                    _uiState.update {
-                        it.copy(showDeleteConfirmationDialog = false, audioFileToDelete = null, showBatchDeleteConfirmationDialog = false)
-                    }
-                    if (_uiState.value.selectedAudioFiles.isNotEmpty()) {
-                        onEvent(LibraryEvent.DeselectAll)
-                    }
+                    _uiState.update { it.copy(showDeleteConfirmationDialog = false, audioFileToDelete = null, showBatchDeleteConfirmationDialog = false) }
+                    if (_uiState.value.selectedAudioFiles.isNotEmpty()) { onEvent(LibraryEvent.DeselectAll) }
                 }
-
                 LibraryEvent.ConfirmDeleteAudioFile -> {
                     _uiState.value.audioFileToDelete?.let { audioFile ->
                         val intentSender = MediaUtils.deleteAudioFile(context, audioFile) { success, errorMessage ->
-                            // This callback often happens AFTER the intent sender result
-                            // To prevent double toasts, we rely on DeletionResult logic primarily
                             onEvent(LibraryEvent.DeletionResult(audioFile, success, errorMessage))
                         }
-                        if (intentSender != null) {
-                            _deleteRequest.emit(IntentSenderRequest.Builder(intentSender).build())
-                        } else {
-                            // If intentSender is null, it might mean deletion happened instantly (older APIs)
-                            // or failed silently. If success was called in MediaUtils inline, DeletionResult handles it.
-                        }
-                    } ?: _uiEvent.emit("No song selected for deletion.")
+                        if (intentSender != null) { _deleteRequest.emit(IntentSenderRequest.Builder(intentSender).build()) }
+                    }
                     _uiState.update { it.copy(showDeleteConfirmationDialog = false) }
                 }
-
                 is LibraryEvent.DeletionResult -> {
                     val audioFile = event.audioFile
                     if (event.success) {
@@ -245,57 +239,36 @@ class LibraryViewModel @Inject constructor(
                             }
                             val sorted = sortAudioFiles(filteredList, currentState.currentFilterOption)
                             sharedAudioDataSource.setPlayingQueue(sorted)
-
-                            currentState.copy(
-                                audioFiles = updatedList,
-                                filteredAudioFiles = sorted,
-                                showDeleteConfirmationDialog = false,
-                                audioFileToDelete = null
-                            )
+                            currentState.copy(audioFiles = updatedList, filteredAudioFiles = sorted, showDeleteConfirmationDialog = false, audioFileToDelete = null)
                         }
                         playbackController.onAudioFileRemoved(audioFile)
                         sharedAudioDataSource.deleteAudioFile(audioFile)
                         playlistRepository.removeSongFromAllPlaylists(audioFile.id)
-
                         _uiEvent.emit("Successfully deleted '${audioFile.title}'.")
                     } else {
-                        // Only show error if message is not null/empty
                         event.errorMessage?.let { _uiEvent.emit(it) }
                         _uiState.update { it.copy(showDeleteConfirmationDialog = false, audioFileToDelete = null) }
                     }
                 }
-
                 is LibraryEvent.PlayedNext -> {
                     playbackController.addAudioToQueueNext(event.audioFile)
                     _uiEvent.emit("'${event.audioFile.title}' will play next.")
                 }
-
                 LibraryEvent.Retry -> loadAudioFiles()
-
                 is LibraryEvent.ToggleSelection -> {
                     _uiState.update { current ->
                         val newSelected = current.selectedAudioFiles.toMutableSet()
-                        if (newSelected.contains(event.audioFile)) {
-                            newSelected.remove(event.audioFile)
-                        } else {
-                            newSelected.add(event.audioFile)
-                        }
+                        if (newSelected.contains(event.audioFile)) { newSelected.remove(event.audioFile) } else { newSelected.add(event.audioFile) }
                         current.copy(selectedAudioFiles = newSelected)
                     }
                 }
-
                 LibraryEvent.SelectAll -> {
-                    _uiState.update { current ->
-                        current.copy(selectedAudioFiles = current.filteredAudioFiles.toSet())
-                    }
+                    _uiState.update { current -> current.copy(selectedAudioFiles = current.filteredAudioFiles.toSet()) }
                 }
-
                 LibraryEvent.DeselectAll -> {
                     _uiState.update { it.copy(selectedAudioFiles = emptySet()) }
                 }
-
                 LibraryEvent.ShowBatchDeleteConfirmation -> {
-                    // ANDROID 11+ (SDK 30+): Skip Custom Dialog for Batch too
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         onEvent(LibraryEvent.ConfirmBatchDelete)
                     } else {
@@ -304,20 +277,15 @@ class LibraryViewModel @Inject constructor(
                         }
                     }
                 }
-
                 LibraryEvent.ConfirmBatchDelete -> {
                     val selected = _uiState.value.selectedAudioFiles.toList()
                     if (selected.isEmpty()) return@launch
-
                     val intentSender = MediaUtils.deleteAudioFiles(context, selected) { success, errorMessage ->
                         onEvent(LibraryEvent.BatchDeletionResult(success, errorMessage))
                     }
-                    if (intentSender != null) {
-                        _deleteRequest.emit(IntentSenderRequest.Builder(intentSender).build())
-                    }
+                    if (intentSender != null) { _deleteRequest.emit(IntentSenderRequest.Builder(intentSender).build()) }
                     _uiState.update { it.copy(showBatchDeleteConfirmationDialog = false) }
                 }
-
                 is LibraryEvent.BatchDeletionResult -> {
                     if (event.success) {
                         val selected = _uiState.value.selectedAudioFiles
@@ -330,13 +298,7 @@ class LibraryViewModel @Inject constructor(
                             }
                             val sorted = sortAudioFiles(filteredList, currentState.currentFilterOption)
                             sharedAudioDataSource.setPlayingQueue(sorted)
-
-                            currentState.copy(
-                                audioFiles = updatedList,
-                                filteredAudioFiles = sorted,
-                                selectedAudioFiles = emptySet(),
-                                showBatchDeleteConfirmationDialog = false
-                            )
+                            currentState.copy(audioFiles = updatedList, filteredAudioFiles = sorted, selectedAudioFiles = emptySet(), showBatchDeleteConfirmationDialog = false)
                         }
                         selected.forEach { audioFile ->
                             playbackController.onAudioFileRemoved(audioFile)
@@ -356,20 +318,13 @@ class LibraryViewModel @Inject constructor(
 
     private fun applySearchAndFilter() {
         _uiState.update { current ->
-            val filtered = if (current.searchQuery.isBlank()) {
-                current.audioFiles
-            } else {
-                current.audioFiles.filter {
-                    it.title.contains(current.searchQuery, ignoreCase = true) ||
-                            it.artist?.contains(current.searchQuery, ignoreCase = true) == true ||
-                            it.album?.contains(current.searchQuery, ignoreCase = true) == true
-                }
+            val filtered = if (current.searchQuery.isBlank()) { current.audioFiles } else {
+                current.audioFiles.filter { it.title.contains(current.searchQuery, ignoreCase = true) || it.artist?.contains(current.searchQuery, ignoreCase = true) == true || it.album?.contains(current.searchQuery, ignoreCase = true) == true }
             }
             val sortedFiltered = sortAudioFiles(filtered, current.currentFilterOption)
             current.copy(filteredAudioFiles = sortedFiltered)
         }
     }
-
     private fun sortAudioFiles(list: List<AudioFile>, filterOption: FilterOption): List<AudioFile> {
         return when (filterOption) {
             FilterOption.DATE_ADDED_ASC -> list.sortedBy { it.dateAdded }
@@ -380,17 +335,12 @@ class LibraryViewModel @Inject constructor(
             FilterOption.ALPHABETICAL_DESC -> list.sortedByDescending { it.title.lowercase() }
         }
     }
-
     private suspend fun startAudioPlayback(audioFile: AudioFile) {
         val list = _uiState.value.filteredAudioFiles.ifEmpty { _uiState.value.audioFiles }
         sharedAudioDataSource.setPlayingQueue(list)
         playbackController.initiatePlayback(audioFile.uri)
     }
-
-    fun getRequiredPermission(): String {
-        return permissionHandlerUseCase.getRequiredReadPermission()
-    }
-
+    fun getRequiredPermission(): String { return permissionHandlerUseCase.getRequiredReadPermission() }
     private fun loadAudioFiles() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
@@ -401,24 +351,13 @@ class LibraryViewModel @Inject constructor(
                             val audioFiles = result.data ?: emptyList()
                             val sortedFiltered = sortAudioFiles(audioFiles, currentState.currentFilterOption)
                             sharedAudioDataSource.setDeviceAudioFiles(audioFiles)
-                            currentState.copy(
-                                audioFiles = audioFiles,
-                                filteredAudioFiles = sortedFiltered,
-                                isLoading = false,
-                                error = null
-                            )
+                            currentState.copy(audioFiles = audioFiles, filteredAudioFiles = sortedFiltered, isLoading = false, error = null)
                         }
-
                         is Resource.Error -> {
                             sharedAudioDataSource.clearPlayingQueue()
                             _uiEvent.emit("Failed to load songs: ${result.message}")
-                            currentState.copy(
-                                isLoading = false,
-                                error = result.message,
-                                filteredAudioFiles = emptyList()
-                            )
+                            currentState.copy(isLoading = false, error = result.message, filteredAudioFiles = emptyList())
                         }
-
                         is Resource.Loading -> currentState
                     }
                 }

@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -26,7 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.engfred.musicplayer.core.domain.model.Playlist
@@ -36,12 +36,10 @@ import com.engfred.musicplayer.core.util.TextUtils
 fun AddSongToPlaylistDialog(
     onDismiss: () -> Unit,
     playlists: List<Playlist> = emptyList(),
-    onAddSongToPlaylist: (Playlist) -> Unit
+    onAddSongToPlaylist: (Playlist) -> Unit,
+    onCreateNewPlaylist: () -> Unit
 ) {
-
-    Dialog(
-        onDismissRequest = onDismiss
-    ) {
+    Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -49,32 +47,53 @@ fun AddSongToPlaylistDialog(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
-            Column(
-                modifier = Modifier
-                    .padding(20.dp)
-                    .fillMaxWidth()
-            ) {
+            Column(modifier = Modifier.padding(20.dp).fillMaxWidth()) {
                 Text(
                     text = "Add to playlist",
                     style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface
                 )
-
                 Spacer(modifier = Modifier.height(16.dp))
 
-                if (playlists.isEmpty()) {
-                    Text(
-                        text = "No playlist found!",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .padding(vertical = 24.dp)
-                            .align(Alignment.CenterHorizontally)
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.heightIn(max = 300.dp)
-                    ) {
+                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onDismiss() // Close this dialog first
+                                    onCreateNewPlaylist()
+                                }
+                                .padding(vertical = 12.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "New Playlist",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.surfaceVariant)
+                    }
+
+                    // 2. Existing Playlists
+                    if (playlists.isEmpty()) {
+                        item {
+                            Text(
+                                text = "No existing playlists",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 24.dp, horizontal = 8.dp)
+                            )
+                        }
+                    } else {
                         items(playlists) { playlist ->
                             PlaylistItem(
                                 playlist = playlist,
@@ -83,10 +102,7 @@ fun AddSongToPlaylistDialog(
                                     onDismiss()
                                 }
                             )
-                            HorizontalDivider(
-                                thickness = 0.5.dp,
-                                color = MaterialTheme.colorScheme.surfaceVariant
-                            )
+                            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.surfaceVariant)
                         }
                     }
                 }
@@ -95,8 +111,6 @@ fun AddSongToPlaylistDialog(
     }
 }
 
-
-//playlist item
 @Composable
 fun PlaylistItem(playlist: Playlist, onClick: () -> Unit) {
     Row(

@@ -421,7 +421,8 @@ fun PlaylistDetailScreen(
             AddSongToPlaylistDialog(
                 onDismiss = { viewModel.onEvent(PlaylistDetailEvent.DismissAddToPlaylistDialog) },
                 playlists = uiState.playlists,
-                onAddSongToPlaylist = { playlist -> viewModel.onEvent(PlaylistDetailEvent.AddedSongToPlaylist(playlist)) }
+                onAddSongToPlaylist = { playlist -> viewModel.onEvent(PlaylistDetailEvent.AddedSongToPlaylist(playlist)) },
+                onCreateNewPlaylist = {}
             )
         }
 

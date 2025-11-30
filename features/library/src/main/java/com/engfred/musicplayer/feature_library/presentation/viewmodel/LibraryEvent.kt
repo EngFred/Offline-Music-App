@@ -39,4 +39,8 @@ sealed class LibraryEvent {
         val success: Boolean,
         val errorMessage: String? = null
     ) : LibraryEvent()
+
+    data object ShowCreatePlaylistDialog : LibraryEvent()
+    data object DismissCreatePlaylistDialog : LibraryEvent()
+    data class CreatePlaylistAndAddSongs(val playlistName: String) : LibraryEvent()
 }
