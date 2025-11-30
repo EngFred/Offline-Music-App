@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.engfred.musicplayer.feature_player"
+    namespace = "com.engfred.musicplayer.feature_library"
     compileSdk = 36
 
     defaultConfig {
@@ -34,7 +34,7 @@ android {
         jvmTarget = "17"
     }
     buildFeatures {
-        compose = true // Enable Compose
+        compose = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.composeBom.get()
@@ -43,13 +43,12 @@ android {
 
 dependencies {
 
-    // Dependency on the core module for shared utilities, themes, etc.
     implementation(project(":core"))
 
     // Android Core & Lifecycle
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.lifecycle.viewmodel.compose) // For ViewModels in Compose
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
 
     // Jetpack Compose UI
     implementation(platform(libs.androidx.compose.bom))
@@ -57,10 +56,9 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-    implementation(libs.androidx.navigation.compose) // If this feature has internal navigation
-    implementation(libs.androidx.material.icons.extended) // For Material Icons
+    implementation(libs.androidx.navigation.compose)
 
-    // Hilt (Dependency Injection for this feature)
+    // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.android.compiler)
     implementation(libs.hilt.navigation.compose)
@@ -69,36 +67,23 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
 
-    // Media3 (Crucial for music playback) - Updated to latest
-    implementation(libs.media3.exoplayer)
-    implementation(libs.media3.ui)
-    implementation(libs.media3.session)
-
-    // For MediaSessionCompat (compatibility for MediaStyle)
-    implementation(libs.androidx.media)
-
-    // Guava for ImmutableList
-    implementation(libs.guava)
-
-    // DataStore (if player settings need to be persisted)
-    implementation(libs.androidx.datastore.preferences)
-
-    // Coil for album artwork
+    //coil compose
     implementation(libs.coil.compose)
+
+    //extended material 3 icons
+    implementation(libs.androidx.material.icons.extended);
+
+    // Accompanist Permissions
+    implementation(libs.accompanist.permissions)
+
     // Landscapist with Coil engine
     implementation(libs.landscapist.coil)
+    implementation(libs.androidx.animation)
 
     //
     implementation(libs.androidx.palette.ktx)
 
-    //
-    implementation(libs.accompanist.systemuicontroller)
-
-    //
-//    implementation(libs.androidx.adaptive)
-//    implementation(libs.androidx.material3.window.size.class1.android)
-
-    implementation(libs.kotlinx.coroutines.guava)
+    implementation(libs.jaudiotagger.android)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

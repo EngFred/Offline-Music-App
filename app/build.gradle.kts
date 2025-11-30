@@ -37,7 +37,7 @@ android {
         jvmTarget = "17"
     }
     buildFeatures {
-        compose = true // Enable Compose
+        compose = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.composeBom.get()
@@ -93,11 +93,11 @@ dependencies {
 
     // Project Modules
     implementation(project(":core"))
-    implementation(project(":feature-library"))
-    implementation(project(":feature-player"))
-    implementation(project(":feature-playlist"))
-    implementation(project(":feature-settings"))
-    implementation(project(":feature-audio-trim"))
+    implementation(project(":features:library"))
+    implementation(project(":features:player"))
+    implementation(project(":features:playlist"))
+    implementation(project(":features:settings"))
+    implementation(project(":features:audio_trim"))
 
     // Testing Dependencies
     testImplementation(libs.junit)

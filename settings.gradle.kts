@@ -23,8 +23,8 @@ dependencyResolutionManagement {
 rootProject.name = "MusicPlayer"
 include(":app")
 include(":core")
-include(":feature-library")
-include(":feature-player")
-include(":feature-playlist")
-include(":feature-settings")
-include(":feature-audio-trim")
+include(":features:library")
+include(":features:player")
+include(":features:playlist")
+include(":features:settings")
+include(":features:audio_trim")
