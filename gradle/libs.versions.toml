@@ -1,30 +1,30 @@
 [versions]
 accompanistSystemuicontroller = "0.36.0"
 agp = "8.11.1"
-animation = "1.8.3"
+animation = "1.9.5"
 guava = "33.5.0-android"
 jaudiotaggerAndroid = "2.3.15"
-kotlin = "2.1.0"
-coreKtx = "1.16.0"
+kotlin = "2.2.10"
+coreKtx = "1.17.0"
 junit = "4.13.2"
-junitVersion = "1.2.1"
-espressoCore = "3.6.1"
+junitVersion = "1.3.0"
+espressoCore = "3.7.0"
 kotlinxCoroutinesGuava = "1.10.2"
-landscapistCoil = "2.5.1"
-lifecycleRuntimeKtx = "2.9.2"
-activityCompose = "1.10.1"
-composeBom = "2025.07.00"
+landscapistCoil = "2.6.1"
+lifecycleRuntimeKtx = "2.10.0"
+activityCompose = "1.12.0"
+composeBom = "2025.11.01"
 
 # Jetpack Compose
-lottieCompose = "6.6.10"
+lottieCompose = "6.7.1"
 media = "1.7.1"
-navigationCompose = "2.9.2"
+navigationCompose = "2.9.6"
 # Hilt (Dependency Injection)
-hiltAndroid = "2.55"
-hiltNavigationCompose = "1.2.0"
+hiltAndroid = "2.57.2"
+hiltNavigationCompose = "1.3.0"
 # Room (Persistence Library)
 paletteKtx = "1.0.0"
-room = "2.6.1"
+room = "2.8.4"
 # Media3 (Modern Media Playback Library, successor to ExoPlayer)
 media3 = "1.8.0"
 # Kotlin Coroutines
@@ -32,15 +32,15 @@ kotlinxCoroutines = "1.10.2"
 # Accompanist Permissions (For easier permission handling with Compose)
 accompanistPermissions = "0.37.3"
 # DataStore (for persistent settings)
-datastorePreferences = "1.1.7"
+datastorePreferences = "1.2.0"
 # Coil for album artwork
 coil = "2.7.0"
 # Kotlin Symbol Processing (KSP) - Must match Kotlin version compatibility
-ksp = "2.1.0-1.0.29"
+ksp = "2.2.10-2.0.2"
 appcompat = "1.7.1"
-material = "1.12.0"
+material = "1.13.0"
 materialIconsExtended = "1.7.8"
-splashscreen = "1.0.1"
+splashscreen = "1.2.0"
 imageCropper = "4.7.0"
 
 [libraries]
