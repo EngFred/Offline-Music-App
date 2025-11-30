@@ -102,8 +102,6 @@ class SettingsRepositoryImpl @Inject constructor(
                 )
             }
     }
-
-    // New: Audio file type filter
     override fun getAudioFileTypeFilter(): Flow<AudioFileTypeFilter> {
         return dataStore.data
             .catch { exception ->
