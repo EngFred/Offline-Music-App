@@ -4,6 +4,12 @@ import android.app.Activity
 import android.content.res.Configuration
 import android.os.Build
 import android.view.HapticFeedbackConstants
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -56,8 +62,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.model.PlayerLayout
 import com.engfred.musicplayer.core.domain.repository.PlaybackState
-import com.engfred.musicplayer.core.domain.repository.RepeatMode
-import com.engfred.musicplayer.core.domain.repository.ShuffleMode
+import com.engfred.musicplayer.core.domain.repository.RepeatMode as RM
 import com.engfred.musicplayer.core.util.MediaUtils.shareAudioFile
 import com.engfred.musicplayer.feature_player.presentation.components.AlbumArtDisplay
 import com.engfred.musicplayer.feature_player.presentation.components.ControlBar
@@ -84,7 +89,7 @@ fun EtherealFlowLayout(
     selectedLayout: PlayerLayout,
     onLayoutSelected: (PlayerLayout) -> Unit,
     playingAudio: AudioFile?,
-    repeatMode: RepeatMode
+    repeatMode: RM
 ) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -121,6 +126,39 @@ fun EtherealFlowLayout(
         value = getDynamicGradientColors(context, uri?.toString())
     }
 
+    // Animation for flowing gradient effect
+    // We use rememberInfiniteTransition instead of Animatable+LaunchedEffect.
+    // This ensures the animation doesn't stop when gradientColors change (new song).
+    val infiniteTransition = rememberInfiniteTransition(label = "gradient_animation")
+    val animatedProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 15000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "gradient_progress"
+    )
+
+    // Create flowing gradient with animated positions
+    val flowingGradient = remember(gradientColors, animatedProgress) {
+        if (gradientColors.size >= 2) {
+            Brush.linearGradient(
+                colors = gradientColors + gradientColors, // Double the colors for seamless flow
+                start = androidx.compose.ui.geometry.Offset(
+                    x = -animatedProgress * 1000f,
+                    y = -animatedProgress * 500f
+                ),
+                end = androidx.compose.ui.geometry.Offset(
+                    x = 1000f - animatedProgress * 1000f,
+                    y = 500f - animatedProgress * 500f
+                )
+            )
+        } else {
+            Brush.verticalGradient(gradientColors)
+        }
+    }
+
     val dynamicContentColor by remember(gradientColors) {
         val topGradientColor = gradientColors.firstOrNull() ?: Color.Black
         val targetLuminance = topGradientColor.luminance()
@@ -154,7 +192,7 @@ fun EtherealFlowLayout(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Brush.verticalGradient(gradientColors))
+                .background(flowingGradient)
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onDoubleTap = {
