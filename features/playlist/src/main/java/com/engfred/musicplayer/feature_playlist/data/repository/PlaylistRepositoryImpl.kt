@@ -17,10 +17,6 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Concrete implementation of PlaylistRepository that interacts with the local Room database.
- * It maps between Room entities/models and domain models.
- */
 @Singleton
 class PlaylistRepositoryImpl @Inject constructor(
     private val playlistDao: PlaylistDao,
@@ -28,11 +24,6 @@ class PlaylistRepositoryImpl @Inject constructor(
 ) : PlaylistRepository {
 
     private val TAG = "PlaylistRepositoryImpl"
-
-// -------------------------------------------------------------------------------------------------
-// # Mapper Functions
-// Functions to convert between domain models and Room entities/models.
-// -------------------------------------------------------------------------------------------------
 
     private fun PlaylistWithSongs.toDomain(): Playlist {
         return Playlist(
@@ -91,10 +82,6 @@ class PlaylistRepositoryImpl @Inject constructor(
         )
     }
 
-// -------------------------------------------------------------------------------------------------
-// # PlaylistRepository Interface Implementations
-// -------------------------------------------------------------------------------------------------
-
     override fun getPlaylists(): Flow<List<Playlist>> {
         // Fetch user-created and automatic playlists and combine them.
         val userPlaylistsFlow = playlistDao.getPlaylistsWithSongs().map { playlistWithSongsList ->
@@ -140,15 +127,13 @@ class PlaylistRepositoryImpl @Inject constructor(
             )
 
             automaticPlaylists.addAll(artistPlaylists)
-
-            // Automatic playlists are placed at the top of the list.
             automaticPlaylists + userPlaylists
         }
     }
 
     override fun getPlaylistById(playlistId: Long): Flow<Playlist?> {
+        // ... (Keep implementation unchanged) ...
         return when {
-            // Handle automatic playlists based on their negative IDs
             playlistId == -1L -> getRecentlyAddedSongs(limit = 20).map { songs ->
                 if (songs.isNotEmpty()) Playlist(
                     id = -1,
@@ -158,7 +143,6 @@ class PlaylistRepositoryImpl @Inject constructor(
                     type = AutomaticPlaylistType.RECENTLY_ADDED
                 ) else null
             }
-
             playlistId == -2L -> getTopPlayedSongs(
                 sinceTimestamp = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000L),
                 limit = 50
@@ -172,8 +156,6 @@ class PlaylistRepositoryImpl @Inject constructor(
                     playCounts = pairs.associate { it.first.id to it.second }
                 )
             }
-
-            // Handle artist playlists
             playlistId < 0 -> {
                 val artistId = -playlistId
                 sharedAudioDataSource.deviceAudioFiles.map { allAudioFiles ->
@@ -182,9 +164,7 @@ class PlaylistRepositoryImpl @Inject constructor(
                         null
                     } else {
                         var artistName = songs.first().artist ?: "Unknown Artist"
-                        if (artistName == "<unknown>") {
-                            artistName = "Unknown Artist"
-                        }
+                        if (artistName == "<unknown>") { artistName = "Unknown Artist" }
                         Playlist(
                             id = playlistId,
                             name = artistName,
@@ -195,8 +175,6 @@ class PlaylistRepositoryImpl @Inject constructor(
                     }
                 }
             }
-
-            // Handle user-created playlists
             else -> playlistDao.getPlaylistWithSongsById(playlistId).map { playlistWithSongs ->
                 playlistWithSongs?.toDomain()
             }
@@ -218,6 +196,22 @@ class PlaylistRepositoryImpl @Inject constructor(
     override suspend fun addSongToPlaylist(playlistId: Long, audioFile: AudioFile) {
         val playlistSongEntity = audioFile.toPlaylistSongEntity(playlistId)
         playlistDao.insertPlaylistSong(playlistSongEntity)
+    }
+
+    override suspend fun addSongsToPlaylist(playlistId: Long, audioFiles: List<AudioFile>): Int {
+        if (audioFiles.isEmpty()) return 0
+
+        val entities = audioFiles.map { it.toPlaylistSongEntity(playlistId) }
+
+        // Batch insert.
+        // Duplicate songs will be ignored by Room (OnConflictStrategy.IGNORE).
+        // It returns a list of Row IDs. -1 indicates the row was ignored.
+        val results = playlistDao.insertPlaylistSongs(entities)
+
+        // Count how many were NOT -1 to get the number of successfully added songs.
+        val addedCount = results.count { it != -1L }
+
+        return addedCount
     }
 
     override suspend fun removeSongFromPlaylist(playlistId: Long, audioFileId: Long) {
@@ -262,7 +256,7 @@ class PlaylistRepositoryImpl @Inject constructor(
             val audioFileMap = allAudioFiles.associateBy { it.id }
             val filtered = topPlayedIds
                 .asSequence()
-                .filter { it.playCount >= 3 } // Enforce minimum plays
+                .filter { it.playCount >= 3 }
                 .take(limit)
                 .toList()
             filtered.mapNotNull { topId ->

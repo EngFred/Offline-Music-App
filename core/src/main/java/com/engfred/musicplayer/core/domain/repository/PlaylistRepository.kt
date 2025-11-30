@@ -46,7 +46,6 @@ interface PlaylistRepository {
      */
     suspend fun removeSongFromPlaylist(playlistId: Long, audioFileId: Long)
 
-    // NEW: Removes a song from all playlists it belongs to.
     suspend fun removeSongFromAllPlaylists(audioFileId: Long)
 
     suspend fun updateSongInAllPlaylists(updatedAudioFile: AudioFile)
@@ -70,4 +69,6 @@ interface PlaylistRepository {
      * @param audioFileId The ID of the audio file that was played.
      */
     suspend fun recordSongPlayEvent(audioFileId: Long)
+
+    suspend fun addSongsToPlaylist(playlistId: Long, audioFiles: List<AudioFile>): Int
 }

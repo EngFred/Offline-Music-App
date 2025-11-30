@@ -1,6 +1,5 @@
 package com.engfred.musicplayer.core.ui.components
 
-import android.widget.Toast
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -62,11 +61,7 @@ import com.skydoves.landscapist.coil.CoilImage
 import kotlinx.coroutines.isActive
 
 /**
-
-
 AudioFileItem now uses onEditInfo callback for edit navigation.
-
-
 Keep onEditInfo optional so existing call-sites are backwards-compatible.
  */
 @Composable

@@ -18,6 +18,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.CheckBox
@@ -68,9 +69,7 @@ fun LibraryScreen(
     val lazyListState = rememberLazyListState()
     val owner = LocalLifecycleOwner.current
 
-    // Track if permission has been requested at least once
     var hasRequestedPermission by rememberSaveable { mutableStateOf(false) }
-    // Track if we're currently showing the permission dialog
     var isPermissionDialogShowing by rememberSaveable { mutableStateOf(false) }
 
     val deleteMediaLauncher = rememberLauncherForActivityResult(
@@ -99,8 +98,6 @@ fun LibraryScreen(
         }
     }
 
-    // React to permission state changes:
-    // reset isPermissionDialogShowing whenever a response is observed (granted or denied)
     LaunchedEffect(permissionState.status) {
         isPermissionDialogShowing = false
         if (permissionState.status.isGranted) {
@@ -117,75 +114,47 @@ fun LibraryScreen(
             }
         }
         owner.lifecycle.addObserver(observer)
-        onDispose {
-            owner.lifecycle.removeObserver(observer)
-        }
+        onDispose { owner.lifecycle.removeObserver(observer) }
     }
 
-    // Collect UI messages
     LaunchedEffect(viewModel.uiEvent) {
         viewModel.uiEvent.collect { message ->
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
     }
 
-    // Collect delete requests
     LaunchedEffect(viewModel.deleteRequest) {
         viewModel.deleteRequest.collect { intentSenderRequest ->
             deleteMediaLauncher.launch(intentSenderRequest)
         }
     }
 
-    // --- helper states for showing scroll buttons ---
     val coroutineScope = rememberCoroutineScope()
-
-    val currentListCount by remember(uiState) {
-        derivedStateOf {
-            val audios = uiState.filteredAudioFiles.ifEmpty { uiState.audioFiles }
-            audios.size
-        }
-    }
-
-    val isAtTop by remember(lazyListState) {
-        derivedStateOf {
-            lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0
-        }
-    }
-
+    val currentListCount by remember(uiState) { derivedStateOf { (uiState.filteredAudioFiles.ifEmpty { uiState.audioFiles }).size } }
+    val isAtTop by remember(lazyListState) { derivedStateOf { lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0 } }
     val isAtBottom by remember(lazyListState) {
         derivedStateOf {
             val layoutInfo = lazyListState.layoutInfo
             val total = layoutInfo.totalItemsCount
-            if (total == 0) true
-            else {
-                val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()
-                lastVisible?.index == total - 1
-            }
+            if (total == 0) true else layoutInfo.visibleItemsInfo.lastOrNull()?.index == total - 1
         }
     }
 
     var userIsScrolling by remember { mutableStateOf(false) }
-
     LaunchedEffect(lazyListState) {
         snapshotFlow { lazyListState.isScrollInProgress }
             .distinctUntilChanged()
             .collect { inProgress ->
-                if (inProgress) {
-                    userIsScrolling = true
-                } else {
-                    val delayMillis = 1200L
-                    try {
-                        delay(delayMillis)
-                        userIsScrolling = false
-                    } catch (_: Exception) { }
+                if (inProgress) userIsScrolling = true
+                else {
+                    delay(1200L)
+                    userIsScrolling = false
                 }
             }
     }
 
     val showScrollToTop by remember(userIsScrolling, isAtTop) { derivedStateOf { userIsScrolling && !isAtTop } }
-    val showScrollToBottom by remember(userIsScrolling, isAtBottom, currentListCount) {
-        derivedStateOf { userIsScrolling && !isAtBottom && currentListCount > 0 }
-    }
+    val showScrollToBottom by remember(userIsScrolling, isAtBottom, currentListCount) { derivedStateOf { userIsScrolling && !isAtBottom && currentListCount > 0 } }
 
     // --- UI ---
     Box(
@@ -204,9 +173,7 @@ fun LibraryScreen(
             if (!uiState.hasStoragePermission) {
                 PermissionRequestContent(
                     shouldShowRationale = permissionState.status.shouldShowRationale,
-                    isPermanentlyDenied = (!permissionState.status.isGranted &&
-                            !permissionState.status.shouldShowRationale &&
-                            hasRequestedPermission),
+                    isPermanentlyDenied = (!permissionState.status.isGranted && !permissionState.status.shouldShowRationale && hasRequestedPermission),
                     isPermissionDialogShowing = isPermissionDialogShowing,
                     onRequestPermission = {
                         permissionState.launchPermissionRequest()
@@ -224,7 +191,6 @@ fun LibraryScreen(
             } else {
                 val isSelectionMode = uiState.selectedAudioFiles.isNotEmpty()
 
-                // BackHandler: when selection mode is active, consume Back and deselect all.
                 BackHandler(enabled = isSelectionMode) {
                     viewModel.onEvent(LibraryEvent.DeselectAll)
                 }
@@ -253,6 +219,7 @@ fun LibraryScreen(
                             }
                             Row {
                                 val allSelected = uiState.selectedAudioFiles.size == uiState.filteredAudioFiles.size
+
                                 IconButton(onClick = {
                                     if (allSelected) viewModel.onEvent(LibraryEvent.DeselectAll)
                                     else viewModel.onEvent(LibraryEvent.SelectAll)
@@ -262,6 +229,15 @@ fun LibraryScreen(
                                         contentDescription = "Select all"
                                     )
                                 }
+
+                                IconButton(onClick = {
+                                    // Trigger event to show playlist selection dialog
+                                    // We use the same AddedToPlaylist event but handle null audioFile in logic
+                                    viewModel.onEvent(LibraryEvent.AddedToPlaylist(uiState.selectedAudioFiles.first()))
+                                }) {
+                                    Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = "Add selected to playlist", modifier = Modifier.size(30.dp))
+                                }
+
                                 IconButton(onClick = { viewModel.onEvent(LibraryEvent.ShowBatchDeleteConfirmation) }) {
                                     Icon(Icons.Rounded.Delete, contentDescription = "Delete selected")
                                 }
@@ -305,48 +281,21 @@ fun LibraryScreen(
             }
         }
 
-        // Floating buttons column (unchanged)
         Column(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 24.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.End
         ) {
-            AnimatedVisibility(
-                visible = showScrollToTop,
-                enter = slideInVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)),
-                exit = slideOutVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
-            ) {
-                FloatingActionButton(
-                    onClick = { coroutineScope.launch { lazyListState.scrollToItem(index = 0) } },
-                    containerColor = MaterialTheme.colorScheme.primary
-                ) {
-                    Icon(imageVector = Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top")
-                }
+            AnimatedVisibility(visible = showScrollToTop, enter = slideInVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)), exit = slideOutVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))) {
+                FloatingActionButton(onClick = { coroutineScope.launch { lazyListState.scrollToItem(index = 0) } }, containerColor = MaterialTheme.colorScheme.primary) { Icon(imageVector = Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top") }
             }
-
-            AnimatedVisibility(
-                visible = showScrollToBottom,
-                enter = slideInVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)),
-                exit = slideOutVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
-            ) {
-                FloatingActionButton(
-                    onClick = {
-                        coroutineScope.launch {
-                            val lastIndex = (currentListCount - 1).coerceAtLeast(0)
-                            lazyListState.scrollToItem(index = lastIndex)
-                        }
-                    },
-                    containerColor = MaterialTheme.colorScheme.primary
-                ) {
-                    Icon(imageVector = Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to bottom")
-                }
+            AnimatedVisibility(visible = showScrollToBottom, enter = slideInVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)), exit = slideOutVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))) {
+                FloatingActionButton(onClick = { coroutineScope.launch { val lastIndex = (currentListCount - 1).coerceAtLeast(0); lazyListState.scrollToItem(index = lastIndex) } }, containerColor = MaterialTheme.colorScheme.primary) { Icon(imageVector = Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to bottom") }
             }
         }
     }
 
-    // Dialogs & Floating flows (unchanged)
+    // Dialogs
     if (uiState.showAddToPlaylistDialog) {
         AddSongToPlaylistDialog(
             onDismiss = { viewModel.onEvent(LibraryEvent.DismissAddToPlaylistDialog) },
@@ -355,31 +304,28 @@ fun LibraryScreen(
         )
     }
 
+    // Only show custom Delete Dialog if SDK < 30 (Android 11)
     if (uiState.showDeleteConfirmationDialog) {
         uiState.audioFileToDelete?.let { audioFile ->
             ConfirmationDialog(
                 title = "Delete '${audioFile.title}'?",
-                message = "Are you sure you want to permanently delete '${audioFile.title}' from your device? This action cannot be undone.",
+                message = "Are you sure you want to permanently delete '${audioFile.title}' from your device?",
                 confirmButtonText = "Delete",
                 dismissButtonText = "Cancel",
                 onConfirm = { viewModel.onEvent(LibraryEvent.ConfirmDeleteAudioFile) },
                 onDismiss = { viewModel.onEvent(LibraryEvent.DismissDeleteConfirmationDialog) }
             )
-        } ?: run {
-            viewModel.onEvent(LibraryEvent.DismissDeleteConfirmationDialog)
         }
     }
 
-    // New batch delete bottom sheet
+    // Batch Delete Sheet (Also wrapped with version check logic implicitly via visibility state from ViewModel)
+    // But we keep the UI logic generic here, relying on ViewModel not to set showBatchDeleteConfirmationDialog to true on A11+
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var allowDismiss by remember { mutableStateOf(false) }  // Control outside dismiss
+    var allowDismiss by remember { mutableStateOf(false) }
     if (uiState.showBatchDeleteConfirmationDialog) {
         LaunchedEffect(Unit) { allowDismiss = false }
-
         ModalBottomSheet(
             onDismissRequest = {
-                // When the sheet is dismissed by tapping outside, dismiss and also deselect everything.
-                // This mirrors the Cancel button behaviour.
                 viewModel.onEvent(LibraryEvent.DeselectAll)
                 viewModel.onEvent(LibraryEvent.DismissDeleteConfirmationDialog)
             },
@@ -387,9 +333,7 @@ fun LibraryScreen(
             sheetState = sheetState
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
@@ -399,38 +343,29 @@ fun LibraryScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "This action will permanently delete the selected songs from your device and cannot be undone.",
+                    text = "This action will permanently delete the selected songs from your device.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(24.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = {
-                        // Cancel: mirror tapping outside; deselect everything then dismiss
                         viewModel.onEvent(LibraryEvent.DeselectAll)
                         allowDismiss = true
                         coroutineScope.launch { sheetState.hide() }.invokeOnCompletion {
                             viewModel.onEvent(LibraryEvent.DismissDeleteConfirmationDialog)
                         }
-                    }) {
-                        Text("Cancel")
-                    }
+                    }) { Text("Cancel") }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
-                            // Confirm: perform batch delete; ViewModel should clear selection after success.
                             allowDismiss = true
                             coroutineScope.launch { sheetState.hide() }.invokeOnCompletion {
                                 viewModel.onEvent(LibraryEvent.ConfirmBatchDelete)
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Text("Confirm")
-                    }
+                    ) { Text("Confirm") }
                 }
             }
         }
