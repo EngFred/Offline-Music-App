@@ -85,6 +85,8 @@ dependencies {
 
     implementation(libs.jaudiotagger.android)
 
+    implementation(libs.image.cropper)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -41,6 +41,7 @@ appcompat = "1.7.1"
 material = "1.12.0"
 materialIconsExtended = "1.7.8"
 splashscreen = "1.0.1"
+imageCropper = "4.7.0"
 
 [libraries]
 accompanist-systemuicontroller = { module = "com.google.accompanist:accompanist-systemuicontroller", version.ref = "accompanistSystemuicontroller" }
@@ -110,6 +111,8 @@ androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscree
 
 # media 3 transformer
 media3-transformer = { group = "androidx.media3", name = "media3-transformer", version.ref = "media3" }
+
+image-cropper = { group = "com.vanniktech", name = "android-image-cropper", version.ref = "imageCropper" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

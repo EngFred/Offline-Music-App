@@ -2,6 +2,7 @@ package com.engfred.musicplayer.feature_library.presentation.screens
 
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
@@ -26,15 +27,20 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.canhub.cropper.CropImageView
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.ui.components.CustomTopBar
 import com.engfred.musicplayer.core.ui.components.MiniPlayer
 import com.engfred.musicplayer.feature_library.presentation.viewmodel.EditFileUiState
 import com.engfred.musicplayer.feature_library.presentation.viewmodel.EditFileViewModel
 import kotlinx.coroutines.flow.collectLatest
+import java.io.File
+import java.io.FileOutputStream
 
 @Composable
 fun EditAudioInfoScreenContainer(
@@ -51,22 +57,45 @@ fun EditAudioInfoScreenContainer(
     val context = LocalContext.current
     val state by viewModel.uiState.collectAsState()
 
-    // Launcher to pick an image
-    val pickImageLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
-        onResult = { uri: Uri? -> uri?.let { viewModel.pickImage(it) } }
-    )
+    var pickedUri by remember { mutableStateOf<Uri?>(null) }
+    var showCropDialog by remember { mutableStateOf(false) }
+
+    // Gallery picker
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) {
+            pickedUri = uri
+            showCropDialog = true
+        }
+    }
+
+    // Function to launch picker (only gallery)
+    val launchImagePicker = {
+        galleryLauncher.launch("image/*")
+    }
+
+    if (showCropDialog && pickedUri != null) {
+        CropDialog(
+            imageUri = pickedUri!!,
+            onCrop = { croppedUri ->
+                viewModel.pickImage(croppedUri)
+                showCropDialog = false
+                pickedUri = null
+            },
+            onCancel = {
+                showCropDialog = false
+                pickedUri = null
+            }
+        )
+    }
 
     // Launcher for IntentSender (used for createWriteRequest or RecoverableSecurityException)
     val intentSenderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { result: ActivityResult ->
         if (result.resultCode == Activity.RESULT_OK) {
-            // After user grants per-file access, proceed with saving flow
             viewModel.continueSaveAfterPermission(context)
         } else {
             Toast.makeText(context, "Access to song denied. Cannot edit.", Toast.LENGTH_LONG).show()
-            // We don't force finish here anymore, user might want to try again or change something else
         }
     }
 
@@ -92,7 +121,6 @@ fun EditAudioInfoScreenContainer(
                     Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
                 }
                 is EditFileViewModel.Event.RequestWritePermission -> {
-                    // Launch system prompt for RecoverableSecurityException when SAVE is clicked
                     val req = IntentSenderRequest.Builder(event.intentSender).build()
                     intentSenderLauncher.launch(req)
                 }
@@ -103,21 +131,12 @@ fun EditAudioInfoScreenContainer(
     // Load data and check basic READ permissions on entry
     LaunchedEffect(audioId) {
         viewModel.loadAudioFile(audioId)
-
-        // Determine runtime permission to request (read for Q+ query; write for pre-Q)
-        // Note: For Android 13+ (Tiramisu), READ_MEDIA_AUDIO is sufficient to query.
-        // Editing is handled via RecoverableSecurityException or createWriteRequest during save.
         val perm = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> android.Manifest.permission.READ_MEDIA_AUDIO
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> android.Manifest.permission.READ_EXTERNAL_STORAGE
             else -> android.Manifest.permission.WRITE_EXTERNAL_STORAGE
         }
-
         val granted = ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
-
-        // Removed the proactive request for write access on Android R+.
-        // We only request the basic READ permission if not granted.
-        // Write permission will be requested "Just-In-Time" when the user clicks SAVE.
         if (!granted) {
             permissionLauncher.launch(perm)
         }
@@ -125,7 +144,7 @@ fun EditAudioInfoScreenContainer(
 
     EditFileInfoScreen(
         uiState = state,
-        onPickImage = { pickImageLauncher.launch("image/*") },
+        onPickImage = launchImagePicker,
         onTitleChange = viewModel::updateTitle,
         onArtistChange = viewModel::updateArtist,
         onSave = { viewModel.saveChanges(audioId, context) },
@@ -136,6 +155,54 @@ fun EditAudioInfoScreenContainer(
         onMiniPlayPrevious = onMiniPlayPrevious,
         playingAudioFile = playingAudioFile,
         isPlaying = isPlaying
+    )
+}
+
+@Composable
+fun CropDialog(
+    imageUri: Uri,
+    onCrop: (Uri) -> Unit,
+    onCancel: () -> Unit
+) {
+    val context = LocalContext.current
+    var cropImageView by remember { mutableStateOf<CropImageView?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Crop Album Art") },
+        text = {
+            AndroidView(
+                factory = { ctx ->
+                    CropImageView(ctx).apply {
+                        setImageUriAsync(imageUri)
+                        setAspectRatio(1, 1)
+                        cropShape = CropImageView.CropShape.RECTANGLE
+                        guidelines = CropImageView.Guidelines.ON
+                        cropImageView = this
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(300.dp)
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                cropImageView?.getCroppedImage()?.let { bitmap ->
+                    val tempFile = File.createTempFile("crop_", ".jpg", context.cacheDir)
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, FileOutputStream(tempFile))
+                    val croppedUri = FileProvider.getUriForFile(context, "${context.packageName}.provider", tempFile)
+                    onCrop(croppedUri)
+                } ?: onCancel()
+            }) {
+                Text("Crop")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel) {
+                Text("Cancel")
+            }
+        }
     )
 }
 
