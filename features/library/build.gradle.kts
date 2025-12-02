@@ -87,10 +87,6 @@ dependencies {
     //
     implementation(libs.androidx.palette.ktx)
 
-    implementation(libs.jaudiotagger.android)
-
-    implementation(libs.image.cropper)
-
     //worker
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.hilt.work)
