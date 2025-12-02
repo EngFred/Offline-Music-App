@@ -1,8 +1,10 @@
 package com.engfred.musicplayer.feature_library.presentation.screens
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -48,8 +50,7 @@ import com.engfred.musicplayer.feature_library.presentation.viewmodel.LibraryEve
 import com.engfred.musicplayer.feature_library.presentation.viewmodel.LibraryViewModel
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
-import com.google.accompanist.permissions.rememberPermissionState
-import com.google.accompanist.permissions.shouldShowRationale
+import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -63,11 +64,27 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val uiState = viewModel.uiState.collectAsState().value
-    val permission = viewModel.getRequiredPermission()
-    val permissionState = rememberPermissionState(permission)
     val context = LocalContext.current
     val lazyListState = rememberLazyListState()
     val owner = LocalLifecycleOwner.current
+
+    val permissionsToRequest = remember {
+        buildList {
+            // Add Storage Permission
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.READ_MEDIA_AUDIO)
+            } else {
+                add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+            // Add Notification Permission
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    // Use rememberMultiplePermissionsState to handle the list of permissions
+    val permissionState = rememberMultiplePermissionsState(permissionsToRequest)
 
     // State tracking for permission flows
     var hasRequestedPermission by rememberSaveable { mutableStateOf(false) }
@@ -99,13 +116,29 @@ fun LibraryScreen(
         }
     }
 
-    // Reset loading state when permission status updates
-    LaunchedEffect(permissionState.status) {
+    // Monitor permission status. The user wants to see prompts only after clicking.
+    // When permissions are granted, we notify the ViewModel to update the UI.
+    LaunchedEffect(permissionState.allPermissionsGranted) {
         isPermissionDialogShowing = false
-        if (permissionState.status.isGranted) {
+        if (permissionState.allPermissionsGranted) {
             viewModel.onEvent(LibraryEvent.PermissionGranted)
         } else {
-            viewModel.onEvent(LibraryEvent.CheckPermission)
+            // Check if at least the storage permission is granted (since notifications are optional for library view)
+            val storagePermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Manifest.permission.READ_MEDIA_AUDIO
+            } else {
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            }
+
+            val isStorageGranted = permissionState.permissions
+                .find { it.permission == storagePermission }
+                ?.status?.isGranted == true
+
+            if (isStorageGranted) {
+                viewModel.onEvent(LibraryEvent.PermissionGranted)
+            } else {
+                viewModel.onEvent(LibraryEvent.CheckPermission)
+            }
         }
     }
 
@@ -175,11 +208,12 @@ fun LibraryScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             if (!uiState.hasStoragePermission) {
                 PermissionRequestContent(
-                    shouldShowRationale = permissionState.status.shouldShowRationale,
-                    isPermanentlyDenied = (!permissionState.status.isGranted && !permissionState.status.shouldShowRationale && hasRequestedPermission),
+                    shouldShowRationale = permissionState.shouldShowRationale,
+                    isPermanentlyDenied = (!permissionState.allPermissionsGranted && !permissionState.shouldShowRationale && hasRequestedPermission),
                     isPermissionDialogShowing = isPermissionDialogShowing,
                     onRequestPermission = {
-                        permissionState.launchPermissionRequest()
+                        // This triggers the System Dialogs for ALL defined permissions
+                        permissionState.launchMultiplePermissionRequest()
                         hasRequestedPermission = true
                         isPermissionDialogShowing = true
                     },

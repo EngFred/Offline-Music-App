@@ -2,9 +2,7 @@ package com.engfred.musicplayer
 
 import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -20,7 +18,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.core.app.ActivityCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
@@ -70,11 +67,8 @@ class MainActivity : ComponentActivity() {
     private var pendingPlaybackUri: Uri? = null
     private var lastHandledUriString: String? = null
 
-    // Launcher for handling External Intents (Single permission - kept for Helper compatibility)
+    // Launcher for handling External Intents only (Opening a file from file manager)
     private lateinit var permissionLauncher: ActivityResultLauncher<String>
-
-    // Launcher for App Startup (Multiple permissions: Storage + Notification)
-    private lateinit var startupPermissionLauncher: ActivityResultLauncher<Array<String>>
 
     private var playbackState by mutableStateOf(PlaybackState())
     private var initialAppSettings: AppSettings? by mutableStateOf(null)
@@ -96,13 +90,14 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
 
-        // 1. Setup Permission Launchers
+        // 1. Setup Permission Launcher (For External Intents only)
         permissionLauncher = registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) { granted ->
             if (granted) {
                 Log.d(TAG, "Read permission granted (via Intent).")
-                scheduleBackgroundScan()
+                // We do not schedule the full background scan here,
+                // as this might be a temporary permission for a single file.
                 externalPlaybackUri = pendingPlaybackUri
                 pendingPlaybackUri = null
             } else {
@@ -111,27 +106,10 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        startupPermissionLauncher = registerForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { permissions ->
-            val storageGranted = permissions[Manifest.permission.READ_MEDIA_AUDIO] == true ||
-                    permissions[Manifest.permission.READ_EXTERNAL_STORAGE] == true
-            val notificationsGranted = permissions[Manifest.permission.POST_NOTIFICATIONS] == true
+        // Permissions are now handled in LibraryScreen.kt when the user clicks "Grant Access".
 
-            if (storageGranted) {
-                Log.d(TAG, "Storage permission granted.")
-                scheduleBackgroundScan()
-            } else {
-                Toast.makeText(this, "Permission required to scan music library.", Toast.LENGTH_SHORT).show()
-            }
-
-            if (notificationsGranted) {
-                Log.d(TAG, "Notification permission granted.")
-            }
-        }
-
-        // 2. Initial Permission Request Logic
-        checkAndRequestStartupPermissions()
+        // Schedule worker (safe to call even without permissions; it will just fail/retry silently in background)
+        scheduleBackgroundScan()
 
         uiScope.launch {
             try {
@@ -185,7 +163,7 @@ class MainActivity : ComponentActivity() {
                     }
                 } else null
 
-                // 3. Check if launched from Notification to play new songs
+                // 2. Check if launched from Notification to play new songs
                 checkIntentForNewMusic(intent)
 
                 Log.d(TAG, "preparePlayingQueue returned startAudio=${lastPlaybackAudio?.id}")
@@ -346,33 +324,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // --- Permissions Logic ---
-
-    private fun checkAndRequestStartupPermissions() {
-        val permissionsToRequest = mutableListOf<String>()
-
-        // 1. Storage Permission
-        val storagePerm = getRequiredReadPermission()
-        if (ActivityCompat.checkSelfPermission(this, storagePerm) != PackageManager.PERMISSION_GRANTED) {
-            permissionsToRequest.add(storagePerm)
-        } else {
-            // Already have storage, ensure worker is scheduled
-            scheduleBackgroundScan()
-        }
-
-        // 2. Notification Permission (Android 13+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-
-        // Launch if we have anything to ask
-        if (permissionsToRequest.isNotEmpty()) {
-            startupPermissionLauncher.launch(permissionsToRequest.toTypedArray())
-        }
-    }
-
     // --- Work Manager & Notification Logic ---
 
     private fun scheduleBackgroundScan() {
@@ -421,7 +372,7 @@ class MainActivity : ComponentActivity() {
     // --- Helpers ---
 
     private fun getRequiredReadPermission(): String {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             Manifest.permission.READ_MEDIA_AUDIO
         } else {
             Manifest.permission.READ_EXTERNAL_STORAGE
@@ -436,7 +387,7 @@ class MainActivity : ComponentActivity() {
                 ::getRequiredReadPermission,
                 { uri -> this.externalPlaybackUri = uri },
                 { pending -> this.pendingPlaybackUri = pending },
-                permissionLauncher, // This is kept as Single-String launcher for Helper compatibility
+                permissionLauncher, // Used specifically for opening external files
                 ::tryOpenUriStream,
                 { s -> this.lastHandledUriString = s },
                 { s -> this.lastHandledUriString == s }
