@@ -99,6 +99,9 @@ fun EtherealFlowLayout(
     val coroutineScope = rememberCoroutineScope()
     val colorScheme = MaterialTheme.colorScheme
 
+    // Track local seeking state to prevent art animation during scrubbing
+    var isSeeking by remember { mutableStateOf(false) }
+
     // Handle status bar color and icon appearance
     DisposableEffect(isLandscape, selectedLayout) {
         val window = (context as? Activity)?.window
@@ -303,10 +306,9 @@ fun EtherealFlowLayout(
                     AlbumArtDisplay(
                         albumArtUri = uiState.currentAudioFile?.albumArtUri,
                         isPlaying = uiState.isPlaying,
-                        // Fix: Pass currentSongId to enable smart animation logic
                         currentSongId = uiState.currentAudioFile?.id,
-                        modifier = Modifier
-                            .fillMaxWidth()
+                        isSeeking = isSeeking,
+                        modifier = Modifier.fillMaxWidth()
                     )
 
                     TrackInfo(
@@ -335,10 +337,12 @@ fun EtherealFlowLayout(
                         totalDurationMs = uiState.totalDurationMs,
                         playbackPositionMs = uiState.playbackPositionMs,
                         onSliderValueChange = { newValue ->
+                            isSeeking = true
                             onEvent(PlayerEvent.SetSeeking(true))
                             onEvent(PlayerEvent.SeekTo(newValue.toLong()))
                         },
                         onSliderValueChangeFinished = {
+                            isSeeking = false
                             onEvent(PlayerEvent.SetSeeking(false))
                             view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                         },
@@ -403,16 +407,16 @@ fun EtherealFlowLayout(
                         Column(
                             modifier = Modifier
                                 .verticalScroll(scrollState)
-                                .weight(1f) // Use weight to fill the remaining space
-                                .padding(horizontal = 24.dp), // Adjust padding as needed
+                                .weight(1f)
+                                .padding(horizontal = 24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.SpaceBetween
                         ) {
                             AlbumArtDisplay(
                                 albumArtUri = uiState.currentAudioFile?.albumArtUri,
                                 isPlaying = uiState.isPlaying,
-                                // Fix: Pass currentSongId here as well for Landscape
                                 currentSongId = uiState.currentAudioFile?.id,
+                                isSeeking = isSeeking,
                                 modifier = Modifier
                                     .fillMaxWidth().size(200.dp)
                             )
@@ -441,10 +445,12 @@ fun EtherealFlowLayout(
                                 totalDurationMs = uiState.totalDurationMs,
                                 playbackPositionMs = uiState.playbackPositionMs,
                                 onSliderValueChange = { newValue ->
+                                    isSeeking = true
                                     onEvent(PlayerEvent.SetSeeking(true))
                                     onEvent(PlayerEvent.SeekTo(newValue.toLong()))
                                 },
                                 onSliderValueChangeFinished = {
+                                    isSeeking = false
                                     onEvent(PlayerEvent.SetSeeking(false))
                                     view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                                 },

@@ -93,7 +93,10 @@ fun MinimalistGrooveLayout(
         )
     }
     var verticalDragCumulative by remember { mutableFloatStateOf(0f) }
-    val dragThreshold = 100f // Adjust as needed for sensitivity
+    val dragThreshold = 100f
+
+    // Track seeking state
+    var isSeeking by remember { mutableStateOf(false) }
 
     // responsive breakpoint
     val isTablet = screenWidthDp >= 900
@@ -169,8 +172,8 @@ fun MinimalistGrooveLayout(
                     VinylRecordView(
                         albumArtUri = uiState.currentAudioFile?.albumArtUri,
                         isPlaying = uiState.isPlaying,
-                        // [PRO FIX] Pass ID here
                         currentSongId = uiState.currentAudioFile?.id,
+                        isSeeking = isSeeking,
                         onPlayPauseToggle = { onEvent(PlayerEvent.PlayPause) },
                         onPlay = {
                             if (!uiState.isPlaying) onEvent(PlayerEvent.PlayPause)
@@ -200,10 +203,12 @@ fun MinimalistGrooveLayout(
                             totalDurationMs = uiState.totalDurationMs,
                             playbackPositionMs = uiState.playbackPositionMs,
                             onSliderValueChange = { newValue ->
+                                isSeeking = true
                                 onEvent(PlayerEvent.SetSeeking(true))
                                 onEvent(PlayerEvent.SeekTo(newValue.toLong()))
                             },
                             onSliderValueChangeFinished = {
+                                isSeeking = false
                                 onEvent(PlayerEvent.SetSeeking(false))
                                 view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                             },
@@ -251,8 +256,8 @@ fun MinimalistGrooveLayout(
                         VinylRecordView(
                             albumArtUri = uiState.currentAudioFile?.albumArtUri,
                             isPlaying = uiState.isPlaying,
-                            // [PRO FIX] Pass ID here
                             currentSongId = uiState.currentAudioFile?.id,
+                            isSeeking = isSeeking, // Pass seeking state
                             onPlayPauseToggle = { onEvent(PlayerEvent.PlayPause) },
                             onPlay = {
                                 if (!uiState.isPlaying) onEvent(PlayerEvent.PlayPause)
@@ -274,10 +279,12 @@ fun MinimalistGrooveLayout(
                             totalDurationMs = uiState.totalDurationMs,
                             playbackPositionMs = uiState.playbackPositionMs,
                             onSliderValueChange = { newValue ->
+                                isSeeking = true // Start seeking
                                 onEvent(PlayerEvent.SetSeeking(true))
                                 onEvent(PlayerEvent.SeekTo(newValue.toLong()))
                             },
                             onSliderValueChangeFinished = {
+                                isSeeking = false // Stop seeking
                                 onEvent(PlayerEvent.SetSeeking(false))
                                 view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                             },

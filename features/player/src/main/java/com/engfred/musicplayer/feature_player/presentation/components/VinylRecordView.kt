@@ -37,6 +37,7 @@ fun VinylRecordView(
     isPlaying: Boolean,
     currentSongId: Long?,
     rotationSpeedMillis: Int = 10000,
+    isSeeking: Boolean = false, // Added parameter to handle seeking
     onPlayPauseToggle: () -> Unit = {},
     onPlay: () -> Unit = {},
     onPause: () -> Unit = {}
@@ -46,7 +47,11 @@ fun VinylRecordView(
     var isVinylActive by remember { mutableStateOf(isPlaying) }
     var lastPlayingSongId by remember { mutableStateOf(currentSongId) }
 
-    LaunchedEffect(isPlaying, currentSongId) {
+    LaunchedEffect(isPlaying, currentSongId, isSeeking) {
+        // If seeking, lock the current visual state.
+        // Do not react to buffering/pausing that happens under the hood during seek.
+        if (isSeeking) return@LaunchedEffect
+
         if (isPlaying) {
             isVinylActive = true
             lastPlayingSongId = currentSongId

@@ -36,6 +36,7 @@ fun AlbumArtDisplay(
     albumArtUri: Any?,
     isPlaying: Boolean,
     currentSongId: Long?,
+    isSeeking: Boolean = false,
     modifier: Modifier = Modifier
 ) {
 
@@ -54,7 +55,12 @@ fun AlbumArtDisplay(
     // We track the last song ID that was actually PLAYING
     var lastPlayingSongId by remember { mutableStateOf(currentSongId) }
 
-    LaunchedEffect(isPlaying, currentSongId) {
+    // Added isSeeking to the key to react to seek start/stop
+    LaunchedEffect(isPlaying, currentSongId, isSeeking) {
+        // If the user is seeking, we LOCK the current state.
+        // We do not allow the art to shrink if the player momentarily pauses/buffers during seek.
+        if (isSeeking) return@LaunchedEffect
+
         if (isPlaying) {
             // Case 1: Music is playing. Always expand.
             isExpanded = true
