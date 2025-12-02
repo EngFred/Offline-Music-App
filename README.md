@@ -8,7 +8,7 @@
 
 Get the latest release of **Music** here:
 
-[Download Music APK](https://github.com/EngFred/Offline-Music-App/releases/download/v2.2.0/Musicv2.2.0.apk)
+[Download Music APK](https://github.com/EngFred/Offline-Music-App/releases/download/v2.2.0/Music_v2.2.0.apk)
 
 ---
 
