@@ -127,8 +127,6 @@ fun EtherealFlowLayout(
     }
 
     // Animation for flowing gradient effect
-    // We use rememberInfiniteTransition instead of Animatable+LaunchedEffect.
-    // This ensures the animation doesn't stop when gradientColors change (new song).
     val infiniteTransition = rememberInfiniteTransition(label = "gradient_animation")
     val animatedProgress by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -203,9 +201,7 @@ fun EtherealFlowLayout(
                                     onEvent(PlayerEvent.AddToFavorites(it))
                                 }
                             }
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
-                            }
+                            view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
                         }
                     )
                 }
@@ -307,7 +303,8 @@ fun EtherealFlowLayout(
                     AlbumArtDisplay(
                         albumArtUri = uiState.currentAudioFile?.albumArtUri,
                         isPlaying = uiState.isPlaying,
-                        playerLayout = PlayerLayout.ETHEREAL_FLOW,
+                        // Fix: Pass currentSongId to enable smart animation logic
+                        currentSongId = uiState.currentAudioFile?.id,
                         modifier = Modifier
                             .fillMaxWidth()
                     )
@@ -326,9 +323,7 @@ fun EtherealFlowLayout(
                                 if (uiState.isFavorite) onEvent(PlayerEvent.RemoveFromFavorites(it.id))
                                 else onEvent(PlayerEvent.AddToFavorites(it))
                             }
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
-                            }
+                            view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
                         },
                         playerLayout = PlayerLayout.ETHEREAL_FLOW
                     )
@@ -416,7 +411,8 @@ fun EtherealFlowLayout(
                             AlbumArtDisplay(
                                 albumArtUri = uiState.currentAudioFile?.albumArtUri,
                                 isPlaying = uiState.isPlaying,
-                                playerLayout = PlayerLayout.ETHEREAL_FLOW,
+                                // Fix: Pass currentSongId here as well for Landscape
+                                currentSongId = uiState.currentAudioFile?.id,
                                 modifier = Modifier
                                     .fillMaxWidth().size(200.dp)
                             )
@@ -435,9 +431,7 @@ fun EtherealFlowLayout(
                                         if (uiState.isFavorite) onEvent(PlayerEvent.RemoveFromFavorites(it.id))
                                         else onEvent(PlayerEvent.AddToFavorites(it))
                                     }
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                        view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
-                                    }
+                                    view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
                                 },
                                 playerLayout = PlayerLayout.ETHEREAL_FLOW
                             )

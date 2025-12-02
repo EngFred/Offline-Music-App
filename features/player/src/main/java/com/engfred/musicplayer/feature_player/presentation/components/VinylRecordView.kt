@@ -27,6 +27,7 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import com.skydoves.landscapist.ImageOptions
 import com.skydoves.landscapist.coil.CoilImage
+import kotlinx.coroutines.delay
 import kotlin.math.atan2
 
 @Composable
@@ -34,25 +35,49 @@ fun VinylRecordView(
     modifier: Modifier = Modifier,
     albumArtUri: Uri?,
     isPlaying: Boolean,
+    currentSongId: Long?,
     rotationSpeedMillis: Int = 10000,
     onPlayPauseToggle: () -> Unit = {},
     onPlay: () -> Unit = {},
     onPause: () -> Unit = {}
 ) {
+    // Logic to determine if the vinyl should visually be active.
+    // We keep it active during track skips to prevent the arm from bouncing up and down.
+    var isVinylActive by remember { mutableStateOf(isPlaying) }
+    var lastPlayingSongId by remember { mutableStateOf(currentSongId) }
+
+    LaunchedEffect(isPlaying, currentSongId) {
+        if (isPlaying) {
+            isVinylActive = true
+            lastPlayingSongId = currentSongId
+        } else {
+            // If paused, check if ID changed (Skipping) or ID same (User Pause)
+            if (currentSongId != lastPlayingSongId && currentSongId != null) {
+                // Skipping track: Keep active
+                isVinylActive = true
+                lastPlayingSongId = currentSongId
+            } else {
+                // User paused: Deactivate with tiny delay to smooth frames
+                delay(50)
+                isVinylActive = false
+            }
+        }
+    }
+
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        // Animated Aura (Gradient Glow) - NOW RENDERED
+        // Animated Aura (Gradient Glow) - Uses visual state
         AnimatedAura(
-            isPlaying = isPlaying,
+            isPlaying = isVinylActive,
             modifier = Modifier.fillMaxSize()
         )
 
-        // The Vinyl Record
+        // The Vinyl Record - Uses visual state for rotation
         VinylDisk(
             albumArtUri = albumArtUri,
-            isPlaying = isPlaying,
+            isPlaying = isVinylActive,
             rotationSpeedMillis = rotationSpeedMillis,
             modifier = Modifier
                 .fillMaxSize(0.9f)
@@ -63,7 +88,8 @@ fun VinylRecordView(
         var isDragging by remember { mutableStateOf(false) }
         var dragAngle by remember { mutableFloatStateOf(0f) }
 
-        val targetAngle = if (isDragging) dragAngle else if (isPlaying) 25f else 0f
+        // Use isVinylActive for the target angle (25f vs 0f)
+        val targetAngle = if (isDragging) dragAngle else if (isVinylActive) 25f else 0f
 
         val armRotation by animateFloatAsState(
             targetValue = targetAngle,
@@ -77,10 +103,11 @@ fun VinylRecordView(
         Tonearm(
             rotationDegrees = armRotation,
             isDragging = isDragging,
-            isPlaying = isPlaying,
+            isPlaying = isVinylActive, // Visual state for pulsing effect
             onInteractionStart = { isDragging = true },
             onInteractionEnd = { finalAngle ->
                 isDragging = false
+                // Interaction logic still uses the REAL isPlaying state to toggle correctly
                 if (finalAngle > 15f) {
                     if (!isPlaying) onPlay()
                 } else {

@@ -169,6 +169,8 @@ fun MinimalistGrooveLayout(
                     VinylRecordView(
                         albumArtUri = uiState.currentAudioFile?.albumArtUri,
                         isPlaying = uiState.isPlaying,
+                        // [PRO FIX] Pass ID here
+                        currentSongId = uiState.currentAudioFile?.id,
                         onPlayPauseToggle = { onEvent(PlayerEvent.PlayPause) },
                         onPlay = {
                             if (!uiState.isPlaying) onEvent(PlayerEvent.PlayPause)
@@ -249,6 +251,8 @@ fun MinimalistGrooveLayout(
                         VinylRecordView(
                             albumArtUri = uiState.currentAudioFile?.albumArtUri,
                             isPlaying = uiState.isPlaying,
+                            // [PRO FIX] Pass ID here
+                            currentSongId = uiState.currentAudioFile?.id,
                             onPlayPauseToggle = { onEvent(PlayerEvent.PlayPause) },
                             onPlay = {
                                 if (!uiState.isPlaying) onEvent(PlayerEvent.PlayPause)
