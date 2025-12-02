@@ -93,7 +93,7 @@ fun AlbumArtDisplay(
     val animatedAlbumArtSize by animateDpAsState(
         targetValue = targetSize,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
+            dampingRatio = Spring.DampingRatioNoBouncy,
             stiffness = Spring.StiffnessLow
         ),
         label = "etherealFlowAlbumArtSize"

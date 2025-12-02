@@ -22,8 +22,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.engfred.musicplayer.core.domain.model.AudioFile
-import com.engfred.musicplayer.feature_audio_trim.presentation.TrimScreen
-import com.engfred.musicplayer.feature_library.presentation.screens.EditAudioInfoScreenContainer
+import com.engfred.musicplayer.feature_trim.presentation.TrimScreen
+import com.engfred.musicplayer.feature_edit.presentation.screen.EditScreen
 import com.engfred.musicplayer.feature_player.presentation.screens.NowPlayingScreen
 import com.engfred.musicplayer.feature_playlist.presentation.screens.CreatePlaylistScreen
 import com.engfred.musicplayer.feature_playlist.presentation.screens.PlaylistDetailScreen
@@ -223,7 +223,7 @@ fun AppNavHost(
             }
         ) { backStackEntry ->
             val audioId = backStackEntry.arguments?.getLong("audioId") ?: -1L
-            EditAudioInfoScreenContainer(
+            EditScreen(
                 audioId = audioId,
                 onFinish = { rootNavController.navigateUp() },
                 onMiniPlayerClick = onNavigateToNowPlaying,

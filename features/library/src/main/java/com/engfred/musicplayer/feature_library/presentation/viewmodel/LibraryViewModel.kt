@@ -63,7 +63,13 @@ class LibraryViewModel @Inject constructor(
 
     private fun observePermissionState() {
         val granted = permissionHandlerUseCase.hasAudioPermission() && permissionHandlerUseCase.hasWriteStoragePermission()
+
+        // Update permission state
         _uiState.update { it.copy(hasStoragePermission = granted) }
+
+        if (granted) {
+            loadAudioFiles()
+        }
     }
 
     private fun startObservingPlaybackState() {
@@ -103,13 +109,12 @@ class LibraryViewModel @Inject constructor(
                 is LibraryEvent.PermissionGranted -> {
                     val granted = permissionHandlerUseCase.hasAudioPermission() && permissionHandlerUseCase.hasWriteStoragePermission()
                     _uiState.update { it.copy(hasStoragePermission = granted) }
-                    if (granted && _uiState.value.audioFiles.isEmpty()) { loadAudioFiles() }
+                    // Only trigger load if not already loading or loaded
+                    if (granted && _uiState.value.audioFiles.isEmpty() && !_uiState.value.isLoading) { loadAudioFiles() }
                 }
                 LibraryEvent.CheckPermission -> {
                     val granted = permissionHandlerUseCase.hasAudioPermission() && permissionHandlerUseCase.hasWriteStoragePermission()
                     _uiState.update { it.copy(hasStoragePermission = granted) }
-                    // Removed toast for better UX (don't nag if just resuming)
-                    // if (!granted) { _uiEvent.emit("Storage permission denied. Cannot load music.") }
                 }
                 is LibraryEvent.PlayAudio -> startAudioPlayback(event.audioFile)
                 is LibraryEvent.SearchQueryChanged -> {
@@ -372,8 +377,12 @@ class LibraryViewModel @Inject constructor(
     }
 
     private fun loadAudioFiles() {
+        // FIX: Update loading state synchronously OUTSIDE of the coroutine launch.
+        // This ensures that as soon as this function is called, the state is 'Loading',
+        // preventing the UI from seeing an 'Empty' state in the interim frames.
+        _uiState.update { it.copy(isLoading = true, error = null) }
+
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
             getAudioFilesUseCase().collect { result ->
                 _uiState.update { currentState ->
                     when (result) {

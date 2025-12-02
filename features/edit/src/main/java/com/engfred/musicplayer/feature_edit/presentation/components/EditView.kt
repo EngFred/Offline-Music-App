@@ -1,0 +1,160 @@
+package com.engfred.musicplayer.feature_edit.presentation.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import com.engfred.musicplayer.core.domain.model.AudioFile
+import com.engfred.musicplayer.core.ui.components.CustomTopBar
+import com.engfred.musicplayer.core.ui.components.MiniPlayer
+import com.engfred.musicplayer.feature_edit.presentation.viewModel.EditUiState
+
+@Composable
+fun EditView(
+    uiState: EditUiState,
+    onPickImage: () -> Unit,
+    onTitleChange: (String) -> Unit,
+    onArtistChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+    onMiniPlayerClick: () -> Unit,
+    onMiniPlayPauseClick: () -> Unit,
+    onMiniPlayNext: () -> Unit,
+    onMiniPlayPrevious: () -> Unit,
+    playingAudioFile: AudioFile?,
+    isPlaying: Boolean,
+    stopAfterCurrent: Boolean,
+    onMiniToggleStopAfterCurrent: () -> Unit,
+    playbackPositionMs: Long,
+    totalDurationMs: Long,
+) {
+    Scaffold(
+        topBar = {
+            CustomTopBar(
+                title = "Edit Audio Info",
+                showNavigationIcon = true,
+                onNavigateBack = { onCancel() },
+                modifier = Modifier.statusBarsPadding()
+            )
+        },
+        bottomBar = {
+            if (playingAudioFile != null) {
+                MiniPlayer(
+                    modifier = Modifier.navigationBarsPadding(),
+                    onClick = onMiniPlayerClick,
+                    onPlayPause = onMiniPlayPauseClick,
+                    onPlayNext = onMiniPlayNext,
+                    onPlayPrev = onMiniPlayPrevious,
+                    playingAudioFile = playingAudioFile,
+                    isPlaying = isPlaying,
+                    stopAfterCurrent = stopAfterCurrent,
+                    onToggleStopAfterCurrent = onMiniToggleStopAfterCurrent,
+                    playbackPositionMs = playbackPositionMs,
+                    totalDurationMs = totalDurationMs
+                )
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Top
+        ) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Surface(
+                modifier = Modifier.size(200.dp),
+                shape = CircleShape,
+                shadowElevation = 4.dp
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val imageUri = uiState.albumArtPreviewUri
+                    if (imageUri != null) {
+                        AsyncImage(
+                            model = imageUri,
+                            contentDescription = "Album art preview",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            Icons.Rounded.Image,
+                            contentDescription = "No album art",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(80.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            TextButton(onClick = onPickImage) {
+                Text(text = "Change Album Art")
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            TextField(
+                value = uiState.title,
+                onValueChange = onTitleChange,
+                label = { Text("Song Title") },
+                leadingIcon = { Icon(Icons.Rounded.MusicNote, contentDescription = null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            TextField(
+                value = uiState.artist,
+                onValueChange = onArtistChange,
+                label = { Text("Artist") },
+                leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null) },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            if (uiState.isSaving) {
+                CircularProgressIndicator()
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onCancel,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = onSave,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Save changes", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = "The changes will be applied system-wide even across other applications that have access to this file.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(8.dp)
+            )
+        }
+    }
+}

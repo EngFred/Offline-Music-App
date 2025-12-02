@@ -22,14 +22,5 @@ interface LibraryRepository {
      */
     suspend fun getAudioFileByUri(uri: Uri): Resource<AudioFile>
 
-    /**
-     * Edits the metadata of an audio file.
-     */
-    suspend fun editAudioMetadata(
-        id: Long,
-        newTitle: String?,
-        newArtist: String?,
-        newAlbumArt: ByteArray?,
-        context: Context
-    ): Resource<Unit>
+    suspend fun getAudioById(id: Long): Resource<AudioFile>
 }

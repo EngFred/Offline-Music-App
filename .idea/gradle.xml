@@ -13,11 +13,12 @@
             <option value="$PROJECT_DIR$/app" />
             <option value="$PROJECT_DIR$/core" />
             <option value="$PROJECT_DIR$/features" />
-            <option value="$PROJECT_DIR$/features/audio_trim" />
+            <option value="$PROJECT_DIR$/features/edit" />
             <option value="$PROJECT_DIR$/features/library" />
             <option value="$PROJECT_DIR$/features/player" />
             <option value="$PROJECT_DIR$/features/playlist" />
             <option value="$PROJECT_DIR$/features/settings" />
+            <option value="$PROJECT_DIR$/features/trim" />
           </set>
         </option>
       </GradleProjectSettings>

@@ -131,6 +131,14 @@ class ContentResolverDataSource @Inject constructor(
     }.flowOn(Dispatchers.IO)
 
     /**
+     * Fetch a single audio file by ID.
+     */
+    suspend fun getAudioById(id: Long): AudioFileDto? = withContext(Dispatchers.IO) {
+        val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+        return@withContext getAudioFileByUri(uri)
+    }
+
+    /**
      * Fetch a single audio file by Uri. Returns AudioFileDto or null if not found.
      *
      * This is a suspend function and executes on Dispatchers.IO.

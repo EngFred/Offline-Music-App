@@ -106,7 +106,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Permissions are now handled in LibraryScreen.kt when the user clicks "Grant Access".
+        // Permissions are handled in LibraryScreen.kt when the user clicks "Grant Access".
 
         // Schedule worker (safe to call even without permissions; it will just fail/retry silently in background)
         scheduleBackgroundScan()
