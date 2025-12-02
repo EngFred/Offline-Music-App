@@ -148,6 +148,7 @@ class NowPlayingViewModel @Inject constructor(
                         settingsRepository.updatePlayerLayout(event.layout)
                     }
                     is PlayerEvent.RemovedFromQueue -> playbackController.removeFromQueue(event.audioFile)
+                    PlayerEvent.ToggleStopAfterCurrent -> playbackController.toggleStopAfterCurrent()
                 }
             } catch (e: Exception) {
                 Log.e("NowPlayingViewModel", "Event handling failed: ${e.message}", e)

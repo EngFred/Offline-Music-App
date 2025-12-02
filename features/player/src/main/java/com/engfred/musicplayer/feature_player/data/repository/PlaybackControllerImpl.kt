@@ -3,6 +3,7 @@ package com.engfred.musicplayer.feature_player.data.repository
 import android.content.Context
 import android.util.Log
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
@@ -59,10 +60,8 @@ class PlaybackControllerImpl @Inject constructor(
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var attachedController: MediaController? = null
     private val pendingPlayNextMediaId = MutableStateFlow<String?>(null)
-
     @Volatile
     private var intendedRepeatMode: RepeatMode = RepeatMode.OFF
-
     // Helpers
     private val stateUpdater = PlaybackStateUpdater(_playbackState, mediaController, sharedAudioDataSource, audioFileMapper)
     private val progressTracker = PlaybackProgressTracker(mediaController, stateUpdater)
@@ -76,7 +75,6 @@ class PlaybackControllerImpl @Inject constructor(
         _playbackState
     )
     private val mediaControllerBuilder = MediaControllerBuilder(context, sessionToken, mediaController, _playbackState)
-
     private val queueManager = QueueManager(
         sharedAudioDataSource,
         audioFileMapper,
@@ -92,7 +90,6 @@ class PlaybackControllerImpl @Inject constructor(
 
     init {
         Log.d(TAG, "Initializing PlayerControllerImpl")
-
         repositoryScope.launch {
             settingsRepository.getAppSettings()
                 .map { it.repeatMode }
@@ -103,11 +100,9 @@ class PlaybackControllerImpl @Inject constructor(
                     setRepeatMode(mode)
                 }
         }
-
         repositoryScope.launch {
             mediaControllerBuilder.buildAndConnectController()
         }
-
         repositoryScope.launch {
             mediaController.collectLatest { newController ->
                 withContext(Dispatchers.Main) {
@@ -129,7 +124,6 @@ class PlaybackControllerImpl @Inject constructor(
                 }
             }
         }
-
         repositoryScope.launch {
             progressTracker.playEventRecorder = controllerCallback
             progressTracker.startPlaybackPositionUpdates()
@@ -183,7 +177,6 @@ class PlaybackControllerImpl @Inject constructor(
 
     override suspend fun setRepeatMode(mode: RepeatMode) {
         intendedRepeatMode = mode
-
         withContext(Dispatchers.Main) {
             mediaController.value?.let { controller ->
                 controller.repeatMode = when (mode) {
@@ -252,5 +245,13 @@ class PlaybackControllerImpl @Inject constructor(
 
     override suspend fun updateAudioMetadata(updatedAudio: AudioFile) {
         queueManager.updateAudioFileInQueue(updatedAudio)
+    }
+
+    override fun toggleStopAfterCurrent() {
+        _playbackState.update {
+            val newState = !it.stopAfterCurrent
+            Log.d(TAG, "Toggling StopAfterCurrent to: $newState")
+            it.copy(stopAfterCurrent = newState)
+        }
     }
 }

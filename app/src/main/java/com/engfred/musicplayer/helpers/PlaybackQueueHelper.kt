@@ -84,8 +84,6 @@ object PlaybackQueueHelper {
             } ?: sorted
             sharedAudioDataSource.setPlayingQueue(playingQueue)
             playbackController.setRepeatMode(repeat)
-            // pass resume position into shuffle initiation
-//            val resumePosition = if (lastState.positionMs > 0) lastState.positionMs else C.TIME_UNSET
             playbackController.initiateShufflePlayback(playingQueue)
         }
     }

@@ -63,7 +63,11 @@ fun CreatePlaylistScreen(
     onMiniPlayNext: () -> Unit,
     onMiniPlayPrevious: () -> Unit,
     playingAudioFile: AudioFile?,
-    isPlaying: Boolean
+    isPlaying: Boolean,
+    stopAfterCurrent: Boolean,
+    playbackPositionMs: Long,
+    totalDurationMs: Long,
+    onToggleStopAfterCurrent: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     // filtered songs exposed from ViewModel (debounced + sorted)
@@ -134,7 +138,11 @@ fun CreatePlaylistScreen(
                     onPlayNext = onMiniPlayNext,
                     onPlayPrev = onMiniPlayPrevious,
                     playingAudioFile = playingAudioFile,
-                    isPlaying = isPlaying
+                    isPlaying = isPlaying,
+                    stopAfterCurrent = stopAfterCurrent,
+                    onToggleStopAfterCurrent = onToggleStopAfterCurrent,
+                    playbackPositionMs = playbackPositionMs,
+                    totalDurationMs = totalDurationMs
                 )
             }
         },

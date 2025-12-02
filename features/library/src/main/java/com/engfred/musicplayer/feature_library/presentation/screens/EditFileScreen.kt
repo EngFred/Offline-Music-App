@@ -1,5 +1,6 @@
 package com.engfred.musicplayer.feature_library.presentation.screens
 
+import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -52,6 +53,10 @@ fun EditAudioInfoScreenContainer(
     onMiniPlayPrevious: () -> Unit,
     playingAudioFile: AudioFile?,
     isPlaying: Boolean,
+    stopAfterCurrent: Boolean,
+    onToggleStopAfterCurrent: () -> Unit,
+    playbackPositionMs: Long,
+    totalDurationMs: Long,
     viewModel: EditFileViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -132,9 +137,9 @@ fun EditAudioInfoScreenContainer(
     LaunchedEffect(audioId) {
         viewModel.loadAudioFile(audioId)
         val perm = when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> android.Manifest.permission.READ_MEDIA_AUDIO
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> android.Manifest.permission.READ_EXTERNAL_STORAGE
-            else -> android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> Manifest.permission.READ_MEDIA_AUDIO
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> Manifest.permission.READ_EXTERNAL_STORAGE
+            else -> Manifest.permission.WRITE_EXTERNAL_STORAGE
         }
         val granted = ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
         if (!granted) {
@@ -154,7 +159,11 @@ fun EditAudioInfoScreenContainer(
         onMiniPlayNext = onMiniPlayNext,
         onMiniPlayPrevious = onMiniPlayPrevious,
         playingAudioFile = playingAudioFile,
-        isPlaying = isPlaying
+        isPlaying = isPlaying,
+        stopAfterCurrent = stopAfterCurrent,
+        onMiniToggleStopAfterCurrent = onToggleStopAfterCurrent,
+        playbackPositionMs = playbackPositionMs,
+        totalDurationMs = totalDurationMs
     )
 }
 
@@ -219,7 +228,11 @@ fun EditFileInfoScreen(
     onMiniPlayNext: () -> Unit,
     onMiniPlayPrevious: () -> Unit,
     playingAudioFile: AudioFile?,
-    isPlaying: Boolean
+    isPlaying: Boolean,
+    stopAfterCurrent: Boolean,
+    onMiniToggleStopAfterCurrent: () -> Unit,
+    playbackPositionMs: Long,
+    totalDurationMs: Long,
 ) {
     Scaffold(
         topBar = {
@@ -236,7 +249,11 @@ fun EditFileInfoScreen(
                     onPlayNext = onMiniPlayNext,
                     onPlayPrev = onMiniPlayPrevious,
                     playingAudioFile = playingAudioFile,
-                    isPlaying = isPlaying
+                    isPlaying = isPlaying,
+                    stopAfterCurrent = stopAfterCurrent,
+                    onToggleStopAfterCurrent = onMiniToggleStopAfterCurrent,
+                    playbackPositionMs = playbackPositionMs,
+                    totalDurationMs = totalDurationMs
                 )
             }
         }

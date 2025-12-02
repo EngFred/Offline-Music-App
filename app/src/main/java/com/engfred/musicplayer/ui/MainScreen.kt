@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -74,6 +75,7 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
  * managing the primary feature screens.
  */
 @OptIn(ExperimentalPermissionsApi::class)
+@UnstableApi
 @Composable
 fun MainScreen(
     onNavigateToNowPlaying: () -> Unit,
@@ -91,7 +93,11 @@ fun MainScreen(
     audioItems: List<AudioFile>,
     onReleasePlayer: () -> Unit,
     onCreatePlaylist: () -> Unit,
-    lastPlaybackAudio: AudioFile?
+    lastPlaybackAudio: AudioFile?,
+    stopAfterCurrent: Boolean,
+    onToggleStopAfterCurrent: () -> Unit,
+    playbackPositionMs: Long,
+    totalDurationMs: Long
 ) {
     val bottomNavController = rememberNavController()
     val bottomNavItems = listOf(
@@ -104,8 +110,7 @@ fun MainScreen(
     val context = LocalContext.current
     val permissionHandler = remember { PermissionHandlerUseCase(context) }
     var hasPermission by remember { mutableStateOf(permissionHandler.hasAudioPermission() && permissionHandler.hasWriteStoragePermission()) }
-    val owner = LocalLifecycleOwner.current
-
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     // Update permission state on resume
     DisposableEffect(Unit) {
         val observer = LifecycleEventObserver { _, event ->
@@ -118,33 +123,24 @@ fun MainScreen(
             owner.lifecycle.removeObserver(observer)
         }
     }
-
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
             val navBackStackEntry by bottomNavController.currentBackStackEntryAsState()
             val currentDestination = navBackStackEntry?.destination
-            val isOnLibraryScreen = currentDestination?.hierarchy?.any {
-                it.route == AppDestinations.BottomNavItem.Library.baseRoute
-            } == true
-            val isOnPlaylistsScreen = currentDestination?.hierarchy?.any {
-                it.route == AppDestinations.BottomNavItem.Playlists.baseRoute
-            } == true
-            val isOnSettingsScreen = currentDestination?.hierarchy?.any {
-                it.route == AppDestinations.BottomNavItem.Settings.baseRoute
-            } == true
-
+            val isOnLibraryScreen = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Library.baseRoute } == true
+            val isOnPlaylistsScreen = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Playlists.baseRoute } == true
+            val isOnSettingsScreen = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Settings.baseRoute } == true
             // Dynamic title based on current bottom nav screen
             val mainTitle = when {
                 isOnLibraryScreen -> AppDestinations.BottomNavItem.Library.label
                 isOnPlaylistsScreen -> AppDestinations.BottomNavItem.Playlists.label
                 isOnSettingsScreen -> AppDestinations.BottomNavItem.Settings.label
-                else -> "Music"  // Fallback for edge cases
+                else -> "Music" // Fallback for edge cases
             }
             val subtitle = if (audioItems.isNotEmpty() && isOnLibraryScreen) {
                 "${formatCount(audioItems.size)} ${pluralize(audioItems.size, "Audio files", "Audio files", showCount = false)}"
             } else null
-
             Box(modifier = Modifier.statusBarsPadding()) {
                 CustomTopBar(
                     modifier = Modifier.padding(start = 10.dp),
@@ -199,6 +195,10 @@ fun MainScreen(
                         onPlayPrev = onPlayPrev,
                         isPlaying = isPlaying,
                         playingAudioFile = playingAudioFile ?: lastPlaybackAudio,
+                        onToggleStopAfterCurrent = onToggleStopAfterCurrent,
+                        stopAfterCurrent = stopAfterCurrent,
+                        playbackPositionMs = playbackPositionMs,
+                        totalDurationMs = totalDurationMs,
                     )
                 } else {
                     if (audioItems.isNotEmpty()) {
@@ -209,7 +209,6 @@ fun MainScreen(
                         )
                     }
                 }
-
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -221,9 +220,7 @@ fun MainScreen(
                     val navBackStackEntry by bottomNavController.currentBackStackEntryAsState()
                     val currentDestination = navBackStackEntry?.destination
                     bottomNavItems.forEach { item ->
-                        val selected = currentDestination?.hierarchy?.any {
-                            it.route == item.baseRoute
-                        } == true
+                        val selected = currentDestination?.hierarchy?.any { it.route == item.baseRoute } == true
                         CustomBottomNavItem(
                             item = item,
                             isSelected = selected,
@@ -274,7 +271,6 @@ fun MainScreen(
             }
         }
     }
-
     if (showRestartDialog) {
         AlertDialog(
             onDismissRequest = { showRestartDialog = false },
@@ -318,7 +314,6 @@ fun MainScreen(
             },
             containerColor = MaterialTheme.colorScheme.surface
         )
-
     }
 }
 
@@ -330,14 +325,14 @@ private fun CustomBottomNavItem(
 ) {
     val animatedBackgroundColor by animateColorAsState(
         targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-        animationSpec = tween(durationMillis = 300), label = "background_color_animation"
+        animationSpec = tween(durationMillis = 300),
+        label = "background_color_animation"
     )
-
     val animatedContentColor by animateColorAsState(
         targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = tween(durationMillis = 300), label = "content_color_animation"
+        animationSpec = tween(durationMillis = 300),
+        label = "content_color_animation"
     )
-
     Row(
         modifier = Modifier
             .clip(CircleShape)

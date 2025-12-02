@@ -21,6 +21,7 @@ data class PlaybackState(
     val isSeeking: Boolean = false,
     val playingQueue: List<AudioFile> = emptyList(),
     val playingSongIndex: Int = 0,
+    val stopAfterCurrent: Boolean = false,
 )
 
 enum class RepeatMode {

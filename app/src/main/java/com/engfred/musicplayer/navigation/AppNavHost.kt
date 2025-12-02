@@ -44,23 +44,16 @@ fun AppNavHost(
     isPlaying: Boolean,
     context: Context,
     onNavigateToNowPlaying: () -> Unit,
-//    isPlayerActive: Boolean,
-//    isPlayingExternalUri: Boolean,
     onPlayAll: () -> Unit,
     onShuffleAll: () -> Unit,
     audioItems: List<AudioFile>,
     onReleasePlayer: () -> Unit,
-    lastPlaybackAudio: AudioFile?
+    lastPlaybackAudio: AudioFile?,
+    stopAfterCurrent: Boolean,
+    onToggleStopAfterCurrent: () -> Unit,
+    playbackPositionMs: Long,
+    totalDurationMs: Long
 ) {
-
-//    // Set the start destination based on the condition
-//    val startDestination = remember {
-//        if (isPlayerActive || isPlayingExternalUri) {
-//            AppDestinations.MainGraph.route
-//        } else {
-//            AppDestinations.Splash.route
-//        }
-//    }
 
     NavHost(
         navController = rootNavController,
@@ -74,16 +67,6 @@ fun AppNavHost(
             )
         )
     ) {
-        // Splash screen
-//        composable(AppDestinations.Splash.route) {
-//            SplashScreen()
-//            LaunchedEffect(Unit) {
-//                delay(3000) // 3-second delay
-//                rootNavController.navigate(AppDestinations.MainGraph.route) {
-//                    popUpTo(AppDestinations.Splash.route) { inclusive = true } // Remove splash from back stack
-//                }
-//            }
-//        }
 
         // Main Graph (with bottom nav)
         composable(AppDestinations.MainGraph.route) {
@@ -113,7 +96,11 @@ fun AppNavHost(
                 onCreatePlaylist = {
                     rootNavController.navigate(AppDestinations.CreatePlaylist.route)
                 },
-                lastPlaybackAudio = lastPlaybackAudio
+                lastPlaybackAudio = lastPlaybackAudio,
+                stopAfterCurrent = stopAfterCurrent,
+                onToggleStopAfterCurrent = onToggleStopAfterCurrent,
+                playbackPositionMs = playbackPositionMs,
+                totalDurationMs = totalDurationMs
             )
         }
 
@@ -161,30 +148,6 @@ fun AppNavHost(
                     type = NavType.LongType
                 }
             ),
-//            exitTransition = {
-//                // If we're navigating TO NowPlaying -> disable exit animation for PlaylistDetail
-//                val to = targetState.destination.route ?: ""
-//                if (to == AppDestinations.NowPlaying.route) {
-//                    null
-//                } else {
-//                    slideOutHorizontally(
-//                        targetOffsetX = { fullWidth -> -fullWidth },
-//                        animationSpec = tween(durationMillis = 400)
-//                    )
-//                }
-//            },
-//            popExitTransition = {
-//                // If we're navigating TO NowPlaying -> disable exit animation for PlaylistDetail
-//                val to = targetState.destination.route ?: ""
-//                if (to == AppDestinations.NowPlaying.route) {
-//                    null
-//                } else {
-//                    slideOutHorizontally(
-//                        targetOffsetX = { fullWidth -> -fullWidth },
-//                        animationSpec = tween(durationMillis = 400)
-//                    )
-//                }
-//            }
         ) {
             PlaylistDetailScreen(
                 onNavigateBack = { rootNavController.navigateUp() },
@@ -194,7 +157,11 @@ fun AppNavHost(
                 },
                 onTrimAudio = { audioFile ->
                     rootNavController.navigate(AppDestinations.TrimAudio.createRoute(audioFile.uri.toString()))
-                }
+                },
+                stopAfterCurrent = stopAfterCurrent,
+                onToggleStopAfterCurrent = onToggleStopAfterCurrent,
+                playbackPositionMs = playbackPositionMs,
+                totalDurationMs = totalDurationMs
             )
         }
 
@@ -264,7 +231,11 @@ fun AppNavHost(
                 onMiniPlayNext = onPlayNext,
                 onMiniPlayPrevious = onPlayPrev,
                 playingAudioFile = playingAudioFile,
-                isPlaying = isPlaying
+                isPlaying = isPlaying,
+                stopAfterCurrent = stopAfterCurrent,
+                onToggleStopAfterCurrent = onToggleStopAfterCurrent,
+                playbackPositionMs = playbackPositionMs,
+                totalDurationMs = totalDurationMs
             )
         }
 
@@ -327,7 +298,11 @@ fun AppNavHost(
                 onMiniPlayNext = onPlayNext,
                 onMiniPlayPrevious = onPlayPrev,
                 playingAudioFile = playingAudioFile,
-                isPlaying = isPlaying
+                isPlaying = isPlaying,
+                stopAfterCurrent = stopAfterCurrent,
+                onToggleStopAfterCurrent = onToggleStopAfterCurrent,
+                playbackPositionMs = playbackPositionMs,
+                totalDurationMs = totalDurationMs
             )
         }
 

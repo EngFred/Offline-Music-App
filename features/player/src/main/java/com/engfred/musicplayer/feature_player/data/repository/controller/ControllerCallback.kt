@@ -125,7 +125,14 @@ class ControllerCallback(
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-        // keep empty if you don't want extra behavior
+        // If the song changed AUTOMATICALLY (ended naturally), and the flag is set:
+        if (playbackState.value.stopAfterCurrent && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+            Log.d(TAG, "StopAfterCurrent triggered. Pausing playback.")
+            // Pause the player
+            progressTracker.mediaController.value?.pause()
+            // Reset the flag (usually a one-time action)
+            playbackState.update { it.copy(stopAfterCurrent = false, isPlaying = false) }
+        }
     }
 
     /**

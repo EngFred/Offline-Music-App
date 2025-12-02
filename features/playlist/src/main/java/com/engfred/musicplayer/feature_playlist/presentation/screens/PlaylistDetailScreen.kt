@@ -57,6 +57,10 @@ fun PlaylistDetailScreen(
     onNavigateToNowPlaying: () -> Unit,
     onEditInfo: (AudioFile) -> Unit,
     onTrimAudio: (AudioFile) -> Unit,
+    stopAfterCurrent: Boolean,
+    onToggleStopAfterCurrent: () -> Unit,
+    playbackPositionMs: Long,
+    totalDurationMs: Long,
     viewModel: PlaylistDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -128,6 +132,10 @@ fun PlaylistDetailScreen(
                     onPlayPrev = { viewModel.onEvent(PlaylistDetailEvent.PlayPrev) },
                     isPlaying = uiState.isPlaying,
                     playingAudioFile = uiState.currentPlayingAudioFile,
+                    stopAfterCurrent = stopAfterCurrent,
+                    onToggleStopAfterCurrent = onToggleStopAfterCurrent,
+                    playbackPositionMs = playbackPositionMs,
+                    totalDurationMs = totalDurationMs
                 )
             }
         },

@@ -16,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.app.ActivityCompat
@@ -23,7 +24,6 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.engfred.musicplayer.core.common.Resource
@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
     private var appSettingsLoaded by mutableStateOf(false)
 
     private var lastPlaybackAudio: AudioFile? by mutableStateOf(null)
+    private var lastPlaybackPosition: Long by mutableLongStateOf(0L)
 
     // State to trigger navigation to NowPlaying if launched from notification
     private var navigateToNowPlayingOnStart by mutableStateOf(false)
@@ -95,8 +96,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         // 1. Setup Permission Launchers
-
-        // A. Existing launcher for IntentPermissionHelper (Single String)
         permissionLauncher = registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) { granted ->
@@ -111,15 +110,11 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // B. New launcher for App Startup (Multiple Strings: Storage + Notifications)
         startupPermissionLauncher = registerForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
         ) { permissions ->
-            // Check if Storage was granted (Legacy or Audio)
             val storageGranted = permissions[Manifest.permission.READ_MEDIA_AUDIO] == true ||
                     permissions[Manifest.permission.READ_EXTERNAL_STORAGE] == true
-
-            // Check if Notifications were granted (Android 13+)
             val notificationsGranted = permissions[Manifest.permission.POST_NOTIFICATIONS] == true
 
             if (storageGranted) {
@@ -162,6 +157,9 @@ class MainActivity : ComponentActivity() {
 
         uiScope.launch {
             try {
+                val lastState = settingsRepository.getLastPlaybackState().first()
+                lastPlaybackPosition = lastState.positionMs
+
                 val start = withContext(Dispatchers.IO) {
                     PlaybackQueueHelper.preparePlayingQueue(
                         context = this@MainActivity,
@@ -291,7 +289,24 @@ class MainActivity : ComponentActivity() {
                     onReleasePlayer = {
                         uiScope.launch { playbackController.releasePlayer() }
                     },
-                    lastPlaybackAudio = lastPlaybackAudio
+                    lastPlaybackAudio = lastPlaybackAudio,
+                    stopAfterCurrent = playbackState.stopAfterCurrent,
+                    onToggleStopAfterCurrent = {
+                        if(playbackState.stopAfterCurrent.not()){
+                            Toast.makeText(this, "Playback will stop when current song ends", Toast.LENGTH_SHORT).show()
+                        }
+                        playbackController.toggleStopAfterCurrent()
+                    },
+                    playbackPositionMs = if (playbackState.currentAudioFile != null && !playbackState.isLoading) {
+                        playbackState.playbackPositionMs
+                    } else {
+                        lastPlaybackPosition
+                    },
+                    totalDurationMs = if (playbackState.currentAudioFile != null && !playbackState.isLoading) {
+                        playbackState.totalDurationMs
+                    } else {
+                        lastPlaybackAudio?.duration ?: 0L
+                    }
                 )
 
                 LaunchedEffect(externalPlaybackUri) {
@@ -348,14 +363,6 @@ class MainActivity : ComponentActivity() {
     // --- Work Manager & Notification Logic ---
 
     private fun scheduleBackgroundScan() {
-        // --- TESTING MODE: ONE-TIME WORKER ---
-        // Used to verify worker startup immediately on app launch
-//        val testWorkRequest = OneTimeWorkRequestBuilder<NewAudioScanWorker>()
-//            .build()
-//
-//        WorkManager.getInstance(this).enqueue(testWorkRequest)
-//        Log.d(TAG, "scheduleBackgroundScan: Enqueued OneTimeWorkRequest for testing.")
-
         val workRequest = PeriodicWorkRequestBuilder<NewAudioScanWorker>(
             15, TimeUnit.MINUTES // Run every 15 minutes (minimum allowed interval)
         ).build()

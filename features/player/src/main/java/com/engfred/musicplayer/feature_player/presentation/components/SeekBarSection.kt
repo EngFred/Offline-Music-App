@@ -2,11 +2,13 @@ package com.engfred.musicplayer.feature_player.presentation.components
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +29,7 @@ import androidx.compose.material3.SliderState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,12 +58,26 @@ fun SeekBarSection(
     playerLayout: PlayerLayout,
     modifier: Modifier = Modifier,
     horizontalPadding: Dp = 0.dp,
-    /**
-     * Provide the actual playing state from your player (true when audio is playing).
-     * Default true keeps backward compatibility but you should pass real state.
-     */
     isPlaying: Boolean = true
 ) {
+    // Interaction source to detect if user is dragging
+    val interactionSource = remember { MutableInteractionSource() }
+    val isDragged by interactionSource.collectIsDraggedAsState()
+
+    // If the user is dragging, we use the raw value (instant feedback).
+    // If not dragging, we animate the value to smooth out the 500ms updates.
+    val animatedSliderValue by animateFloatAsState(
+        targetValue = sliderValue,
+        animationSpec = tween(
+            durationMillis = if (isDragged) 0 else 500, // Instant when dragging, 500ms smooth when playing
+            easing = LinearEasing
+        ),
+        label = "SmoothSeekBar"
+    )
+
+    // The value to actually display in the UI
+    val displayValue = if (isDragged) sliderValue else animatedSliderValue
+
     // Custom thumb: A static circular indicator
     val customThumb: @Composable (SliderState) -> Unit = {
         Box(
@@ -99,7 +116,6 @@ fun SeekBarSection(
         }
     }
 
-    val interactionSource = remember { MutableInteractionSource() }
     val sliderValueRange = 0f..totalDurationMs.toFloat().coerceAtLeast(0f)
 
     @Composable
@@ -117,9 +133,8 @@ fun SeekBarSection(
         val playheadColor = MaterialTheme.colorScheme.primary
         val desiredBarWidthDp = 4.dp
         val barSpacingDp = 1.dp
-        val waveHeight = 32.dp // Height of the waveform area (excluding padding)
+        val waveHeight = 32.dp
 
-        // Phase controller: continuously increases while playing, pauses when not.
         val phase = remember { Animatable(0f) }
         LaunchedEffect(isPlaying) {
             if (isPlaying) {
@@ -131,7 +146,6 @@ fun SeekBarSection(
                     )
                 }
             }
-            // When paused, the effect cancels any ongoing animation, keeping the current phase.
         }
 
         Box(modifier = modifier
@@ -148,18 +162,12 @@ fun SeekBarSection(
                 )
             }) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                // Calculate spacing using pixel values for precise alignment
                 val spacingPx = density.run { barSpacingDp.toPx() }
                 val desiredBarWidthPx = density.run { desiredBarWidthDp.toPx() }
-
-                // Compute number of bars that fit exactly (at least 3 to avoid degenerate layout)
                 val possibleNumBars = ((size.width + spacingPx) / (desiredBarWidthPx + spacingPx)).toInt().coerceAtLeast(3)
                 val numBars = possibleNumBars
-
-                // Recompute barWidth so the bars + spacings exactly fill the width
                 val totalSpacing = spacingPx * (numBars - 1)
                 val barWidth = ((size.width - totalSpacing) / numBars).coerceAtLeast(1f)
-
                 val barHeightMax = density.run { waveHeight.toPx() } * 0.8f
                 val baselineY = size.height
                 val progressFraction = if (valueRange.endInclusive > valueRange.start) {
@@ -167,20 +175,17 @@ fun SeekBarSection(
                 } else 0f
 
                 val animatedTime = phase.value
-                val speedMultiplier = 1f // Unified speed for smooth alignment across sections
-
+                val speedMultiplier = 1f
                 val playheadX = (progressFraction * size.width).coerceIn(0f, size.width)
 
-                // Draw active portion (left of playhead)
                 clipRect(left = 0f, top = 0f, right = playheadX, bottom = size.height) {
                     for (i in 0 until numBars) {
                         val x = i * (barWidth + spacingPx)
                         val basePhase = (i / numBars.toFloat()) * 4 * PI
                         val animatedPhase = basePhase + (animatedTime * speedMultiplier)
-                        val heightFraction = (sin(animatedPhase) * 0.3f + 0.7f).coerceAtLeast(0.2) // Reduced amplitude for less shake (30% variation)
+                        val heightFraction = (sin(animatedPhase) * 0.3f + 0.7f).coerceAtLeast(0.2)
                         val barHeight = (heightFraction * barHeightMax).toFloat()
 
-                        // Draw filled rounded rect for consistent edge alignment
                         drawRoundRect(
                             color = activeColor,
                             topLeft = Offset(x, (baselineY - barHeight)),
@@ -190,7 +195,6 @@ fun SeekBarSection(
                     }
                 }
 
-                // Draw inactive portion (right of playhead)
                 clipRect(left = playheadX, top = 0f, right = size.width, bottom = size.height) {
                     for (i in 0 until numBars) {
                         val x = i * (barWidth + spacingPx)
@@ -208,7 +212,6 @@ fun SeekBarSection(
                     }
                 }
 
-                // Draw the playhead (vertical line) at current position
                 val playheadStrokeWidth = density.run { 2.dp.toPx() }
                 drawLine(
                     color = playheadColor,
@@ -221,20 +224,18 @@ fun SeekBarSection(
     }
 
     if (playerLayout == PlayerLayout.IMMERSIVE_CANVAS) {
-        // ImmersiveCanvas style: Waveform progress indicator with times below
         Column(
             modifier = modifier
                 .fillMaxWidth()
                 .padding(horizontal = horizontalPadding)
         ) {
-            // Waveform with constrained height
             Box(
                 modifier = Modifier
-                    .height(48.dp) // Slightly taller to accommodate waveform
+                    .height(48.dp)
                     .padding(vertical = 8.dp)
             ) {
                 WaveformSeekBar(
-                    value = sliderValue,
+                    value = displayValue, // Use smooth value
                     onValueChange = onSliderValueChange,
                     onValueChangeFinished = onSliderValueChangeFinished,
                     valueRange = sliderValueRange,
@@ -262,18 +263,16 @@ fun SeekBarSection(
             }
         }
     } else {
-        // EtherealFlowLayout or MinimalistGrooveLayout: times below slider, reduced gap
         Column(
             modifier = modifier
                 .fillMaxWidth()
                 .padding(horizontal = horizontalPadding)
         ) {
-            // Wrap Slider in Box with constrained height to reduce gap
             Box(
                 modifier = Modifier.height(18.dp)
             ) {
                 Slider(
-                    value = sliderValue,
+                    value = displayValue, // Use smooth value
                     onValueChange = onSliderValueChange,
                     onValueChangeFinished = onSliderValueChangeFinished,
                     valueRange = sliderValueRange,
