@@ -51,7 +51,8 @@ include(":features:library")
 include(":features:player")
 include(":features:playlist")
 include(":features:settings")
-include(":features:audio_trim")
+include(":features:trim")
+include(":features:edit")
 ```
 
 ---
@@ -103,7 +104,7 @@ Refer to the `libs.versions.toml` for the full catalog.
 
 ## Folder Layout (feature-first example)
 
-```text
+```kotlin
 app/
 core/
  ├─ di/
@@ -120,7 +121,7 @@ features/
  │   └─ presentation/
  ├─ playlist/
  ├─ settings/
- └─ audio_trim/
+ └─ trim/
 ```
 
 Each feature follows the same `data/domain/presentation` pattern. Keeping public interfaces in `domain` and implementation details in `data`.
