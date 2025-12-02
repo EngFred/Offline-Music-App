@@ -1,6 +1,5 @@
 package com.engfred.musicplayer.core.ui.components
 
-import android.graphics.Color
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode

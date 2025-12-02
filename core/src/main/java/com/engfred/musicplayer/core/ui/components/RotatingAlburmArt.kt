@@ -56,7 +56,7 @@ fun RotatingAlbumArt(
                 ),
                 modifier = Modifier.fillMaxSize(),
                 loading = {
-                    Box(modifier = Modifier.fillMaxSize()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Rounded.MusicNote,
                             contentDescription = "Loading album art",
@@ -70,7 +70,8 @@ fun RotatingAlbumArt(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.MusicNote,
