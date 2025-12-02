@@ -18,6 +18,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.app.ActivityCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -210,6 +211,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                var isInitialResume by remember { mutableStateOf(true) }
+
+                LaunchedEffect(playbackState.isLoading, playbackState.currentAudioFile) {
+                    if (!playbackState.isLoading && playbackState.currentAudioFile != null) {
+                        isInitialResume = false
+                    }
+                }
+
                 AppNavHost(
                     rootNavController = navController,
                     onPlayPause = {
@@ -297,13 +306,17 @@ class MainActivity : ComponentActivity() {
                         }
                         playbackController.toggleStopAfterCurrent()
                     },
-                    playbackPositionMs = if (playbackState.currentAudioFile != null && !playbackState.isLoading) {
-                        playbackState.playbackPositionMs
+                    playbackPositionMs = if (playbackState.currentAudioFile != null) {
+                        if (playbackState.isLoading) {
+                            if (isInitialResume) lastPlaybackPosition else 0L
+                        } else playbackState.playbackPositionMs
                     } else {
                         lastPlaybackPosition
                     },
-                    totalDurationMs = if (playbackState.currentAudioFile != null && !playbackState.isLoading) {
-                        playbackState.totalDurationMs
+                    totalDurationMs = if (playbackState.currentAudioFile != null) {
+                        if (playbackState.isLoading) {
+                            if (isInitialResume) lastPlaybackAudio?.duration ?: 0L else 0L
+                        } else playbackState.totalDurationMs
                     } else {
                         lastPlaybackAudio?.duration ?: 0L
                     }

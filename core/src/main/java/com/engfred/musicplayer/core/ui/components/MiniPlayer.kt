@@ -204,12 +204,12 @@ fun MiniPlayer(
                     // Smooth out the progress bar movement
                     val animatedProgress by animateFloatAsState(
                         targetValue = targetProgress,
-                        animationSpec = tween(durationMillis = 500, easing = LinearEasing), // Match update interval
+                        animationSpec = tween(durationMillis = 500, easing = LinearEasing),
                         label = "miniPlayerProgress"
                     )
 
                     LinearProgressIndicator(
-                        progress = { animatedProgress }, // Use animated value
+                        progress = { animatedProgress },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(2.dp),
