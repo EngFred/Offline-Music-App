@@ -30,7 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.airbnb.lottie.compose.LottieAnimation
 import com.airbnb.lottie.compose.LottieCompositionSpec
-import com.airbnb.lottie.compose.LottieConstants as LottieLibConstants  // Alias to avoid conflicts
+import com.airbnb.lottie.compose.LottieConstants as LottieLibConstants
 import com.airbnb.lottie.compose.rememberLottieComposition
 import com.engfred.musicplayer.feature_playlist.R
 import com.engfred.musicplayer.core.domain.model.Playlist
@@ -38,14 +38,6 @@ import com.engfred.musicplayer.feature_playlist.utils.findFirstAlbumArtUri
 import com.skydoves.landscapist.ImageOptions
 import com.skydoves.landscapist.coil.CoilImage
 
-/**
- * Composable for the header section of the Playlist Detail screen.
- * Displays playlist art, title, and options like adding songs or renaming.
- *
- * The top bar functionality (back arrow and more options) has been moved to a separate
- * `PlaylistDetailTopBar` composable which is now placed outside the scrollable list.
- * The `onNavigateBack` and `onMoreMenuExpandedChange` callbacks are no longer used here.
- */
 @Composable
 fun PlaylistDetailHeaderSection(
     playlist: Playlist?,
@@ -54,8 +46,9 @@ fun PlaylistDetailHeaderSection(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        // Playlist Header (Image and Title)
-        val firstSongAlbumArt = playlist?.findFirstAlbumArtUri()
+
+        // Priority: 1. Custom Art set by user. 2. First song in playlist.
+        val displayArt = playlist?.customArtUri ?: playlist?.findFirstAlbumArtUri()
         val playlistName = playlist?.name ?: "Unknown Playlist"
 
         val imageSize = if (isCompact) 200.dp else 240.dp
@@ -70,7 +63,8 @@ fun PlaylistDetailHeaderSection(
         ) {
             Spacer(Modifier.size(20.dp))
 
-            if (isFavPlaylist) {
+            // Only show Lottie if it's Favorites AND user hasn't set a custom cover
+            if (isFavPlaylist && playlist?.customArtUri == null) {
                 val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(R.raw.love))
                 if (isCompact.not()) Spacer(Modifier.size(24.dp))
                 if (composition != null) {
@@ -102,10 +96,10 @@ fun PlaylistDetailHeaderSection(
                     )
                 }
             } else {
-                // non-favorite: use Coil to load first song album art (with loading/failure)
+                // For all other playlists OR favorites with custom art
                 if (isCompact.not()) Spacer(Modifier.size(34.dp))
                 CoilImage(
-                    imageModel = { firstSongAlbumArt },
+                    imageModel = { displayArt },
                     imageOptions = ImageOptions(
                         contentDescription = "Playlist Album Art",
                         contentScale = ContentScale.FillBounds

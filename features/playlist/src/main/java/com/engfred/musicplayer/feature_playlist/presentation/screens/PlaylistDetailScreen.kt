@@ -100,16 +100,14 @@ fun PlaylistDetailScreen(
         }
     }
 
-    // Determine if the playlist is "System Managed" (Automatic OR Favorites)
-    // This flag restricts certain actions like mass deletion or cover changes
-    val isAutomaticOrFavorites = uiState.playlist?.isAutomatic == true ||
-            uiState.playlist?.name.equals("Favorites", ignoreCase = true)
+    // We strictly define "ReadOnly" for song modification (add/remove),
+    // but we will now allow Metadata modification (Cover art) for all.
+    val isReadOnlyPlaylist = uiState.playlist?.isAutomatic == true &&
+            !uiState.playlist?.name.equals("Favorites", ignoreCase = true)
 
-    // Selection mode is only available for user created playlists (not automatic/favorites)
-    val isSelectionMode = uiState.selectedSongs.isNotEmpty() && !isAutomaticOrFavorites
+    val isSelectionMode = uiState.selectedSongs.isNotEmpty() && !isReadOnlyPlaylist
     val coroutineScope = rememberCoroutineScope()
 
-    // BackHandler: when selection is active, consume back and deselect
     BackHandler(enabled = isSelectionMode) {
         viewModel.onEvent(PlaylistDetailEvent.DeselectAll)
     }
@@ -198,7 +196,7 @@ fun PlaylistDetailScreen(
                     else onNavigateBack()
                 },
                 onMoreMenuExpandedChange = { moreMenuExpanded = it },
-                isAutomaticPlaylist = uiState.playlist?.isAutomatic ?: false,
+                isAutomaticPlaylist = isReadOnlyPlaylist,
                 onAddSongsClick = { showAddSongsBottomSheet = true },
                 onRenamePlaylistClick = { viewModel.onEvent(PlaylistDetailEvent.ShowRenameDialog) },
                 moreMenuExpanded = moreMenuExpanded,
@@ -301,23 +299,22 @@ fun PlaylistDetailScreen(
                                 isAudioPlaying = uiState.isPlaying,
                                 onAddToPlaylist = { viewModel.onEvent(PlaylistDetailEvent.ShowPlaylistsDialog(it)) },
                                 onPlayNext = { viewModel.onEvent(PlaylistDetailEvent.SetPlayNext(it)) },
-                                isFromAutomaticPlaylist = isAutomaticOrFavorites,
+                                isFromAutomaticPlaylist = isReadOnlyPlaylist,
                                 playCount = uiState.playlist?.playCounts?.get(audioFile.id),
                                 onEditInfo = onEditInfo,
                                 onTrimAudio = onTrimAudio,
                                 isSelectionMode = isSelectionMode,
-                                // Pass null if restricted (Automatic or Favorites), hiding the menu option
-                                onSetAsPlaylistCover = if (isAutomaticOrFavorites) null else { audioFile ->
-                                    viewModel.onEvent(PlaylistDetailEvent.SetPlaylistCover(audioFile))
+                                onSetAsPlaylistCover = { selectedSong ->
+                                    viewModel.onEvent(PlaylistDetailEvent.SetPlaylistCover(selectedSong))
                                 },
                                 isSelected = isSelected,
                                 onToggleSelect = { viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(audioFile)) },
                                 onItemTap = {
-                                    if (isSelectionMode && !isAutomaticOrFavorites) viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(audioFile))
+                                    if (isSelectionMode && !isReadOnlyPlaylist) viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(audioFile))
                                     else viewModel.onEvent(PlaylistDetailEvent.PlayAudio(audioFile))
                                 },
                                 onItemLongPress = {
-                                    if (!isSelectionMode && !isAutomaticOrFavorites) {
+                                    if (!isSelectionMode && !isReadOnlyPlaylist) {
                                         viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(audioFile))
                                     } else {
                                         Toast.makeText(context, "Cannot select songs from this playlist.", Toast.LENGTH_SHORT).show()
@@ -386,7 +383,7 @@ fun PlaylistDetailScreen(
                                     songs = uiState.sortedSongs,
                                     currentPlayingId = uiState.currentPlayingAudioFile?.id,
                                     onSongClick = { clickedAudioFile ->
-                                        if (isSelectionMode && !isAutomaticOrFavorites) viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(clickedAudioFile))
+                                        if (isSelectionMode && !isReadOnlyPlaylist) viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(clickedAudioFile))
                                         else viewModel.onEvent(PlaylistDetailEvent.PlayAudio(clickedAudioFile))
                                     },
                                     onSongRemove = { song -> viewModel.onEvent(PlaylistDetailEvent.ShowRemoveSongConfirmation(song)) },
@@ -396,8 +393,7 @@ fun PlaylistDetailScreen(
                                     onAddToPlaylist = { viewModel.onEvent(PlaylistDetailEvent.ShowPlaylistsDialog(it)) },
                                     onPlayNext = { viewModel.onEvent(PlaylistDetailEvent.SetPlayNext(it)) },
 
-                                    // Ensure this is consistent with portrait logic
-                                    isFromAutomaticPlaylist = isAutomaticOrFavorites,
+                                    isFromAutomaticPlaylist = isReadOnlyPlaylist,
 
                                     playCountMap = uiState.playlist?.playCounts,
                                     onEditInfo = onEditInfo,
@@ -406,7 +402,7 @@ fun PlaylistDetailScreen(
                                     selectedSongs = uiState.selectedSongs,
                                     onToggleSelection = { song -> viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(song)) },
                                     onLongPress = { song ->
-                                        if (!isSelectionMode && !isAutomaticOrFavorites) {
+                                        if (!isSelectionMode && !isReadOnlyPlaylist) {
                                             viewModel.onEvent(PlaylistDetailEvent.ToggleSelection(song))
                                         } else {
                                             Toast.makeText(context, "Cannot select songs from this playlists.", Toast.LENGTH_SHORT).show()

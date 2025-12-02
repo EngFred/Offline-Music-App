@@ -1,6 +1,5 @@
 package com.engfred.musicplayer.feature_playlist.presentation.viewmodel.detail
 
-import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -90,7 +89,8 @@ class PlaylistDetailViewModel @Inject constructor(
             val currentPlaylist = _uiState.value.playlist
             when (event) {
                 is PlaylistDetailEvent.ShowRemoveSongConfirmation -> {
-                    if (currentPlaylist?.isAutomatic == true) {
+                    // Prevent removal if automatic, BUT allow Favorites (which is often handled as automatic in DB but user-editable)
+                    if (currentPlaylist?.isAutomatic == true && !currentPlaylist.name.equals("Favorites", true)) {
                         _uiEvent.emit("Cannot remove songs from automatic playlists.")
                         return@launch
                     }
@@ -115,7 +115,7 @@ class PlaylistDetailViewModel @Inject constructor(
                     val audioFileToRemove = _uiState.value.audioFileToRemove
                     val playlistId = currentPlaylistId
                     if (playlistId != null && audioFileToRemove != null) {
-                        if (currentPlaylist?.isAutomatic == true) {
+                        if (currentPlaylist?.isAutomatic == true && !currentPlaylist.name.equals("Favorites", true)) {
                             _uiEvent.emit("Cannot remove songs from automatic playlists.")
                             return@launch
                         }
@@ -210,7 +210,7 @@ class PlaylistDetailViewModel @Inject constructor(
                 }
 
                 is PlaylistDetailEvent.AddSong -> {
-                    if (currentPlaylist?.isAutomatic == true) {
+                    if (currentPlaylist?.isAutomatic == true && !currentPlaylist.name.equals("Favorites", true)) {
                         _uiEvent.emit("Cannot manually add songs to automatic playlists.")
                         return@launch
                     }
@@ -285,8 +285,9 @@ class PlaylistDetailViewModel @Inject constructor(
                 }
 
                 is PlaylistDetailEvent.ToggleSelection -> {
-                    if (_uiState.value.playlist?.isAutomatic == true) {
-                        return@launch  // Disable for automatic
+                    // Allow selection for Favorites. Only block if automatic AND NOT Favorites
+                    if (_uiState.value.playlist?.isAutomatic == true && !_uiState.value.playlist!!.name.equals("Favorites", true)) {
+                        return@launch
                     }
                     _uiState.update { current ->
                         val newSelected = current.selectedSongs.toMutableSet()
@@ -375,10 +376,6 @@ class PlaylistDetailViewModel @Inject constructor(
                 }
 
                 is PlaylistDetailEvent.SetPlaylistCover -> {
-                    if (currentPlaylist?.isAutomatic == true) {
-                        _uiEvent.emit("Cannot set cover for automatic playlists.")
-                        return@launch
-                    }
                     _uiState.update {
                         it.copy(
                             showSetCoverConfirmationDialog = true,
@@ -400,15 +397,18 @@ class PlaylistDetailViewModel @Inject constructor(
                     val audioFile = _uiState.value.potentialCoverAudioFile
                     val playlist = _uiState.value.playlist
 
-                    if (audioFile != null && playlist != null && !playlist.isAutomatic) {
+                    if (audioFile != null && playlist != null) {
                         try {
                             val artUri = audioFile.albumArtUri
                             if (artUri != null) {
                                 val updatedPlaylist = playlist.copy(customArtUri = artUri)
 
+                                // Since repo now uses insertPlaylist (REPLACE), this works even for automatic playlists
                                 playlistRepository.updatePlaylist(updatedPlaylist)
 
                                 _uiEvent.emit("Playlist cover updated!")
+//                                // Immediately update local state to reflect change
+//                                _uiState.update { it.copy(playlist = updatedPlaylist) }
                             } else {
                                 _uiEvent.emit("This song has no album art.")
                             }

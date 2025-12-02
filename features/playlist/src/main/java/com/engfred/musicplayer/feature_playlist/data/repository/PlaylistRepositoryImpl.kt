@@ -2,6 +2,7 @@ package com.engfred.musicplayer.feature_playlist.data.repository
 
 import android.net.Uri
 import android.util.Log
+import androidx.core.net.toUri
 import com.engfred.musicplayer.core.data.SharedAudioDataSource
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.model.AutomaticPlaylistType
@@ -14,10 +15,10 @@ import com.engfred.musicplayer.feature_playlist.data.local.entity.SongPlayEventE
 import com.engfred.musicplayer.feature_playlist.data.local.model.PlaylistWithSongs
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
-import androidx.core.net.toUri
 
 @Singleton
 class PlaylistRepositoryImpl @Inject constructor(
@@ -35,7 +36,7 @@ class PlaylistRepositoryImpl @Inject constructor(
             songs = this.songs.map { it.toDomain() },
             isAutomatic = this.playlist.isAutomatic,
             type = this.playlist.type,
-            customArtUri = this.playlist.customArtUri?.let { Uri.parse(it) }
+            customArtUri = this.playlist.customArtUri?.toUri()
         )
     }
 
@@ -46,7 +47,6 @@ class PlaylistRepositoryImpl @Inject constructor(
             createdAt = this.createdAt,
             isAutomatic = this.isAutomatic,
             type = this.type,
-            // Map the String URI from DB to Android Uri
             customArtUri = this.customArtUri?.toUri()
         )
     }
@@ -58,7 +58,6 @@ class PlaylistRepositoryImpl @Inject constructor(
             createdAt = this.createdAt,
             isAutomatic = this.isAutomatic,
             type = this.type,
-            // Convert Android Uri back to String for DB
             customArtUri = this.customArtUri?.toString()
         )
     }
@@ -92,9 +91,8 @@ class PlaylistRepositoryImpl @Inject constructor(
     }
 
     override fun getPlaylists(): Flow<List<Playlist>> {
-        // Fetch user-created and automatic playlists and combine them.
-        val userPlaylistsFlow = playlistDao.getPlaylistsWithSongs().map { playlistWithSongsList ->
-            playlistWithSongsList.map { it.toDomain() }
+        val dbPlaylistsFlow = playlistDao.getPlaylistsWithSongs().map { list ->
+            list.map { it.toDomain() }
         }
 
         val recentlyAddedFlow = getRecentlyAddedSongs(limit = 20)
@@ -105,25 +103,32 @@ class PlaylistRepositoryImpl @Inject constructor(
         val artistPlaylistsFlow = getArtistPlaylists()
 
         return combine(
-            userPlaylistsFlow,
+            dbPlaylistsFlow,
             recentlyAddedFlow,
             topPlayedFlow,
             artistPlaylistsFlow
-        ) { userPlaylists, recentlyAddedSongs, topPlayedPairs, artistPlaylists ->
+        ) { dbPlaylists, recentlyAddedSongs, topPlayedPairs, artistPlaylists ->
+
+            val userPlaylists = dbPlaylists.filter { it.id > 0 }
+            val metaPlaylists = dbPlaylists.filter { it.id < 0 }.associateBy { it.id }
+
             val automaticPlaylists = mutableListOf<Playlist>()
 
             if (recentlyAddedSongs.isNotEmpty()) {
+                val savedMeta = metaPlaylists[-1]
                 automaticPlaylists.add(
                     Playlist(
                         id = -1,
                         name = "Recently Added",
                         songs = recentlyAddedSongs,
                         isAutomatic = true,
-                        type = AutomaticPlaylistType.RECENTLY_ADDED
+                        type = AutomaticPlaylistType.RECENTLY_ADDED,
+                        customArtUri = savedMeta?.customArtUri
                     )
                 )
             }
 
+            val savedMetaMostPlayed = metaPlaylists[-2]
             automaticPlaylists.add(
                 Playlist(
                     id = -2,
@@ -131,42 +136,71 @@ class PlaylistRepositoryImpl @Inject constructor(
                     songs = topPlayedPairs.map { it.first },
                     isAutomatic = true,
                     type = AutomaticPlaylistType.MOST_PLAYED,
-                    playCounts = topPlayedPairs.associate { it.first.id to it.second }
+                    playCounts = topPlayedPairs.associate { it.first.id to it.second },
+                    customArtUri = savedMetaMostPlayed?.customArtUri
                 )
             )
 
-            automaticPlaylists.addAll(artistPlaylists)
+            val updatedArtistPlaylists = artistPlaylists.map { artistPlaylist ->
+                val savedMetaArtist = metaPlaylists[artistPlaylist.id]
+                if (savedMetaArtist != null) {
+                    artistPlaylist.copy(customArtUri = savedMetaArtist.customArtUri)
+                } else {
+                    artistPlaylist
+                }
+            }
+
+            automaticPlaylists.addAll(updatedArtistPlaylists)
             automaticPlaylists + userPlaylists
         }
     }
 
     override fun getPlaylistById(playlistId: Long): Flow<Playlist?> {
+        val dbMetadataFlow = if (playlistId < 0) {
+            playlistDao.getPlaylistWithSongsById(playlistId).map { it?.toDomain() }
+        } else {
+            flowOf(null)
+        }
+
         return when {
-            playlistId == -1L -> getRecentlyAddedSongs(limit = 20).map { songs ->
+            playlistId == -1L -> combine(
+                getRecentlyAddedSongs(limit = 20),
+                dbMetadataFlow
+            ) { songs, meta ->
                 if (songs.isNotEmpty()) Playlist(
                     id = -1,
                     name = "Recently Added",
                     songs = songs,
                     isAutomatic = true,
-                    type = AutomaticPlaylistType.RECENTLY_ADDED
+                    type = AutomaticPlaylistType.RECENTLY_ADDED,
+                    customArtUri = meta?.customArtUri
                 ) else null
             }
-            playlistId == -2L -> getTopPlayedSongs(
-                sinceTimestamp = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000L),
-                limit = 50
-            ).map { pairs ->
+
+            playlistId == -2L -> combine(
+                getTopPlayedSongs(
+                    sinceTimestamp = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000L),
+                    limit = 50
+                ),
+                dbMetadataFlow
+            ) { pairs, meta ->
                 Playlist(
                     id = -2,
                     name = "Most Played",
                     songs = pairs.map { it.first },
                     isAutomatic = true,
                     type = AutomaticPlaylistType.MOST_PLAYED,
-                    playCounts = pairs.associate { it.first.id to it.second }
+                    playCounts = pairs.associate { it.first.id to it.second },
+                    customArtUri = meta?.customArtUri
                 )
             }
+
             playlistId < 0 -> {
                 val artistId = -playlistId
-                sharedAudioDataSource.deviceAudioFiles.map { allAudioFiles ->
+                combine(
+                    sharedAudioDataSource.deviceAudioFiles,
+                    dbMetadataFlow
+                ) { allAudioFiles, meta ->
                     val songs = allAudioFiles.filter { it.artistId == artistId }.sortedBy { it.title }
                     if (songs.isEmpty()) {
                         null
@@ -178,23 +212,33 @@ class PlaylistRepositoryImpl @Inject constructor(
                             name = artistName,
                             songs = songs,
                             isAutomatic = true,
-                            type = AutomaticPlaylistType.ARTIST
+                            type = AutomaticPlaylistType.ARTIST,
+                            customArtUri = meta?.customArtUri
                         )
                     }
                 }
             }
+
             else -> playlistDao.getPlaylistWithSongsById(playlistId).map { playlistWithSongs ->
                 playlistWithSongs?.toDomain()
             }
         }
     }
 
-    override suspend fun createPlaylist(playlist: Playlist): Long {
-        return playlistDao.insertPlaylist(playlist.toEntity())
+    override suspend fun updatePlaylist(playlist: Playlist) {
+        if (playlist.id > 0) {
+            // For User Playlists (ID > 0), use UPDATE.
+            // This preserves the ID and the songs linked to it.
+            playlistDao.updatePlaylist(playlist.toEntity())
+        } else {
+            // For Automatic Playlists (ID < 0), use INSERT/REPLACE.
+            // These don't store songs in DB, so it's safe to replace the metadata row.
+            playlistDao.insertPlaylist(playlist.toEntity())
+        }
     }
 
-    override suspend fun updatePlaylist(playlist: Playlist) {
-        playlistDao.updatePlaylist(playlist.toEntity())
+    override suspend fun createPlaylist(playlist: Playlist): Long {
+        return playlistDao.insertPlaylist(playlist.toEntity())
     }
 
     override suspend fun deletePlaylist(playlistId: Long) {
@@ -208,18 +252,9 @@ class PlaylistRepositoryImpl @Inject constructor(
 
     override suspend fun addSongsToPlaylist(playlistId: Long, audioFiles: List<AudioFile>): Int {
         if (audioFiles.isEmpty()) return 0
-
         val entities = audioFiles.map { it.toPlaylistSongEntity(playlistId) }
-
-        // Batch insert.
-        // Duplicate songs will be ignored by Room (OnConflictStrategy.IGNORE).
-        // It returns a list of Row IDs. -1 indicates the row was ignored.
         val results = playlistDao.insertPlaylistSongs(entities)
-
-        // Count how many were NOT -1 to get the number of successfully added songs.
-        val addedCount = results.count { it != -1L }
-
-        return addedCount
+        return results.count { it != -1L }
     }
 
     override suspend fun removeSongFromPlaylist(playlistId: Long, audioFileId: Long) {

@@ -118,11 +118,10 @@ fun AudioFileItem(
                 modifier = Modifier.padding(end = 2.dp)
             )
         }
-        Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.size(54.dp), contentAlignment = Alignment.Center) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .size(56.dp)
                     .clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)
                     .graphicsLayer { rotationZ = rotationDegrees },
                 contentAlignment = Alignment.Center
@@ -263,11 +262,10 @@ fun AudioFileItem(
                     )
 
                     // Use as Playlist Cover Option
-                    // Only show if:
-                    // 1. Not in automatic playlist (Favorites/Recently Added)
-                    // 2. Not in Library screen (isFromLibrary flag)
-                    // 3. Audio file actually has artwork
-                    if (!isFromAutomaticPlaylist && !isFromLibrary && audioFile.albumArtUri != null && onSetAsPlaylistCover != null ) {
+                    // ENABLED FOR ALL PLAYLISTS (including automatic/favorites)
+                    // Only restricted if we are in the main Library (where covers don't apply)
+                    // or if the file has no artwork.
+                    if (!isFromLibrary && audioFile.albumArtUri.toString().isNullOrEmpty().not() && onSetAsPlaylistCover != null) {
                         DropdownMenuItem(
                             text = { Text("Use as Playlist Cover") },
                             onClick = {
@@ -280,6 +278,7 @@ fun AudioFileItem(
                         )
                     }
 
+                    // Only show Remove/Delete based on playlist type
                     if (!isFromAutomaticPlaylist) {
                         DropdownMenuItem(
                             text = { Text(if (isFromLibrary) "Delete File" else "Remove Audio") },
@@ -293,7 +292,6 @@ fun AudioFileItem(
                         )
                     }
 
-                    // ... (Keep Edit Info, Trim, Share) ...
                     DropdownMenuItem(
                         text = { Text("Edit Info") },
                         onClick = {

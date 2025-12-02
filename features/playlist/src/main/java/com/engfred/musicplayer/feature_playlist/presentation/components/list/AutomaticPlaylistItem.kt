@@ -32,6 +32,7 @@ import com.engfred.musicplayer.core.domain.model.Playlist
 import com.skydoves.landscapist.coil.CoilImage
 import com.engfred.musicplayer.core.util.TextUtils
 import com.skydoves.landscapist.ImageOptions
+import com.engfred.musicplayer.feature_playlist.utils.findFirstAlbumArtUri
 
 @Composable
 fun AutomaticPlaylistItem(
@@ -63,10 +64,12 @@ fun AutomaticPlaylistItem(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
-                val firstSongAlbumArtUri = playlist.songs.firstOrNull()?.albumArtUri
-                if (firstSongAlbumArtUri != null) {
+                // use helper that checks customArtUri first
+                val displayArt = playlist.findFirstAlbumArtUri()
+
+                if (displayArt != null) {
                     CoilImage(
-                        imageModel = { firstSongAlbumArtUri },
+                        imageModel = { displayArt },
                         modifier = Modifier.fillMaxSize(),
                         imageOptions = ImageOptions(
                             contentScale = ContentScale.FillBounds

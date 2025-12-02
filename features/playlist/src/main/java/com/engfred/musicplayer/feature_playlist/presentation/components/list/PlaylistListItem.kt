@@ -47,9 +47,6 @@ import com.engfred.musicplayer.feature_playlist.utils.findFirstAlbumArtUri
 import com.skydoves.landscapist.ImageOptions
 import com.skydoves.landscapist.coil.CoilImage
 
-/**
- * Flat list row version of a playlist (not a Card). Shows a horizontal divider if [showDivider] is true.
- */
 @Composable
 fun PlaylistListItem(
     playlist: Playlist,
@@ -79,8 +76,48 @@ fun PlaylistListItem(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
-                // When not deletable -> show favorites drawable
-                if (!isDeletable) {
+                // Determine the art to show. findFirstAlbumArtUri checks customArtUri first.
+                val displayArt = playlist.findFirstAlbumArtUri()
+
+                // Logic:
+                // 1. If there is valid art (Custom or First Song), show it.
+                // 2. If no art AND it is Favorites (not deletable), show the Favorite Drawable.
+                // 3. Otherwise show generic music note.
+
+                if (displayArt != null) {
+                    CoilImage(
+                        imageModel = { displayArt },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .width(56.dp)
+                            .height(56.dp),
+                        imageOptions = ImageOptions(
+                            contentScale = ContentScale.Crop
+                        ),
+                        loading = {
+                            Box(modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                                .background(MaterialTheme.colorScheme.surfaceVariant))
+                        },
+                        failure = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.MusicNote,
+                                    contentDescription = "No album art available",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(35.dp)
+                                )
+                            }
+                        }
+                    )
+                } else if (!isDeletable) {
+                    // Fallback for Favorites ONLY if no custom/song art exists
                     Image(
                         painter = painterResource(id = R.drawable.favorites),
                         contentDescription = "Favorites",
@@ -91,48 +128,12 @@ fun PlaylistListItem(
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    // deletable: show first song album art (Coil) or fallback icon
-                    val albumArtUri = playlist.findFirstAlbumArtUri()
-                    if (albumArtUri != null) {
-                        CoilImage(
-                            imageModel = { albumArtUri },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .width(56.dp)
-                                .height(56.dp),
-                            imageOptions = ImageOptions(
-                                contentScale = ContentScale.Crop
-                            ),
-                            loading = {
-                                Box(modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(56.dp)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant))
-                            },
-                            failure = {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(56.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.MusicNote,
-                                        contentDescription = "No album art available",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(35.dp)
-                                    )
-                                }
-                            }
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Rounded.MusicNote,
-                            contentDescription = "No album art available",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Rounded.MusicNote,
+                        contentDescription = "No album art available",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
             }
 

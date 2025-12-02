@@ -42,7 +42,4 @@ object PlaylistDatabaseMigrations {
             """)
         }
     }
-
-    // Add more migrations here as your database schema evolves:
-    // val MIGRATION_2_3 = object : Migration(2, 3) { ... }
 }

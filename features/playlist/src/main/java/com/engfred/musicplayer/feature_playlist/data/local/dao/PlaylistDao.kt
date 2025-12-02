@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface PlaylistDao {
 
+    // If we send a Playlist with ID -1,
+    // and it doesn't exist, Room creates it. If it exists, Room updates it.
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPlaylist(playlist: PlaylistEntity): Long
 
@@ -28,9 +30,6 @@ interface PlaylistDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPlaylistSong(playlistSong: PlaylistSongEntity)
 
-    // Batch insert for efficiency
-    // Rows that are inserted successfully return their rowId.
-    // Rows that are IGNORED (duplicates) return -1.
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertPlaylistSongs(playlistSongs: List<PlaylistSongEntity>): List<Long>
 
