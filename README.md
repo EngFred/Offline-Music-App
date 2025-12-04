@@ -4,7 +4,7 @@
 
 ---
 
-## 📥 Download APK
+## Download APK Below
 
 Get the latest release of **Music** here:
 
