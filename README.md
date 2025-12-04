@@ -55,20 +55,20 @@ include(":features:edit")
 
 ---
 
-## Key Dependencies & Versions
+## Key Dependencies
 
 The project uses a centralized version catalog. Selected versions used in the project:
 
-* Kotlin: `2.1.0`
-* Android Gradle Plugin (AGP): `8.11.1`
-* Jetpack Compose BOM: `2025.07.00`
-* Hilt: `2.55`
-* Media3: `1.8.0`
-* Room: `2.6.1`
-* Coroutines: `1.10.2`
-* Coil: `2.7.0`
-* KSP: `2.1.0-1.0.29`
-* accompanist-systemuicontroller: `0.36.0`
+* Kotlin
+* Android Gradle Plugin (AGP)
+* Jetpack Compose BOM
+* Hilt
+* Media3
+* Room
+* Coroutines
+* Coil
+* KSP
+* accompanist-systemuicontroller
 
 Refer to the `libs.versions.toml` for the full catalog.
 
