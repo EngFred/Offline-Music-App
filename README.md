@@ -30,13 +30,13 @@ Designed with **Clean Architecture** principles, it features a robust audio engi
 <div align="center">
   <img src="https://github.com/user-attachments/assets/4d269786-cc94-42ba-908e-1210eb9c98f5" alt="Screenshot 5" width="24%"/>
   <img src="https://github.com/user-attachments/assets/aaa31e10-3d5a-4a02-98e2-d2ba84779c37" alt="Screenshot 6" width="24%"/>
-  <img src="https://github.com/user-attachments/assets/734c8010-c06d-48d8-93af-6bd39a0b9778" alt="Screenshot 10" width="24%"/>
+  <img src="https://github.com/user-attachments/assets/df7fd80c-e7da-4878-b3d1-3860d3dbfbe9" alt="Screenshot 7" width="24%"/>
   <img src="https://github.com/user-attachments/assets/f33c04a5-20ca-488a-8ebd-4c313cb7d3c3" alt="Screenshot 8" width="24%"/>
 </div>
 
 <div align="center">
   <img src="https://github.com/user-attachments/assets/05929aa1-a6b8-435b-8a8a-ad0c256f7bf4" alt="Screenshot 9" width="24%"/>
-  <img src="https://github.com/user-attachments/assets/df7fd80c-e7da-4878-b3d1-3860d3dbfbe9" alt="Screenshot 7" width="24%"/>
+  <img src="https://github.com/user-attachments/assets/734c8010-c06d-48d8-93af-6bd39a0b9778" alt="Screenshot 10" width="24%"/>
   <img src="https://github.com/user-attachments/assets/a745c80d-2a26-48fe-b61b-f18636d96ef0" alt="Screenshot 11" width="24%"/>
   <img src="https://github.com/user-attachments/assets/8bb5dc67-80ed-45c4-a344-26643cf24f84" alt="Screenshot 12" width="24%"/>
 </div>
