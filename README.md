@@ -1,12 +1,23 @@
-# Music
+# Music - Modern Offline Audio Player
 
-**Music** — A fully offline, modern, modularized music player app built with **Kotlin** and **Jetpack Compose**. This project demonstrates Clean Architecture, feature-based modularization, and modern Android development best practices.
+![Android](https://img.shields.io/badge/Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)
+![Kotlin](https://img.shields.io/badge/Kotlin-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
+![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
+![Hilt](https://img.shields.io/badge/Hilt-Dependency%20Injection-orange?style=for-the-badge&logo=google&logoColor=white)
+![Media3](https://img.shields.io/badge/Media3-ExoPlayer-red?style=for-the-badge&logo=googleplay&logoColor=white)
+![Clean Architecture](https://img.shields.io/badge/Clean-Architecture-blueviolet?style=for-the-badge)
+
+<br />
+
+[![Download APK](https://img.shields.io/badge/Download%20APK-v2.2.2-success?style=for-the-badge&logo=android&logoColor=white)](https://github.com/EngFred/Offline-Music-App/releases/download/v2.2.2/Music_v2.2.2.apk)
+![Size](https://img.shields.io/badge/Size-~15_MB-blue?style=for-the-badge)
+![License](https://img.shields.io/github/license/EngFred/Offline-Music-App?style=for-the-badge&color=blue)
 
 ---
 
-## Get the latest release of **Music** here:
+**Music** is a fully offline, modern, modularized music player built with **Kotlin** and **Jetpack Compose**. 
 
-[Download Music APK](https://github.com/EngFred/Offline-Music-App/releases/download/v2.2.2/Music_v2.2.2.apk)
+Designed with **Clean Architecture** principles, it features a robust audio engine powered by **Media3 (ExoPlayer)**, seamless modular navigation, and advanced features like audio trimming and tag editing. This project serves as a showcase for modern Android development best practices.
 
 ---
 
