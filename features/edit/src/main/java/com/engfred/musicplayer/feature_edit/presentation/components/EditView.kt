@@ -42,6 +42,7 @@ fun EditView(
     totalDurationMs: Long,
 ) {
     Scaffold(
+        modifier = Modifier.imePadding(),
         topBar = {
             CustomTopBar(
                 title = "Edit Audio Info",
@@ -73,16 +74,18 @@ fun EditView(
                 .padding(innerPadding)
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
-                .padding(16.dp)
+                .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Top
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Album Art Circle
             Surface(
                 modifier = Modifier.size(200.dp),
                 shape = CircleShape,
-                shadowElevation = 4.dp
+                shadowElevation = 4.dp,
+                color = MaterialTheme.colorScheme.surfaceVariant
             ) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -100,33 +103,43 @@ fun EditView(
                         Icon(
                             Icons.Rounded.Image,
                             contentDescription = "No album art",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                             modifier = Modifier.size(80.dp)
                         )
                     }
                 }
             }
+
             Spacer(modifier = Modifier.height(16.dp))
+
             TextButton(onClick = onPickImage) {
                 Text(text = "Change Album Art")
             }
+
             Spacer(modifier = Modifier.height(24.dp))
+
             TextField(
                 value = uiState.title,
                 onValueChange = onTitleChange,
                 label = { Text("Song Title") },
                 leadingIcon = { Icon(Icons.Rounded.MusicNote, contentDescription = null) },
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+
             Spacer(modifier = Modifier.height(16.dp))
+
             TextField(
                 value = uiState.artist,
                 onValueChange = onArtistChange,
                 label = { Text("Artist") },
                 leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null) },
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.height(24.dp))
+
+            Spacer(modifier = Modifier.height(32.dp))
+
             if (uiState.isSaving) {
                 CircularProgressIndicator()
             } else {
@@ -148,12 +161,14 @@ fun EditView(
                     }
                 }
             }
-            Spacer(modifier = Modifier.weight(1f))
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             Text(
                 text = "The changes will be applied system-wide even across other applications that have access to this file.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(8.dp)
+                modifier = Modifier.padding(bottom = 24.dp)
             )
         }
     }

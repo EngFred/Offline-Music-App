@@ -17,14 +17,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
  * A custom top bar with a FIXED height to prevent UI shifting.
- * If a subtitle is present, the title moves up to make room.
- * If no subtitle, the title centers vertically.
+ * Supports custom background and content colors (e.g. for dark mode screens like Cropping).
  */
 @Composable
 fun CustomTopBar(
@@ -33,24 +33,25 @@ fun CustomTopBar(
     modifier: Modifier = Modifier,
     showNavigationIcon: Boolean = false,
     onNavigateBack: (() -> Unit)? = null,
+    backgroundColor: Color = MaterialTheme.colorScheme.background,
+    contentColor: Color = MaterialTheme.colorScheme.onBackground,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     // Standard Material 3 Medium/Large top bar height or a custom fixed size.
-    // 64.dp is usually enough for Title + small Subtitle.
     val fixedBarHeight = 64.dp
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(fixedBarHeight) // <--- FIXED HEIGHT
-            .background(MaterialTheme.colorScheme.background),
+            .height(fixedBarHeight)
+            .background(backgroundColor),
         contentAlignment = Alignment.CenterStart
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically, // Center the Row contents
+            verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             if (showNavigationIcon) {
@@ -61,34 +62,30 @@ fun CustomTopBar(
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onBackground
+                        tint = contentColor
                     )
                 }
             } else {
-                Spacer(modifier = Modifier.width(12.dp)) // Add a little start padding if no icon
+                Spacer(modifier = Modifier.width(12.dp))
             }
 
             Column(
                 horizontalAlignment = Alignment.Start,
-                // This centers the block vertically.
-                // If subtitle is gone, Title is centered.
-                // If subtitle exists, the whole block is centered.
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight() // Ensure column takes full height to allow centering
+                    .fillMaxHeight()
                     .padding(start = if (showNavigationIcon) 0.dp else 4.dp)
             ) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = contentColor,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
 
-                // We keep the fade animation for the text itself, but not the container height
                 AnimatedVisibility(
                     visible = subtitle != null,
                     enter = fadeIn(animationSpec = tween(300)) + slideInVertically { it / 2 },
@@ -98,7 +95,7 @@ fun CustomTopBar(
                         Text(
                             text = it,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                            color = contentColor.copy(alpha = 0.7f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 0.dp)
