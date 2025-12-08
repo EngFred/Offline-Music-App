@@ -36,9 +36,9 @@ Designed with **Clean Architecture** principles, it features a robust audio engi
 
 <div align="center">
   <img src="https://github.com/user-attachments/assets/05929aa1-a6b8-435b-8a8a-ad0c256f7bf4" alt="Screenshot 9" width="24%"/>
-  <img src="https://github.com/user-attachments/assets/734c8010-c06d-48d8-93af-6bd39a0b9778" alt="Screenshot 10" width="24%"/>
-    <img src="https://github.com/user-attachments/assets/f33c04a5-20ca-488a-8ebd-4c313cb7d3c3" alt="Screenshot 8" width="24%"/>
+  <img src="https://github.com/user-attachments/assets/f33c04a5-20ca-488a-8ebd-4c313cb7d3c3" alt="Screenshot 8" width="24%"/>
   <img src="https://github.com/user-attachments/assets/8bb5dc67-80ed-45c4-a344-26643cf24f84" alt="Screenshot 12" width="24%"/>
+  <img src="https://github.com/user-attachments/assets/734c8010-c06d-48d8-93af-6bd39a0b9778" alt="Screenshot 10" width="24%"/>
 </div>
 
 ---
