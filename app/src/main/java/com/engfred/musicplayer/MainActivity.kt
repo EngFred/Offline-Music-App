@@ -2,8 +2,10 @@ package com.engfred.musicplayer
 
 import android.Manifest
 import android.content.Intent
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -11,13 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
@@ -96,8 +92,6 @@ class MainActivity : ComponentActivity() {
         ) { granted ->
             if (granted) {
                 Log.d(TAG, "Read permission granted (via Intent).")
-                // We do not schedule the full background scan here,
-                // as this might be a temporary permission for a single file.
                 externalPlaybackUri = pendingPlaybackUri
                 pendingPlaybackUri = null
             } else {
@@ -106,9 +100,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Permissions are handled in LibraryScreen.kt when the user clicks "Grant Access".
-
-        // Schedule worker (safe to call even without permissions; it will just fail/retry silently in background)
         scheduleBackgroundScan()
 
         uiScope.launch {
@@ -117,7 +108,6 @@ class MainActivity : ComponentActivity() {
                     initialAppSettings = settings
                     appSettingsLoaded = true
                     playbackController.setRepeatMode(settings.repeatMode)
-                    Log.d(TAG, "App settings loaded. repeat=${settings.repeatMode}")
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed to observe app settings: ${t.message}")
@@ -147,26 +137,17 @@ class MainActivity : ComponentActivity() {
                         sharedAudioDataSource = sharedAudioDataSource
                     )
                 }
-                // Validating if the last playback audio still exists and is accessible using MediaUtils
+
                 lastPlaybackAudio = if (start != null) {
                     val isAccessible = MediaUtils.isAudioFileAccessible(
                         context = this@MainActivity,
                         audioFileUri = start.uri,
                         permissionHandlerUseCase = permissionHandlerUseCase
                     )
-                    if (isAccessible) {
-                        Log.d(TAG, "Last playback audio validated as accessible: ${start.title}")
-                        start
-                    } else {
-                        Log.w(TAG, "Last playback audio no longer accessible")
-                        null
-                    }
+                    if (isAccessible) start else null
                 } else null
 
-                // 2. Check if launched from Notification to play new songs
                 checkIntentForNewMusic(intent)
-
-                Log.d(TAG, "preparePlayingQueue returned startAudio=${lastPlaybackAudio?.id}")
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed to prepare playing queue: ${t.message}")
             }
@@ -217,14 +198,14 @@ class MainActivity : ComponentActivity() {
                             if (playbackState.currentAudioFile != null) {
                                 playbackController.skipToNext()
                             } else {
+                                // Logic to start playback if nothing is playing
                                 val lastState = settingsRepository.getLastPlaybackState().first()
                                 val startUri = lastPlaybackAudio?.uri
                                 if (startUri != null) {
                                     playbackController.initiatePlayback(startUri, lastState.positionMs)
+                                    // Optimization: Wait briefly for ready before skipping
                                     if (playbackController.waitUntilReady(5000)) {
                                         playbackController.skipToNext()
-                                    } else {
-                                        Toast.makeText(this@MainActivity, "Failed to start playback", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             }
@@ -241,8 +222,6 @@ class MainActivity : ComponentActivity() {
                                     playbackController.initiatePlayback(startUri, lastState.positionMs)
                                     if (playbackController.waitUntilReady(5000)) {
                                         playbackController.skipToPrevious()
-                                    } else {
-                                        Toast.makeText(this@MainActivity, "Failed to start playback", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             }
@@ -259,11 +238,9 @@ class MainActivity : ComponentActivity() {
                                 if (startUri != null) {
                                     playbackController.initiatePlayback(startUri, lastState.positionMs)
                                     if (!playbackController.waitUntilReady(5000)) {
-                                        Toast.makeText(this@MainActivity, "Failed to start playback", Toast.LENGTH_SHORT).show()
                                         return@launch
                                     }
                                 } else {
-                                    Toast.makeText(this@MainActivity, "No previous playback", Toast.LENGTH_SHORT).show()
                                     return@launch
                                 }
                             }
@@ -304,7 +281,9 @@ class MainActivity : ComponentActivity() {
                     val uri = externalPlaybackUri
                     if (uri != null) {
                         val success = withContext(Dispatchers.IO) { initiatePlaybackFromExternalUri(uri) }
-                        if (success) navController.navigate(AppDestinations.NowPlaying.route)
+                        if (success) {
+                            navController.navigate(AppDestinations.NowPlaying.route)
+                        }
                         externalPlaybackUri = null
                     }
                 }
@@ -318,7 +297,6 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         handleIncomingIntent(intent)
 
-        // Check if new intent is from notification click
         uiScope.launch {
             checkIntentForNewMusic(intent)
         }
@@ -328,42 +306,30 @@ class MainActivity : ComponentActivity() {
 
     private fun scheduleBackgroundScan() {
         val workRequest = PeriodicWorkRequestBuilder<NewAudioScanWorker>(
-            15, TimeUnit.MINUTES // Run every 15 minutes (minimum allowed interval)
+            15, TimeUnit.MINUTES
         ).build()
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             NewAudioScanWorker.WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP, // Don't restart if already running
+            ExistingPeriodicWorkPolicy.KEEP,
             workRequest
         )
-        Log.d(TAG, "scheduleBackgroundScan: Enqueued PeriodicWorkRequest.")
     }
 
     private suspend fun checkIntentForNewMusic(intent: Intent?) {
         if (intent?.getBooleanExtra("PLAY_NEW_SONGS", false) == true) {
-            Log.d(TAG, "Launched from New Music Notification")
-
-            // Wait a moment for SharedAudio to populate if app was dead
             if (sharedAudioDataSource.deviceAudioFiles.value.isEmpty()) {
                 delay(500)
             }
-
             val allSongs = sharedAudioDataSource.deviceAudioFiles.value.ifEmpty {
-                // Fallback to direct fetch if shared is empty (cold start)
                 libraryRepository.getAllAudioFiles().first()
             }
-
             val newestSong = allSongs.maxByOrNull { it.dateAdded }
 
             if (newestSong != null) {
-                // Set queue to Recently Added (sorted by date descending)
                 val recentQueue = allSongs.sortedByDescending { it.dateAdded }.take(50)
                 sharedAudioDataSource.setPlayingQueue(recentQueue)
-
-                // Play
                 playbackController.initiatePlayback(newestSong.uri)
-
-                // Trigger nav
                 navigateToNowPlayingOnStart = true
             }
         }
@@ -387,7 +353,7 @@ class MainActivity : ComponentActivity() {
                 ::getRequiredReadPermission,
                 { uri -> this.externalPlaybackUri = uri },
                 { pending -> this.pendingPlaybackUri = pending },
-                permissionLauncher, // Used specifically for opening external files
+                permissionLauncher,
                 ::tryOpenUriStream,
                 { s -> this.lastHandledUriString = s },
                 { s -> this.lastHandledUriString == s }
@@ -415,64 +381,100 @@ class MainActivity : ComponentActivity() {
             Log.d(TAG, "Attempt to initiate playback for external URI: $uri")
 
             if (!playbackController.waitUntilReady()) {
-                Log.e(TAG, "Player not ready in time for external playback.")
                 withContext(Dispatchers.Main) {
                     Toast.makeText(this@MainActivity, "Player not ready. Please try again.", Toast.LENGTH_LONG).show()
                 }
                 return false
             }
 
+            // 1. Try to find the file in our Database (Best case scenario)
             val audioFileFetchStatus = libraryRepository.getAudioFileByUri(uri)
-            when (audioFileFetchStatus) {
-                is Resource.Error -> {
-                    Log.e(TAG, "Failed to fetch audio file for external URI: ${audioFileFetchStatus.message}")
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Failed to play selected file: ${audioFileFetchStatus.message}", Toast.LENGTH_LONG).show()
-                    }
-                    return false
-                }
-                is Resource.Loading -> {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Opening file in Music..", Toast.LENGTH_SHORT).show()
-                    }
-                    return false
-                }
-                is Resource.Success -> {
-                    val audioFile = audioFileFetchStatus.data ?: run {
-                        Log.e(TAG, "Audio File not found!")
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(this@MainActivity, "Audio File not found!", Toast.LENGTH_LONG).show()
-                        }
-                        return false
-                    }
 
-                    sharedAudioDataSource.setPlayingQueue(listOf(audioFile))
-                    playbackController.initiatePlayback(uri)
-
-                    val startTime = System.currentTimeMillis()
-                    var success = false
-                    while (System.currentTimeMillis() - startTime < 3_000 && !success) {
-                        if (playbackState.currentAudioFile != null && (playbackState.isPlaying || playbackState.isLoading)) {
-                            success = true
-                        }
-                        delay(200)
-                    }
-
-                    if (!success) {
-                        Log.w(TAG, "Playback did not start successfully within timeout.")
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(this@MainActivity, "Failed to start playback.", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    return success
-                }
+            val audioFileToPlay: AudioFile? = when (audioFileFetchStatus) {
+                is Resource.Success -> audioFileFetchStatus.data
+                else -> null
             }
+
+            // 2. Fallback: If not in DB, create a temporary AudioFile object from metadata
+            val finalAudioFile = audioFileToPlay ?: extractAudioMetadataFromUri(uri)
+
+            if (finalAudioFile == null) {
+                Log.e(TAG, "Could not resolve audio file details.")
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Could not load audio file.", Toast.LENGTH_LONG).show()
+                }
+                return false
+            }
+
+            // 3. Play
+            sharedAudioDataSource.setPlayingQueue(listOf(finalAudioFile))
+            playbackController.initiatePlayback(uri)
+
+            val startTime = System.currentTimeMillis()
+            var success = false
+            while (System.currentTimeMillis() - startTime < 3_000 && !success) {
+                if (playbackState.currentAudioFile != null && (playbackState.isPlaying || playbackState.isLoading)) {
+                    success = true
+                }
+                delay(200)
+            }
+            return success
+
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start playback for external URI: ${e.message}", e)
-            withContext(Dispatchers.Main) {
-                Toast.makeText(this@MainActivity, "Failed to play selected file: ${e.message}", Toast.LENGTH_LONG).show()
-            }
             return false
+        }
+    }
+
+    /**
+     * EXTRACTS METADATA ON THE FLY.
+     * Essential for playing files not yet in the MediaStore (e.g. from WhatsApp, Downloads).
+     */
+    private suspend fun extractAudioMetadataFromUri(uri: Uri): AudioFile? {
+        return withContext(Dispatchers.IO) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(this@MainActivity, uri)
+
+                // Get filename and size as fallback/extra info
+                var fileName = "External Audio"
+                var fileSize: Long? = null
+                try {
+                    contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+
+                            if (nameIndex != -1) fileName = cursor.getString(nameIndex)
+                            if (sizeIndex != -1) fileSize = cursor.getLong(sizeIndex)
+                        }
+                    }
+                } catch (e: Exception) { Log.w(TAG, "Could not get file details: ${e.message}") }
+
+                val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: fileName
+                val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "<Unknown>"
+                val album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: "Unknown"
+                val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                val duration = durationStr?.toLongOrNull() ?: 0L
+
+                AudioFile(
+                    id = uri.hashCode().toLong(), // Temporary ID
+                    title = title,
+                    artist = artist,
+                    artistId = null, // No artist ID for non-MediaStore files
+                    album = album,
+                    duration = duration,
+                    uri = uri,
+                    albumArtUri = null, // Cannot easily generate a stable URI for embedded art on the fly
+                    dateAdded = System.currentTimeMillis() / 1000,
+                    size = fileSize
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error extracting metadata from URI: ${e.message}")
+                null
+            } finally {
+                retriever.release()
+            }
         }
     }
 }

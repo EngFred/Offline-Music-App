@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -67,6 +68,7 @@ fun LibraryScreen(
     val context = LocalContext.current
     val lazyListState = rememberLazyListState()
     val owner = LocalLifecycleOwner.current
+    val focusManager = LocalFocusManager.current
 
     val permissionsToRequest = remember {
         buildList {
@@ -229,8 +231,15 @@ fun LibraryScreen(
                 // Permission Granted Content
                 val isSelectionMode = uiState.selectedAudioFiles.isNotEmpty()
 
+                // BackHandler for Selection Mode
                 BackHandler(enabled = isSelectionMode) {
                     viewModel.onEvent(LibraryEvent.DeselectAll)
+                }
+
+                // BackHandler for Search Mode
+                BackHandler(enabled = !isSelectionMode && uiState.searchQuery.isNotEmpty()) {
+                    viewModel.onEvent(LibraryEvent.SearchQueryChanged(""))
+                    focusManager.clearFocus()
                 }
 
                 if (isSelectionMode) {
@@ -319,7 +328,9 @@ fun LibraryScreen(
 
         // Floating Action Buttons (Scroll to Top/Bottom)
         Column(
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 24.dp),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.End
         ) {
@@ -386,7 +397,9 @@ fun LibraryScreen(
             sheetState = sheetState
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
