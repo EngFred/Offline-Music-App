@@ -143,10 +143,13 @@ fun DjMixScreen(
             // ── Now Playing ──────────────────────────────────────────────────
             uiState.currentTrack?.let { track ->
                 item {
+                    val bpmInfo = uiState.bpmCache[track.id]
                     NowPlayingCard(
                         trackTitle = track.title,
                         trackArtist = track.artist ?: "Unknown Artist",
-                        bpm = uiState.bpmCache[track.id]?.bpm,
+                        bpm = bpmInfo?.bpm,
+                        firstBeatMs = bpmInfo?.firstBeatMs ?: 0L,
+                        isPlaying = uiState.isPlaying,
                         positionMs = uiState.currentPositionMs,
                         durationMs = uiState.currentDurationMs,
                         isCrossfading = uiState.isCrossfading,

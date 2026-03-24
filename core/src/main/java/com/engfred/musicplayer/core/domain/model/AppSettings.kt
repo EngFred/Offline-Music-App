@@ -7,7 +7,7 @@ import com.engfred.musicplayer.core.ui.theme.AppThemeType
  * Represents the application's user settings.
  * This is a pure domain model.
  *
- * DJ Mix fields ([crossfadeDurationSec], [bpmTolerance]) have defaults so existing
+ * DJ Mix fields ([crossfadeDurationSec], [bpmTolerance], etc.) have defaults so existing
  * DataStore serialisation is backwards-compatible — proto/preferences DataStore
  * returns the default value for any key not yet written.
  */
@@ -23,5 +23,11 @@ data class AppSettings(
     /** Length of the crossfade transition in seconds. Range: 2–12. */
     val crossfadeDurationSec: Int = 5,
     /** Maximum BPM difference still considered "compatible" for smart queue ordering. Range: 5–20. */
-    val bpmTolerance: Float = 10f
+    val bpmTolerance: Float = 10f,
+    /** If true, tracks are mixed early instead of waiting for the end of the song. */
+    val isRealMixMode: Boolean = false,
+    /** Maximum time (in seconds) a track plays before an early mix is triggered. */
+    val maxTrackDurationSec: Int = 120,
+    /** If true, the DJ queue repeats endlessly. If false, stops on the final track. */
+    val loopQueue: Boolean = true
 )

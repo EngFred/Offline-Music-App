@@ -16,10 +16,11 @@ import com.engfred.musicplayer.feature_dj_mix.data.local.entity.BpmCacheEntity
  * Version history:
  * 1 — initial schema (bpm_cache table)
  * 2 — added firstBeatMs column (for smart first-beat cueing)
+ * 3 — added amplitude column (for Auto-Gain volume normalization)
  */
 @Database(
     entities = [BpmCacheEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class DjMixDatabase : RoomDatabase() {
@@ -34,6 +35,18 @@ abstract class DjMixDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "ALTER TABLE bpm_cache ADD COLUMN firstBeatMs INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
+        /**
+         * Migration from version 2 to 3:
+         * Adds the amplitude column for RMS Loudness with a default of 0.0 (REAL in SQLite).
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE bpm_cache ADD COLUMN amplitude REAL NOT NULL DEFAULT 0.0"
                 )
             }
         }

@@ -188,6 +188,11 @@ class CrossfadeEngine @Inject constructor(
     @Volatile private var currentTrackFirstBeatMs: Long = 0L
 
     /**
+     * The normalized base volume calculated via Auto-Gain RMS.
+     */
+    @Volatile private var currentTrackBaseVolume: Float = 1.0f
+
+    /**
      * Stores the ID of the last track we requested a transition for.
      * Prevents the engine from spamming the ViewModel with requests if the queue is
      * exhausted and the final track is playing out.
@@ -201,11 +206,13 @@ class CrossfadeEngine @Inject constructor(
      * @param audioFile  The track to play next.
      * @param firstBeatMs  Pre-computed first-beat cue point from the BPM cache.
      * @param bpm  Analysed BPM used for Tempo Sync.
+     * @param amplitude Analysed RMS Loudness for Auto-Gain.
      */
     private data class PendingTrack(
         val audioFile: AudioFile,
         val firstBeatMs: Long,
-        val bpm: Float
+        val bpm: Float,
+        val amplitude: Float
     )
     private var pendingNextTrack: PendingTrack? = null
 
@@ -291,11 +298,21 @@ class CrossfadeEngine @Inject constructor(
      *
      * @param bpm          Analysed BPM of the current track (pass 0f if unknown).
      * @param firstBeatMs  Timestamp of the first detected beat; anchors the beat grid.
+     * @param amplitude    RMS Loudness of the track used for Auto-Gain normalization.
      */
-    fun updateCurrentBpmInfo(bpm: Float, firstBeatMs: Long) {
+    fun updateCurrentBpmInfo(bpm: Float, firstBeatMs: Long, amplitude: Float = 0f) {
         currentTrackBpm = bpm
         currentTrackFirstBeatMs = firstBeatMs
-        Log.d(TAG, "updateCurrentBpmInfo: Grid updated [BPM: $bpm, FirstBeat: ${firstBeatMs}ms]")
+
+        // Auto-Gain Target: Normalize against an RMS target of 0.15f.
+        // Clamp between 0.2f and 1.0f so we don't completely mute loud tracks or blow out quiet ones.
+        currentTrackBaseVolume = if (amplitude > 0f) {
+            (0.15f / amplitude).coerceIn(0.2f, 1.0f)
+        } else {
+            1.0f
+        }
+
+        Log.d(TAG, "updateCurrentBpmInfo: Grid updated [BPM: $bpm, FirstBeat: ${firstBeatMs}ms, VolScale: $currentTrackBaseVolume]")
     }
 
     /**
@@ -309,18 +326,19 @@ class CrossfadeEngine @Inject constructor(
      * The track is time-stretched to match the outgoing BPM, then eased
      * back to 1.0× over [TEMPO_EASE_DURATION_MS] ms post-crossfade.
      * Pass 0f if unknown; the engine will skip time-stretching gracefully.
+     * @param nextAmplitude RMS Loudness of incoming track for Auto-Gain.
      */
-    fun queueNextTrack(audioFile: AudioFile, firstBeatMs: Long = 0L, nextBpm: Float = 0f) {
+    fun queueNextTrack(audioFile: AudioFile, firstBeatMs: Long = 0L, nextBpm: Float = 0f, nextAmplitude: Float = 0f) {
         Log.d(TAG, "queueNextTrack: Queuing '${audioFile.title}' [BPM: $nextBpm, Cue: ${firstBeatMs}ms]")
         if (_state.value.isCrossfading) {
             Log.d(TAG, "queueNextTrack: Crossfade in progress. Storing as pending next track.")
-            // Store the full triple so no transition data is lost during a back-to-back queue
-            pendingNextTrack = PendingTrack(audioFile, firstBeatMs, nextBpm)
+            // Store the full state so no transition data is lost during a back-to-back queue
+            pendingNextTrack = PendingTrack(audioFile, firstBeatMs, nextBpm, nextAmplitude)
             return
         }
         crossfadeJob?.cancel()
         crossfadeJob = engineScope.launch {
-            executeCrossfade(audioFile, firstBeatMs, nextBpm)
+            executeCrossfade(audioFile, firstBeatMs, nextBpm, nextAmplitude)
         }
     }
 
@@ -354,11 +372,13 @@ class CrossfadeEngine @Inject constructor(
      * @param nextTrack   Track to transition into.
      * @param firstBeatMs Beat cue point for the incoming track (Smart Cue).
      * @param nextBpm     BPM of the incoming track (Tempo Sync). 0f = skip sync.
+     * @param nextAmplitude RMS Loudness of incoming track for Auto-Gain.
      */
     private suspend fun executeCrossfade(
         nextTrack: AudioFile,
         firstBeatMs: Long = 0L,
-        nextBpm: Float = 0f
+        nextBpm: Float = 0f,
+        nextAmplitude: Float = 0f
     ) {
         val primary = primaryPlayer() ?: return
         val secondary = secondaryPlayer() ?: return
@@ -385,6 +405,14 @@ class CrossfadeEngine @Inject constructor(
             } else {
                 1.0f
             }
+
+            // ── AUTO-GAIN BASE VOLUMES ──
+            val secondaryBaseVolume = if (nextAmplitude > 0f) {
+                (0.15f / nextAmplitude).coerceIn(0.2f, 1.0f)
+            } else {
+                1.0f
+            }
+            val primaryBaseVolume = currentTrackBaseVolume
 
             // ── Prepare secondary player ──────────────────────────────────────────────
             withContext(Dispatchers.Main) {
@@ -453,16 +481,16 @@ class CrossfadeEngine @Inject constructor(
 
             // ── Volume ramp ───────────────────────────────────────────────────────────
             val stepDelayMs = (crossfadeDurationMs / FADE_STEPS).coerceAtLeast(16L)
-            Log.d(TAG, "executeCrossfade: Starting volume ramp (Steps: $FADE_STEPS, Delay: ${stepDelayMs}ms)")
+            Log.d(TAG, "executeCrossfade: Starting volume ramp (Steps: $FADE_STEPS, Auto-Gain Target: $secondaryBaseVolume)")
             for (step in 1..FADE_STEPS) {
                 if (!engineScope.isActive) break
-                val toVolume   = step.toFloat() / FADE_STEPS
-                val fromVolume = 1f - toVolume
+                val toVolumeFraction   = step.toFloat() / FADE_STEPS
+                val fromVolumeFraction = 1f - toVolumeFraction
                 withContext(Dispatchers.Main) {
-                    primary.volume   = fromVolume
-                    secondary.volume = toVolume
+                    primary.volume   = fromVolumeFraction * primaryBaseVolume
+                    secondary.volume = toVolumeFraction * secondaryBaseVolume
                 }
-                _state.update { it.copy(crossfadeProgressFraction = toVolume) }
+                _state.update { it.copy(crossfadeProgressFraction = toVolumeFraction) }
                 delay(stepDelayMs)
             }
 
@@ -473,7 +501,7 @@ class CrossfadeEngine @Inject constructor(
                 // Reset the outgoing player's playback parameters so it's in a clean
                 // state for its next role as the secondary in a future crossfade.
                 primary.setPlaybackParameters(PlaybackParameters(1.0f, 1.0f))
-                secondary.volume = 1f
+                secondary.volume = secondaryBaseVolume // Leave at Auto-Gain volume
             }
 
             // Swap primary role — the former secondary is now the audible player.
@@ -507,7 +535,7 @@ class CrossfadeEngine @Inject constructor(
             if (pending != null) {
                 Log.d(TAG, "executeCrossfade: Handling pending track '${pending.audioFile.title}'")
                 pendingNextTrack = null
-                executeCrossfade(pending.audioFile, pending.firstBeatMs, pending.bpm)
+                executeCrossfade(pending.audioFile, pending.firstBeatMs, pending.bpm, pending.amplitude)
             }
 
         } finally {

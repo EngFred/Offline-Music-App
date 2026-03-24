@@ -22,5 +22,6 @@ data class BpmCacheEntity(
     val bpm: Float,
     val analyzedAt: Long,
     /** Timestamp (ms) of the first detected onset / beat. 0 = not yet analysed. */
-    val firstBeatMs: Long = 0L
+    val firstBeatMs: Long = 0L,
+    val amplitude: Float = 0f
 )

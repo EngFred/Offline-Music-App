@@ -39,4 +39,11 @@ interface SettingsRepository {
 
     suspend fun getLastScanTimestamp(): Long
     suspend fun updateLastScanTimestamp(timestamp: Long)
+
+    // ── DJ Mix ────────────────────────────────────────────────────────────
+    suspend fun updateDjCrossfadeDuration(seconds: Int)
+    suspend fun updateDjBpmTolerance(tolerance: Float)
+    suspend fun updateDjRealMixMode(enabled: Boolean)
+    suspend fun updateDjMaxTrackDuration(seconds: Int)
+    suspend fun updateDjLoopQueue(enabled: Boolean)
 }

@@ -47,7 +47,7 @@ abstract class DjMixModule {
                 DjMixDatabase::class.java,
                 "dj_mix_db"
             )
-                .addMigrations(DjMixDatabase.MIGRATION_1_2)
+                .addMigrations(DjMixDatabase.MIGRATION_1_2, DjMixDatabase.MIGRATION_2_3)
                 .build()
 
         @Provides

@@ -9,7 +9,8 @@ import kotlinx.coroutines.flow.Flow
  */
 data class BpmInfo(
     val bpm: Float,
-    val firstBeatMs: Long = 0L
+    val firstBeatMs: Long = 0L,
+    val amplitude: Float = 0f
 )
 
 /**

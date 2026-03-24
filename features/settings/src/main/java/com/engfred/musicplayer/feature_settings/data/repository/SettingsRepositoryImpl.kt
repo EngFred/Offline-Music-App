@@ -2,6 +2,7 @@ package com.engfred.musicplayer.feature_settings.data.repository
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
@@ -51,12 +52,12 @@ class SettingsRepositoryImpl @Inject constructor(
         private val LAST_SCAN_TIMESTAMP           = longPreferencesKey("last_scan_timestamp")
 
         // ── DJ Mix ────────────────────────────────────────────────────────────
-        // These are read-only here: getAppSettings() will surface them to consumers
-        // (e.g. DjMixViewModel). A write path can be added later by extending the
-        // SettingsRepository interface with updateCrossfadeDurationSec /
-        // updateBpmTolerance and implementing them the same way as the other fields.
+        // Write paths and keys for the DJ Mix settings module
         private val CROSSFADE_DURATION_SEC = intPreferencesKey("dj_crossfade_duration_sec")
         private val BPM_TOLERANCE          = floatPreferencesKey("dj_bpm_tolerance")
+        private val DJ_REAL_MIX_MODE       = booleanPreferencesKey("dj_real_mix_mode")
+        private val DJ_MAX_TRACK_DUR_SEC   = intPreferencesKey("dj_max_track_dur_sec")
+        private val DJ_LOOP_QUEUE          = booleanPreferencesKey("dj_loop_queue")
     }
 
     override fun getAppSettings(): Flow<AppSettings> {
@@ -99,7 +100,10 @@ class SettingsRepositoryImpl @Inject constructor(
                     audioPreset          = selectedAudioPreset,
                     widgetBackgroundMode = widgetMode,
                     crossfadeDurationSec = preferences[CROSSFADE_DURATION_SEC] ?: 5,
-                    bpmTolerance         = preferences[BPM_TOLERANCE] ?: 10f
+                    bpmTolerance         = preferences[BPM_TOLERANCE] ?: 10f,
+                    isRealMixMode        = preferences[DJ_REAL_MIX_MODE] ?: false,
+                    maxTrackDurationSec  = preferences[DJ_MAX_TRACK_DUR_SEC] ?: 120,
+                    loopQueue            = preferences[DJ_LOOP_QUEUE] ?: true
                 )
             }
     }
@@ -205,5 +209,27 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun updateLastScanTimestamp(timestamp: Long) {
         dataStore.edit { it[LAST_SCAN_TIMESTAMP] = timestamp }
+    }
+
+    // ── DJ Mix Settings Updates ───────────────────────────────────────────────
+
+    override suspend fun updateDjCrossfadeDuration(seconds: Int) {
+        dataStore.edit { it[CROSSFADE_DURATION_SEC] = seconds }
+    }
+
+    override suspend fun updateDjBpmTolerance(tolerance: Float) {
+        dataStore.edit { it[BPM_TOLERANCE] = tolerance }
+    }
+
+    override suspend fun updateDjRealMixMode(enabled: Boolean) {
+        dataStore.edit { it[DJ_REAL_MIX_MODE] = enabled }
+    }
+
+    override suspend fun updateDjMaxTrackDuration(seconds: Int) {
+        dataStore.edit { it[DJ_MAX_TRACK_DUR_SEC] = seconds }
+    }
+
+    override suspend fun updateDjLoopQueue(enabled: Boolean) {
+        dataStore.edit { it[DJ_LOOP_QUEUE] = enabled }
     }
 }

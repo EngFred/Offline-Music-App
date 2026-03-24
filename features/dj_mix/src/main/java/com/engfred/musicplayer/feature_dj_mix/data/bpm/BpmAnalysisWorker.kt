@@ -95,10 +95,11 @@ class BpmAnalysisWorker @AssistedInject constructor(
                         audioFileId = audioFileId,
                         bpm = result.bpm,
                         analyzedAt = System.currentTimeMillis(),
-                        firstBeatMs = result.firstBeatMs
+                        firstBeatMs = result.firstBeatMs,
+                        amplitude = result.amplitude
                     )
                 )
-                Log.d(TAG, "Cached BPM ${result.bpm} + firstBeatMs=${result.firstBeatMs}ms for audioFileId=$audioFileId")
+                Log.d(TAG, "Cached BPM ${result.bpm} + firstBeatMs=${result.firstBeatMs}ms RMS=${result.amplitude} for audioFileId=$audioFileId")
             } else {
                 Log.w(TAG, "BPM analysis returned null for audioFileId=$audioFileId — will retry on next open")
             }

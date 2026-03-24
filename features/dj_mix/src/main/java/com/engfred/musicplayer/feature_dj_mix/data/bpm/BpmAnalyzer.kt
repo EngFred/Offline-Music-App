@@ -35,6 +35,7 @@ import javax.inject.Singleton
  * ── Pipeline ─────────────────────────────────────────────────────────────────
  * URI -> MediaExtractor + MediaCodec (decode to 16-bit PCM)
  * -> mix down to mono (if stereo / multi-channel)
+ * -> calculate RMS loudness (Auto-Gain)
  * -> UniversalAudioInputStream (TarsosDSP I/O bridge, core module)
  * -> AudioDispatcher (frames PCM into fixed-size buffers)
  * -> ComplexOnsetDetector (detects onset timestamps)
@@ -71,7 +72,8 @@ class BpmAnalyzer @Inject constructor(
      */
     data class BpmAnalysisResult(
         val bpm: Float,
-        val firstBeatMs: Long
+        val firstBeatMs: Long,
+        val amplitude: Float // NEW: RMS Loudness for Auto-Gain
     )
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -86,11 +88,35 @@ class BpmAnalyzer @Inject constructor(
             val (pcmBytes, sampleRate, channelCount) = decodeToPcm(uri)
                 ?: return@withContext null
             val monoBytes = if (channelCount > 1) mixToMono(pcmBytes, channelCount) else pcmBytes
-            runOnsetBpmDetection(monoBytes, sampleRate)
+
+            // Calculate track loudness (Auto-Gain) before giving it to TarsosDSP
+            val rmsAmplitude = calculateRmsAmplitude(monoBytes)
+
+            runOnsetBpmDetection(monoBytes, sampleRate, rmsAmplitude)
         } catch (e: Exception) {
             Log.e(TAG, "BPM analysis failed for $uri", e)
             null
         }
+    }
+
+    // ── Loudness (Auto-Gain) ──────────────────────────────────────────────────
+    /**
+     * Calculates the Root Mean Square (RMS) of the decoded PCM bytes to determine
+     * the perceived loudness of the track.
+     */
+    private fun calculateRmsAmplitude(pcmBytes: ByteArray): Float {
+        if (pcmBytes.isEmpty()) return 0f
+        var sumSquares = 0.0
+        val buffer = ByteBuffer.wrap(pcmBytes).order(ByteOrder.LITTLE_ENDIAN)
+        val numSamples = pcmBytes.size / 2 // 16-bit audio = 2 bytes per sample
+
+        for (i in 0 until numSamples) {
+            // Convert to a normalized float between -1.0 and 1.0
+            val sample = buffer.short.toFloat() / Short.MAX_VALUE
+            sumSquares += sample * sample
+        }
+
+        return Math.sqrt(sumSquares / numSamples).toFloat()
     }
 
     // ── PCM decoding ──────────────────────────────────────────────────────────
@@ -218,7 +244,7 @@ class BpmAnalyzer @Inject constructor(
      *
      * MediaCodec always outputs little-endian PCM on Android, so bigEndian = false.
      */
-    private fun runOnsetBpmDetection(monoPcmBytes: ByteArray, sampleRate: Int): BpmAnalysisResult? {
+    private fun runOnsetBpmDetection(monoPcmBytes: ByteArray, sampleRate: Int, rmsAmplitude: Float): BpmAnalysisResult? {
         val minBytes = BUFFER_SIZE * 2 * 4 // at least 4 full buffers
         if (monoPcmBytes.size < minBytes) {
             Log.w(TAG, "Audio too short for BPM detection (${monoPcmBytes.size} bytes)")
@@ -245,7 +271,7 @@ class BpmAnalyzer @Inject constructor(
         // Runs synchronously on Dispatchers.IO (called from analyzeBpm)
         dispatcher.run()
 
-        return estimateBpmAndFirstBeat(onsetTimestamps)
+        return estimateBpmAndFirstBeat(onsetTimestamps, rmsAmplitude)
     }
 
     /**
@@ -253,7 +279,7 @@ class BpmAnalyzer @Inject constructor(
      * interval. Median is more robust than mean against missed/doubled beats.
      * Also returns the timestamp of the very first onset (converted to ms).
      */
-    private fun estimateBpmAndFirstBeat(timestamps: List<Float>): BpmAnalysisResult? {
+    private fun estimateBpmAndFirstBeat(timestamps: List<Float>, rmsAmplitude: Float): BpmAnalysisResult? {
         if (timestamps.size < 4) {
             Log.w(TAG, "Too few onsets (${timestamps.size}) for reliable BPM")
             return null
@@ -269,7 +295,7 @@ class BpmAnalyzer @Inject constructor(
         // First onset in milliseconds (for cueing the track exactly on the beat)
         val firstBeatMs = (timestamps.first() * 1000f).toLong()
 
-        return BpmAnalysisResult(bpm = bpm, firstBeatMs = firstBeatMs)
+        return BpmAnalysisResult(bpm = bpm, firstBeatMs = firstBeatMs, amplitude = rmsAmplitude)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
