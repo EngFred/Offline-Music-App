@@ -151,6 +151,15 @@ class DjMixService : Service() {
     private fun observeNextTrackRequests() {
         serviceScope.launch {
             crossfadeEngine.nextTrackRequest.collect { currentTrackId ->
+
+                // GUARD: Only process the request if it matches the CURRENT track.
+                // This protects against any stray replay emissions from a previous session.
+                val actualCurrentId = crossfadeEngine.state.value.currentTrack?.id
+                if (currentTrackId != actualCurrentId) {
+                    Log.d(TAG, "Ignored stale nextTrackRequest for ID $currentTrackId")
+                    return@collect
+                }
+
                 Log.d(TAG, "nextTrackRequest received for trackId=$currentTrackId")
                 val nextTrack = djSessionManager.selectNextTrack(currentTrackId)
                 if (nextTrack != null) {

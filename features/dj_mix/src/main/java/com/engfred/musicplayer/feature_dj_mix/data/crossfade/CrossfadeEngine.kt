@@ -182,6 +182,15 @@ class CrossfadeEngine @Inject constructor(
             playerA           = null
             playerB           = null
             _state.value      = CrossfadeEngineState()
+
+            // FIX: Clear the ghost emission from the previous session's replay cache
+            _nextTrackRequest.resetReplayCache()
+
+            // Best practice: Also reset the beat-aligned state so old BPMs don't bleed over
+            currentTrackBpm         = 0f
+            currentTrackFirstBeatMs = 0L
+            currentTrackBaseVolume  = 1.0f
+
             Log.d(TAG, "initialize: Engine reset after previous release.")
         }
         engineScope.launch {
