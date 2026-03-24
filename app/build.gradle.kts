@@ -16,16 +16,16 @@ android {
         applicationId = "com.engfred.musicplayer"
         minSdk = 23
         targetSdk = 36
-        versionCode = 4
-        versionName = "2.2.2"
+        versionCode = 5
+        versionName = "2.3.0-beta01"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -59,6 +59,7 @@ dependencies {
     implementation(project(":features:settings"))
     implementation(project(":features:trim"))
     implementation(project(":features:edit"))
+    implementation(project(":features:dj_mix"))
 
     // Android Core & Lifecycle
     implementation(libs.androidx.core.ktx)

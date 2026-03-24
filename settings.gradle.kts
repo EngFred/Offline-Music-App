@@ -17,6 +17,7 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven { url = uri("https://jitpack.io") }
+        maven { url = uri("https://mvn.0110.be/releases") }
     }
 }
 
@@ -29,3 +30,4 @@ include(":features:playlist")
 include(":features:settings")
 include(":features:trim")
 include(":features:edit")
+include(":features:dj_mix")

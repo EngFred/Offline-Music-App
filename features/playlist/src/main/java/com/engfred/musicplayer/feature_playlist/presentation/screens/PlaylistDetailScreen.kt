@@ -4,7 +4,20 @@ import android.content.res.Configuration
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -14,9 +27,30 @@ import androidx.compose.material.icons.rounded.CheckBox
 import androidx.compose.material.icons.rounded.CheckBoxOutlineBlank
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,6 +72,7 @@ import com.engfred.musicplayer.core.ui.components.LoadingIndicator
 import com.engfred.musicplayer.core.ui.components.MiniPlayer
 import com.engfred.musicplayer.core.util.TextUtils.pluralize
 import com.engfred.musicplayer.feature_playlist.presentation.components.detail.AddSongsBottomSheet
+import com.engfred.musicplayer.feature_playlist.presentation.components.detail.DjMixButton
 import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistActionButtons
 import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistDetailHeaderSection
 import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistDetailTopBar
@@ -61,6 +96,9 @@ fun PlaylistDetailScreen(
     onToggleStopAfterCurrent: () -> Unit,
     playbackPositionMs: Long,
     totalDurationMs: Long,
+    // ── DJ Mix entry point ────────────────────────────────────────────────────
+    // Null means the caller does not support DJ Mix navigation (e.g. a test host).
+    onDjMixClick: ((Long) -> Unit)? = null,
     viewModel: PlaylistDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -104,10 +142,15 @@ fun PlaylistDetailScreen(
         }
     }
 
-    // We strictly define "ReadOnly" for song modification (add/remove),
-    // but we will now allow Metadata modification (Cover art) for all.
+    // ReadOnly = automatic playlists that are NOT "Favorites".
+    // User playlists and Favorites allow DJ Mix.
     val isReadOnlyPlaylist = uiState.playlist?.isAutomatic == true &&
             !uiState.playlist?.name.equals("Favorites", ignoreCase = true)
+
+    // DJ Mix button is shown for ANY playlist with songs (automatic or manual)
+    // as long as the caller has wired up onDjMixClick.
+    val showDjMixButton = onDjMixClick != null
+            && uiState.playlist?.songs?.isNotEmpty() == true
 
     val isSelectionMode = uiState.selectedSongs.isNotEmpty() && !isReadOnlyPlaylist
     val coroutineScope = rememberCoroutineScope()
@@ -216,6 +259,7 @@ fun PlaylistDetailScreen(
             )
         }
 
+        // ── Portrait layout ───────────────────────────────────────────────────
         if (!isLandscape) {
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
@@ -225,11 +269,10 @@ fun PlaylistDetailScreen(
                     verticalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
                     item {
-                        val topBarPadding = 38.dp
                         PlaylistDetailHeaderSection(
                             playlist = uiState.playlist,
                             isCompact = true,
-                            modifier = Modifier.padding(top = topBarPadding),
+                            modifier = Modifier.padding(top = 38.dp),
                             isFavPlaylist = uiState.playlist?.name.equals("Favorites", ignoreCase = true)
                         )
                     }
@@ -269,6 +312,18 @@ fun PlaylistDetailScreen(
                                         },
                                         isCompact = true
                                     )
+
+                                    // ── DJ Mix button (portrait) ──────────────
+                                    if (showDjMixButton) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        DjMixButton(
+                                            onClick = {
+                                                uiState.playlist?.id?.let { id -> onDjMixClick!!(id) }
+                                            },
+                                            modifier = Modifier.padding(horizontal = 12.dp)
+                                        )
+                                    }
+
                                     Spacer(modifier = Modifier.height(24.dp))
                                     PlaylistSongsHeader(
                                         songCount = uiState.playlist?.songs?.size ?: 0,
@@ -333,6 +388,8 @@ fun PlaylistDetailScreen(
                     }
                 }
             }
+
+            // ── Landscape layout ──────────────────────────────────────────────────
         } else {
             Row(modifier = mainContentModifier.padding(start = 30.dp, end = 8.dp)) {
                 LazyColumn(
@@ -358,6 +415,16 @@ fun PlaylistDetailScreen(
                             onShuffleAllClick = { if (uiState.playlist?.songs?.isNotEmpty() == true) viewModel.onEvent(PlaylistDetailEvent.ShuffleAll) },
                             isCompact = false
                         )
+                    }
+                    // ── DJ Mix button (landscape) ─────────────────────────────
+                    if (showDjMixButton) {
+                        item {
+                            DjMixButton(
+                                onClick = {
+                                    uiState.playlist?.id?.let { id -> onDjMixClick!!(id) }
+                                }
+                            )
+                        }
                     }
                     item { Spacer(modifier = Modifier.height(16.dp)) }
                 }
@@ -400,9 +467,7 @@ fun PlaylistDetailScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     onAddToPlaylist = { viewModel.onEvent(PlaylistDetailEvent.ShowPlaylistsDialog(it)) },
                                     onPlayNext = { viewModel.onEvent(PlaylistDetailEvent.SetPlayNext(it)) },
-
                                     isFromAutomaticPlaylist = isReadOnlyPlaylist,
-
                                     playCountMap = uiState.playlist?.playCounts,
                                     onEditInfo = onEditInfo,
                                     onTrimAudio = onTrimAudio,
@@ -424,9 +489,8 @@ fun PlaylistDetailScreen(
             }
         }
 
-        //=============== DIALOGS ====================
+        // ── Dialogs ───────────────────────────────────────────────────────────
 
-        // Playlist Cover Confirmation Dialog
         if (uiState.showSetCoverConfirmationDialog) {
             uiState.potentialCoverAudioFile?.let { audioFile ->
                 ConfirmationDialog(
@@ -499,10 +563,8 @@ fun PlaylistDetailScreen(
             )
         }
 
-        // Batch remove bottom sheet
         if (uiState.showBatchRemoveConfirmationDialog) {
             LaunchedEffect(Unit) { allowBatchDismiss = false }
-
             ModalBottomSheet(
                 onDismissRequest = {
                     viewModel.onEvent(PlaylistDetailEvent.DeselectAll)
@@ -539,9 +601,7 @@ fun PlaylistDetailScreen(
                             coroutineScope.launch { batchSheetState.hide() }.invokeOnCompletion {
                                 viewModel.onEvent(PlaylistDetailEvent.DismissBatchRemoveConfirmation)
                             }
-                        }) {
-                            Text("Cancel")
-                        }
+                        }) { Text("Cancel") }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             onClick = {
@@ -551,9 +611,7 @@ fun PlaylistDetailScreen(
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                        ) {
-                            Text("Confirm")
-                        }
+                        ) { Text("Confirm") }
                     }
                 }
             }
