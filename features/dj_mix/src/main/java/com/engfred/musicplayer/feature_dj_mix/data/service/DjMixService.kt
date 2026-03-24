@@ -130,7 +130,13 @@ class DjMixService : Service() {
     private fun observeEngineState() {
         serviceScope.launch {
             crossfadeEngine.state.collectLatest { state ->
-                updateNotification(state.currentTrack, state.isPlaying)
+                // Pass current position and duration for progress bar support
+                updateNotification(
+                    track = state.currentTrack,
+                    isPlaying = state.isPlaying,
+                    position = state.currentPositionMs,
+                    duration = state.currentDurationMs
+                )
             }
         }
     }
@@ -213,7 +219,12 @@ class DjMixService : Service() {
             .build()
         startForeground(NOTIFICATION_ID, notification)
     }
-    private fun updateNotification(track: AudioFile?, isPlaying: Boolean) {
+    private fun updateNotification(
+        track: AudioFile?,
+        isPlaying: Boolean,
+        position: Long = 0L,
+        duration: Long = 0L
+    ) {
         if (track == null) return
         val playbackState = PlaybackStateCompat.Builder()
             .setActions(
@@ -224,13 +235,14 @@ class DjMixService : Service() {
             )
             .setState(
                 if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED,
-                PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN,
+                position,
                 1.0f
             ).build()
         mediaSession.setPlaybackState(playbackState)
         val metadata = MediaMetadataCompat.Builder()
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, track.title)
             .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, track.artist ?: "Unknown Artist")
+            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration)
             .build()
         mediaSession.setMetadata(metadata)
         val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
@@ -255,6 +267,8 @@ class DjMixService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(playPauseIcon, "Play/Pause", getServicePendingIntent(ACTION_PLAY_PAUSE))
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", getServicePendingIntent(ACTION_STOP))
+            // FIX: Added progress bar support for the DJ notification
+            .setProgress(duration.toInt(), position.toInt(), false)
             .setStyle(
                 androidx.media.app.NotificationCompat.MediaStyle()
                     .setMediaSession(mediaSession.sessionToken)

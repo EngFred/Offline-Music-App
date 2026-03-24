@@ -57,20 +57,35 @@ class DjMixViewModel @Inject constructor(
     private val _uiEvent = MutableSharedFlow<String>()
     val uiEvent: SharedFlow<String> = _uiEvent.asSharedFlow()
     private var rawPlaylistSongs: List<AudioFile> = emptyList()
-    private var autoStartTriggered = false
 
     init {
         crossfadeEngine.initialize()
-        autoStartTriggered = djSessionManager.isSessionActive.value
         observeSettings()
         observeCrossfadeEngineState()
         loadPlaylist()
-        observeAutoStart()
+        // PATCH: Removed observeAutoStart() to allow manual user trigger.
     }
 
     fun onEvent(event: DjMixEvent) {
         when (event) {
-            DjMixEvent.PlayPause -> crossfadeEngine.playPause()
+            DjMixEvent.PlayPause -> {
+                // If the engine isn't active or current track is null, start from the top of the queue.
+                if (!crossfadeEngine.isActive || crossfadeEngine.state.value.currentTrack == null) {
+                    // Engine was released when normal playback took over or is starting fresh.
+                    // Restart the session from the top of the smart queue.
+                    val firstTrack = _uiState.value.smartQueue.firstOrNull() ?: return
+                    crossfadeEngine.initialize() // reset + init
+                    djSessionManager.startSession(playlistId)
+                    djSessionManager.markTrackPlayed(firstTrack.id)
+                    activePlayerRegistry.onDjMixStarted()
+                    crossfadeEngine.startPlayback(firstTrack)
+                    _uiState.update { it.copy(currentTrack = firstTrack) }
+                    viewModelScope.launch { _uiEvent.emit("START_DJ_SERVICE") }
+                    Log.d(TAG, "PlayPause: manually started session with '${firstTrack.title}'")
+                } else {
+                    crossfadeEngine.playPause()
+                }
+            }
             DjMixEvent.MixNow -> crossfadeEngine.triggerMixNow()
             is DjMixEvent.UpdateCrossfadeDuration -> {
                 val s = _uiState.value.settings.copy(crossfadeDurationSec = event.seconds)
@@ -161,12 +176,22 @@ class DjMixViewModel @Inject constructor(
                 }
                 val songs = playlist.songs
                 rawPlaylistSongs = songs
-                if (songs.isNotEmpty()) {
+
+                // Skip re-analysis if session is already active for this playlist
+                val sessionAlreadyActive = djSessionManager.isSessionActive.value
+                        && djSessionManager.activePlaylistId == playlistId
+
+                if (songs.isNotEmpty() && !sessionAlreadyActive) {
                     _uiState.update { it.copy(isAnalyzing = true) }
                     analyzeBpmUseCase(playlistId, songs)
                 }
+
                 _uiState.update {
-                    it.copy(playlistName = playlist.name, totalSongs = songs.size, isLoading = false)
+                    it.copy(
+                        playlistName = playlist.name,
+                        totalSongs   = songs.size,
+                        isLoading    = false
+                    )
                 }
                 observeBpmCache(songs)
             }
@@ -221,27 +246,6 @@ class DjMixViewModel @Inject constructor(
                         crossfadeProgressFraction = engineState.crossfadeProgressFraction,
                         error = engineState.error
                     )
-                }
-            }
-            .launchIn(viewModelScope)
-    }
-
-    private fun observeAutoStart() {
-        _uiState
-            .onEach { state ->
-                if (!autoStartTriggered
-                    && state.smartQueue.isNotEmpty()
-                    && !state.isLoading
-                    && crossfadeEngine.state.value.currentTrack == null
-                ) {
-                    autoStartTriggered = true
-                    val firstTrack = state.smartQueue.first()
-                    djSessionManager.startSession(playlistId)    // <-- CHANGED
-                    djSessionManager.markTrackPlayed(firstTrack.id)
-                    activePlayerRegistry.onDjMixStarted()
-                    crossfadeEngine.startPlayback(firstTrack)
-                    _uiEvent.emit("START_DJ_SERVICE")
-                    Log.d(TAG, "Auto-start: '${firstTrack.title}'")
                 }
             }
             .launchIn(viewModelScope)

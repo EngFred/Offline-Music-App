@@ -104,7 +104,8 @@ class SettingsRepositoryImpl @Inject constructor(
                     bpmTolerance         = preferences[BPM_TOLERANCE] ?: 10f,
                     isRealMixMode        = preferences[DJ_REAL_MIX_MODE] ?: false,
                     maxTrackDurationSec  = preferences[DJ_MAX_TRACK_DUR_SEC] ?: 120,
-                    loopQueue            = preferences[DJ_LOOP_QUEUE] ?: true
+                    loopQueue            = preferences[DJ_LOOP_QUEUE] ?: true,
+                    useManualMaxDuration = preferences[DJ_MANUAL_MAX_DURATION] ?: false
                 )
             }
     }
@@ -235,7 +236,7 @@ class SettingsRepositoryImpl @Inject constructor(
     }
 
     /**
-     * NEW: Persists the toggle between "mix at halfway" (default) and
+     * Persists the toggle between "mix at halfway" (default) and
      * "mix after manual max duration".
      */
     override suspend fun updateDjManualMaxDuration(enabled: Boolean) {

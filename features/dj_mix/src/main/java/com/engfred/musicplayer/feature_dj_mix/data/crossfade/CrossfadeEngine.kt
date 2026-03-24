@@ -53,28 +53,28 @@ data class CrossfadeEngineState(
  *
  * ── BUG FIXES in this version ────────────────────────────────────────────────
  * 1. release() — the old code called engineScope.launch{} then engineScope.cancel()
- *    on the next line. The launch was never guaranteed to execute on a cancelled
- *    scope. Fixed: ExoPlayer teardown now runs on a dedicated one-shot Main scope.
+ * on the next line. The launch was never guaranteed to execute on a cancelled
+ * scope. Fixed: ExoPlayer teardown now runs on a dedicated one-shot Main scope.
  *
  * 2. @Volatile on isPrimaryA / pendingNextTrack — these are written from ViewModel
- *    coroutines (Default dispatcher) and read from engineScope. Without @Volatile
- *    the JVM may cache stale values in CPU registers.
+ * coroutines (Default dispatcher) and read from engineScope. Without @Volatile
+ * the JVM may cache stale values in CPU registers.
  *
  * 3. isCrossfading reset on cancel — if crossfadeJob is cancelled mid-fade the
- *    finally block now explicitly resets isCrossfading so the UI doesn't freeze
- *    in the "crossfading" state forever.
+ * finally block now explicitly resets isCrossfading so the UI doesn't freeze
+ * in the "crossfading" state forever.
  *
  * 4. nextTrackRequest replay=1 — if DjMixService subscribes slightly after the
- *    emission (startup race), replay=1 ensures it still receives the request.
+ * emission (startup race), replay=1 ensures it still receives the request.
  *
  * ── New features ──────────────────────────────────────────────────────────────
  * 5. triggerMixNow() — public API for the "Mix Now" FAB. Immediately emits a
- *    [nextTrackRequest] for the current track, bypassing the position monitor.
- *    Guards against double-emission and mid-crossfade calls.
+ * [nextTrackRequest] for the current track, bypassing the position monitor.
+ * Guards against double-emission and mid-crossfade calls.
  *
  * 6. useHalfwayMix — when true (default), Real Mix Mode fires the crossfade when
- *    the track reaches 50 % of its duration instead of relying on [maxTrackDurationMs].
- *    Set to false by [DjMixService] when the user has configured a manual max time.
+ * the track reaches 50 % of its duration instead of relying on [maxTrackDurationMs].
+ * Set to false by [DjMixService] when the user has configured a manual max time.
  *
  * ── Thread safety ────────────────────────────────────────────────────────────
  * All ExoPlayer mutations are dispatched to Dispatchers.Main.
@@ -97,7 +97,7 @@ class CrossfadeEngine @Inject constructor(
         private const val MIN_SPEED_RATIO         = 0.85f
     }
 
-    private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     // ── Dual players ──────────────────────────────────────────────────────────
     private var playerA: ExoPlayer? = null
@@ -157,6 +157,9 @@ class CrossfadeEngine @Inject constructor(
 
     private var isInitialized = false
 
+    /** True when the engine is initialized and has not been released. */
+    val isActive: Boolean get() = isInitialized && !isReleased
+
     private data class PendingTrack(
         val audioFile: AudioFile,
         val firstBeatMs: Long,
@@ -167,7 +170,20 @@ class CrossfadeEngine @Inject constructor(
     // ── Public API ────────────────────────────────────────────────────────────
 
     fun initialize() {
-        if (isInitialized || isReleased) return
+        if (isInitialized) return
+        if (isReleased) {
+            // Engine was released by a previous session (e.g. normal playback took over).
+            // Reset all state so it can be reused — the scope was cancelled so we need a new one.
+            engineScope       = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            isReleased        = false
+            isPrimaryA        = true
+            lastRequestedTrackId = null
+            pendingNextTrack  = null
+            playerA           = null
+            playerB           = null
+            _state.value      = CrossfadeEngineState()
+            Log.d(TAG, "initialize: Engine reset after previous release.")
+        }
         engineScope.launch {
             withContext(Dispatchers.Main) {
                 val attrs = AudioAttributes.Builder()
@@ -493,9 +509,9 @@ class CrossfadeEngine @Inject constructor(
                 /**
                  * Real Mix Mode early trigger:
                  * - If [useHalfwayMix] is true (default), fire once the track has passed
-                 *   the 50% mark and there is still enough time for a full crossfade.
+                 * the 50% mark and there is still enough time for a full crossfade.
                  * - If [useHalfwayMix] is false, the user has set a manual [maxTrackDurationMs]
-                 *   and we use that fixed threshold instead.
+                 * and we use that fixed threshold instead.
                  */
                 val isMaxTimeReached = if (isRealMixMode && duration > 0L) {
                     val mixTriggerMs = if (useHalfwayMix) duration / 2L else maxTrackDurationMs

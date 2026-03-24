@@ -19,6 +19,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.engfred.musicplayer.core.data.SharedAudioDataSource
+import com.engfred.musicplayer.core.domain.ActivePlayerRegistry
 import com.engfred.musicplayer.core.domain.model.AudioPreset
 import com.engfred.musicplayer.core.domain.model.LastPlaybackState
 import com.engfred.musicplayer.core.domain.model.WidgetBackgroundMode
@@ -62,6 +63,9 @@ class PlaybackService : MediaSessionService() {
 
     @Inject
     lateinit var settingsRepository: SettingsRepository
+
+    @Inject
+    lateinit var activePlayerRegistry: ActivePlayerRegistry
 
     private lateinit var exoPlayer: ExoPlayer
     private var mediaSession: MediaSession? = null
@@ -147,7 +151,6 @@ class PlaybackService : MediaSessionService() {
                     updateWidgetWithInfo()
                 }
 
-                @RequiresApi(Build.VERSION_CODES.P)
                 override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                     super.onMediaItemTransition(mediaItem, reason)
                     if (mediaItem == null) {
@@ -437,5 +440,22 @@ class PlaybackService : MediaSessionService() {
             WidgetUpdater.updateWidget(this, exoPlayer, lastIdleDisplayInfo, getIdleRepeatMode(), widgetThemeAware)
             isFullShown = (lastIdleDisplayInfo != null || exoPlayer.currentMediaItem != null)
         }
+    }
+
+    /**
+     * Suppress the normal-player notification while the DJ Mix is active.
+     * The DJ service posts its own notification; showing both causes the wrong
+     * track info and a frozen progress bar in the system media UI.
+     */
+    override fun onUpdateNotification(session: MediaSession, startInForeground: Boolean) {
+        if (activePlayerRegistry.isDjMixActive.value) {
+            // Cancel the old notification so it doesn't linger in the shade.
+            // PlaybackService stays alive as a background service; when normal
+            // playback resumes this method will be called again with isDjMixActive=false.
+            (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
+                ?.cancel(MUSIC_NOTIFICATION_ID)
+            return
+        }
+        super.onUpdateNotification(session, startInForeground)
     }
 }
