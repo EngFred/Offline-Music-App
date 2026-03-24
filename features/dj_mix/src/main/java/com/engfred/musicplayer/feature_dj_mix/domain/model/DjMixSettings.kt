@@ -11,10 +11,12 @@ package com.engfred.musicplayer.feature_dj_mix.domain.model
  * @param bpmTolerance          Maximum BPM delta still considered "compatible" (±5–±20 BPM).
  * @param isRealMixMode         If true, tracks are mixed early based on [maxTrackDurationSec].
  * @param maxTrackDurationSec   Maximum time a track plays before an early mix is triggered.
+ * @param loopQueue             If true, the playlist resets and loops when exhausted. If false, stops on last track.
  */
 data class DjMixSettings(
     val crossfadeDurationSec: Int = 5,
     val bpmTolerance: Float = 10f,
     val isRealMixMode: Boolean = false,
-    val maxTrackDurationSec: Int = 120
+    val maxTrackDurationSec: Int = 120,
+    val loopQueue: Boolean = true
 )

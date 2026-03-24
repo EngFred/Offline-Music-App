@@ -8,7 +8,6 @@ import androidx.media3.common.util.UnstableApi
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.repository.PlaylistRepository
 import com.engfred.musicplayer.feature_dj_mix.data.crossfade.CrossfadeEngine
-import com.engfred.musicplayer.feature_dj_mix.domain.model.DjMixSettings
 import com.engfred.musicplayer.feature_dj_mix.domain.repository.BpmInfo
 import com.engfred.musicplayer.feature_dj_mix.domain.repository.DjMixRepository
 import com.engfred.musicplayer.feature_dj_mix.domain.usecases.AnalyzeBpmUseCase
@@ -101,6 +100,11 @@ class DjMixViewModel @Inject constructor(
             is DjMixEvent.UpdateMaxTrackDuration -> {
                 val newSettings = _uiState.value.settings.copy(maxTrackDurationSec = event.seconds)
                 crossfadeEngine.maxTrackDurationMs = event.seconds * 1000L
+                _uiState.update { it.copy(settings = newSettings) }
+            }
+
+            is DjMixEvent.ToggleLoopQueue -> {
+                val newSettings = _uiState.value.settings.copy(loopQueue = event.enabled)
                 _uiState.update { it.copy(settings = newSettings) }
             }
 
@@ -253,13 +257,16 @@ class DjMixViewModel @Inject constructor(
                     it.id != currentTrackId && !playedTrackIds.contains(it.id)
                 }
 
-                // If everyone has been played, reset the session and let the mix loop
-                // the whole playlist again.
+                // If everyone has been played, check the user's looping preference.
                 if (remaining.isEmpty() && state.smartQueue.size > 1) {
-                    Log.d(TAG, "Queue exhausted. Resetting session history.")
-                    playedTrackIds.clear()
-                    playedTrackIds.add(currentTrackId)
-                    remaining = state.smartQueue.filter { it.id != currentTrackId }
+                    if (state.settings.loopQueue) {
+                        Log.d(TAG, "Queue exhausted. Resetting session history (Looping).")
+                        playedTrackIds.clear()
+                        playedTrackIds.add(currentTrackId)
+                        remaining = state.smartQueue.filter { it.id != currentTrackId }
+                    } else {
+                        Log.d(TAG, "Queue exhausted. Looping disabled. Letting track finish.")
+                    }
                 }
 
                 val nextTrack = getSmartNextTrackUseCase(
@@ -269,7 +276,7 @@ class DjMixViewModel @Inject constructor(
                     tolerance     = state.settings.bpmTolerance
                 )
 
-                if (nextTrack != null) {
+                if (nextTrack != null && remaining.isNotEmpty()) {
                     val nextBpmInfo   = state.bpmCache[nextTrack.id]
                     val firstBeatMs   = nextBpmInfo?.firstBeatMs ?: 0L
                     val nextBpm       = nextBpmInfo?.bpm ?: 0f
@@ -292,11 +299,10 @@ class DjMixViewModel @Inject constructor(
     }
 
     /**
-     * Rebuilds [DjMixUiState.smartQueue] by greedily ordering songs from [rawPlaylistSongs]
-     * using BPM proximity. Songs without BPM data are appended at the end in natural order.
-     *
-     * Starts from the song closest to the median BPM so the mix begins at a "middle ground"
-     * rather than an extreme tempo.
+     * Rebuilds [DjMixUiState.smartQueue] to create a "Steady Climb" Set Arc.
+     * * It orders songs from lowest BPM to highest BPM to build energy, while using
+     * [GetSmartNextTrackUseCase] logic to smoothly transition through double/half-time
+     * relationships, ensuring zero awkward cliff-drops in tempo.
      */
     private fun rebuildSmartQueue(
         bpmCache: Map<Long, BpmInfo> = _uiState.value.bpmCache
@@ -307,25 +313,24 @@ class DjMixViewModel @Inject constructor(
         val remaining = rawPlaylistSongs.toMutableList()
         val result    = mutableListOf<AudioFile>()
 
-        // Pick median-BPM song as the starting point
-        val sortedBpms = rawPlaylistSongs.mapNotNull { bpmCache[it.id]?.bpm }.sorted()
-        val medianBpm  = sortedBpms.getOrNull(sortedBpms.size / 2) ?: 120f
-
-        val first = remaining.minByOrNull {
-            abs((bpmCache[it.id]?.bpm ?: Float.MAX_VALUE) - medianBpm)
-        } ?: remaining.first()
+        // Find the absolute slowest track to start our "Steady Climb" warmup
+        val first = remaining.minByOrNull { bpmCache[it.id]?.bpm ?: Float.MAX_VALUE }
+            ?: remaining.first()
 
         result.add(first)
         remaining.remove(first)
 
         while (remaining.isNotEmpty()) {
-            val lastBpm = bpmCache[result.last().id]?.bpm ?: medianBpm
+            val lastBpm = bpmCache[result.last().id]?.bpm ?: 120f
+
+            // Find the closest mathematical match moving forward
             val next = getSmartNextTrackUseCase(
                 currentBpm     = lastBpm,
                 remainingQueue = remaining,
                 bpmCache       = bpmCache.mapValues { it.value.bpm },
                 tolerance      = tolerance
             ) ?: remaining.first()
+
             result.add(next)
             remaining.remove(next)
         }

@@ -188,6 +188,13 @@ class CrossfadeEngine @Inject constructor(
     @Volatile private var currentTrackFirstBeatMs: Long = 0L
 
     /**
+     * Stores the ID of the last track we requested a transition for.
+     * Prevents the engine from spamming the ViewModel with requests if the queue is
+     * exhausted and the final track is playing out.
+     */
+    private var lastRequestedTrackId: Long? = null
+
+    /**
      * Container for a track that was queued while a crossfade was already in progress.
      * Stores the full set of pre-computed transition data so nothing is lost.
      *
@@ -247,6 +254,9 @@ class CrossfadeEngine @Inject constructor(
                 primary.volume = 1f
                 primary.prepare()
                 primary.play()
+
+                // Reset request tracker on manual playback start
+                lastRequestedTrackId = null
                 Log.d(TAG, "startPlayback: DJ Mix playback started: ${audioFile.title} (ID: ${audioFile.id})")
             }
             _state.update { it.copy(currentTrack = audioFile, isPlaying = true, error = null) }
@@ -468,6 +478,10 @@ class CrossfadeEngine @Inject constructor(
 
             // Swap primary role — the former secondary is now the audible player.
             isPrimaryA = !isPrimaryA
+
+            // Allow the engine to request a track for this new primary player when ready
+            lastRequestedTrackId = null
+
             Log.d(TAG, "executeCrossfade: COMPLETE. Swapped roles. PrimaryA: $isPrimaryA")
             _state.update {
                 it.copy(
@@ -604,12 +618,17 @@ class CrossfadeEngine @Inject constructor(
 
                 if (shouldTrigger) {
                     val currentId = _state.value.currentTrack?.id ?: continue
-                    val triggerReason = if (isMaxTimeReached) "Real Mix Limit" else "Track End"
-                    Log.d(
-                        TAG,
-                        "startPositionMonitoring: TRIGGERED ($triggerReason). [Remaining: ${remaining}ms, BeatGrid: $isOnBeatBoundary]"
-                    )
-                    _nextTrackRequest.tryEmit(currentId)
+
+                    // Prevent spamming the ViewModel if looping is off and the last track is ending
+                    if (currentId != lastRequestedTrackId) {
+                        lastRequestedTrackId = currentId
+                        val triggerReason = if (isMaxTimeReached) "Real Mix Limit" else "Track End"
+                        Log.d(
+                            TAG,
+                            "startPositionMonitoring: TRIGGERED ($triggerReason). [Remaining: ${remaining}ms, BeatGrid: $isOnBeatBoundary]"
+                        )
+                        _nextTrackRequest.tryEmit(currentId)
+                    }
                 }
             }
         }
