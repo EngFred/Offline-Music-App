@@ -1,12 +1,9 @@
 package com.engfred.musicplayer.feature_dj_mix.presentation.components
 
 import android.net.Uri
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -31,7 +28,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,6 +48,7 @@ import coil.compose.AsyncImage
 
 @Composable
 fun NowPlayingCard(
+    modifier: Modifier = Modifier,
     trackTitle: String,
     trackArtist: String,
     bpm: Float?,
@@ -57,8 +57,8 @@ fun NowPlayingCard(
     isCrossfading: Boolean,
     crossfadeProgress: Float,
     albumArtUri: Uri?,
-    waveform: List<Float> = emptyList(), // <--- UI/UX UPDATE: New Visualizer Parameter
-    modifier: Modifier = Modifier
+    waveform: List<Float> = emptyList(),
+    isPlaying: Boolean
 ) {
     val playbackProgress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
     val animatedPlayback by animateFloatAsState(
@@ -67,17 +67,21 @@ fun NowPlayingCard(
         label = "playback_progress"
     )
 
-    // Continuous Vinyl Rotation
-    val infiniteTransition = rememberInfiniteTransition(label = "vinyl_spin")
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(4000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rotation"
-    )
+    val rotation = remember { Animatable(0f) }
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            while (true) {
+                // Snap it back down to prevent Float precision overflow if played for hours
+                val currentAngle = rotation.value % 360f
+                rotation.snapTo(currentAngle)
+
+                rotation.animateTo(
+                    targetValue = currentAngle + 360f,
+                    animationSpec = tween(durationMillis = 4000, easing = LinearEasing)
+                )
+            }
+        }
+    }
 
     // Glassmorphic Base
     Box(
@@ -111,7 +115,7 @@ fun NowPlayingCard(
                         .clip(CircleShape)
                         .background(Color(0xFF121212))
                         .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), CircleShape)
-                        .graphicsLayer { rotationZ = rotation },
+                        .graphicsLayer { rotationZ = rotation.value }, // Apply the exact state value
                     contentAlignment = Alignment.Center
                 ) {
                     if (albumArtUri != null) {

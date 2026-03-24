@@ -207,7 +207,8 @@ fun DjMixScreen(
                             isCrossfading = uiState.isCrossfading,
                             crossfadeProgress = uiState.crossfadeProgressFraction,
                             albumArtUri = track.albumArtUri,
-                            waveform = uiState.waveform
+                            waveform = uiState.waveform,
+                            isPlaying = uiState.isPlaying
                         )
                     }
                 }
