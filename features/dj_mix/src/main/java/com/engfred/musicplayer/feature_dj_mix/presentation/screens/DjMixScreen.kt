@@ -17,7 +17,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Equalizer
+import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -60,6 +62,8 @@ import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.DjMixViewMo
  * ViewModels do not have).
  *
  * The Screen is now purely reactive: it renders state and delegates events.
+ *
+ * NEW: Floating “Mix Now” FAB + new manual-max-duration toggle in ControlsCard.
  */
 @UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,7 +74,6 @@ fun DjMixScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-
     // Single LaunchedEffect: forward ViewModel events that require a Context.
     // "START_DJ_SERVICE" is emitted by the ViewModel when auto-start or JumpToTrack
     // triggers playback, asking the Screen to start the foreground service.
@@ -87,7 +90,6 @@ fun DjMixScreen(
             }
         }
     }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -119,9 +121,22 @@ fun DjMixScreen(
                 )
             )
         },
+        floatingActionButton = {
+            if (uiState.currentTrack != null && uiState.isPlaying) {
+                FloatingActionButton(
+                    onClick = { viewModel.onEvent(DjMixEvent.MixNow) },
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.FastForward,
+                        contentDescription = "Mix Now",
+                        tint = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+        },
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
-
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -137,41 +152,39 @@ fun DjMixScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-
             if (uiState.isAnalyzing || uiState.analysisProgress < 1f) {
                 item {
                     BpmAnalysisCard(
-                        progress      = uiState.analysisProgress,
+                        progress = uiState.analysisProgress,
                         analysedCount = (uiState.analysisProgress * uiState.totalSongs).toInt(),
-                        totalCount    = uiState.totalSongs
+                        totalCount = uiState.totalSongs
                     )
                 }
             }
-
             uiState.currentTrack?.let { track ->
                 item {
                     val bpmInfo = uiState.bpmCache[track.id]
                     NowPlayingCard(
-                        trackTitle       = track.title,
-                        trackArtist      = track.artist ?: "Unknown Artist",
-                        bpm              = bpmInfo?.bpm,
-                        positionMs       = uiState.currentPositionMs,
-                        durationMs       = uiState.currentDurationMs,
-                        isCrossfading    = uiState.isCrossfading,
+                        trackTitle = track.title,
+                        trackArtist = track.artist ?: "Unknown Artist",
+                        bpm = bpmInfo?.bpm,
+                        positionMs = uiState.currentPositionMs,
+                        durationMs = uiState.currentDurationMs,
+                        isCrossfading = uiState.isCrossfading,
                         crossfadeProgress = uiState.crossfadeProgressFraction
                     )
                 }
             }
-
             item {
                 ControlsCard(
-                    isPlaying            = uiState.isPlaying,
+                    isPlaying = uiState.isPlaying,
                     crossfadeDurationSec = uiState.settings.crossfadeDurationSec,
-                    bpmTolerance         = uiState.settings.bpmTolerance,
-                    isRealMixMode        = uiState.settings.isRealMixMode,
-                    maxTrackDurationSec  = uiState.settings.maxTrackDurationSec,
-                    loopQueue            = uiState.settings.loopQueue,
-                    onPlayPause          = { viewModel.onEvent(DjMixEvent.PlayPause) },
+                    bpmTolerance = uiState.settings.bpmTolerance,
+                    isRealMixMode = uiState.settings.isRealMixMode,
+                    maxTrackDurationSec = uiState.settings.maxTrackDurationSec,
+                    useManualMaxDuration = uiState.settings.useManualMaxDuration,
+                    loopQueue = uiState.settings.loopQueue,
+                    onPlayPause = { viewModel.onEvent(DjMixEvent.PlayPause) },
                     onCrossfadeDurationChanged = { sec ->
                         viewModel.onEvent(DjMixEvent.UpdateCrossfadeDuration(sec))
                     },
@@ -181,6 +194,9 @@ fun DjMixScreen(
                     onToggleRealMixMode = { enabled ->
                         viewModel.onEvent(DjMixEvent.ToggleRealMixMode(enabled))
                     },
+                    onToggleManualMaxDuration = { enabled ->
+                        viewModel.onEvent(DjMixEvent.ToggleManualMaxDuration(enabled))
+                    },
                     onMaxDurationChanged = { sec ->
                         viewModel.onEvent(DjMixEvent.UpdateMaxTrackDuration(sec))
                     },
@@ -189,7 +205,6 @@ fun DjMixScreen(
                     }
                 )
             }
-
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -203,30 +218,27 @@ fun DjMixScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Smart Queue  •  ${uiState.smartQueue.size} songs",
+                        text = "Smart Queue • ${uiState.smartQueue.size} songs",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
             }
-
             itemsIndexed(
                 items = uiState.smartQueue,
                 key = { _, song -> song.id }
             ) { index, song ->
                 SmartQueueItem(
-                    position  = index + 1,
-                    song      = song,
-                    bpm       = uiState.bpmCache[song.id]?.bpm,
+                    position = index + 1,
+                    song = song,
+                    bpm = uiState.bpmCache[song.id]?.bpm,
                     isCurrent = song.id == uiState.currentTrack?.id,
-                    onClick   = { viewModel.onEvent(DjMixEvent.JumpToTrack(song)) }
+                    onClick = { viewModel.onEvent(DjMixEvent.JumpToTrack(song)) }
                 )
             }
-
             item { Spacer(modifier = Modifier.height(24.dp)) }
         }
     }
 }
-
 // Internal alias to avoid repeating the full class path in the LaunchedEffect above.
 private typealias DjMixService = com.engfred.musicplayer.feature_dj_mix.data.service.DjMixService

@@ -58,6 +58,7 @@ class SettingsRepositoryImpl @Inject constructor(
         private val DJ_REAL_MIX_MODE       = booleanPreferencesKey("dj_real_mix_mode")
         private val DJ_MAX_TRACK_DUR_SEC   = intPreferencesKey("dj_max_track_dur_sec")
         private val DJ_LOOP_QUEUE          = booleanPreferencesKey("dj_loop_queue")
+        private val DJ_MANUAL_MAX_DURATION = booleanPreferencesKey("dj_manual_max_duration")
     }
 
     override fun getAppSettings(): Flow<AppSettings> {
@@ -231,5 +232,13 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun updateDjLoopQueue(enabled: Boolean) {
         dataStore.edit { it[DJ_LOOP_QUEUE] = enabled }
+    }
+
+    /**
+     * NEW: Persists the toggle between "mix at halfway" (default) and
+     * "mix after manual max duration".
+     */
+    override suspend fun updateDjManualMaxDuration(enabled: Boolean) {
+        dataStore.edit { it[DJ_MANUAL_MAX_DURATION] = enabled }
     }
 }

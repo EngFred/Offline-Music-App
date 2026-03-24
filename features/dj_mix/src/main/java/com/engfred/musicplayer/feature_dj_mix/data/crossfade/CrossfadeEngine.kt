@@ -67,6 +67,15 @@ data class CrossfadeEngineState(
  * 4. nextTrackRequest replay=1 — if DjMixService subscribes slightly after the
  *    emission (startup race), replay=1 ensures it still receives the request.
  *
+ * ── New features ──────────────────────────────────────────────────────────────
+ * 5. triggerMixNow() — public API for the "Mix Now" FAB. Immediately emits a
+ *    [nextTrackRequest] for the current track, bypassing the position monitor.
+ *    Guards against double-emission and mid-crossfade calls.
+ *
+ * 6. useHalfwayMix — when true (default), Real Mix Mode fires the crossfade when
+ *    the track reaches 50 % of its duration instead of relying on [maxTrackDurationMs].
+ *    Set to false by [DjMixService] when the user has configured a manual max time.
+ *
  * ── Thread safety ────────────────────────────────────────────────────────────
  * All ExoPlayer mutations are dispatched to Dispatchers.Main.
  * Internal coroutines run on engineScope (SupervisorJob + Dispatchers.Default).
@@ -78,14 +87,14 @@ class CrossfadeEngine @Inject constructor(
 ) {
     companion object {
         private const val TAG = "CrossfadeEngine"
-        private const val POSITION_POLL_MS     = 300L
-        private const val FADE_STEPS           = 60
-        private const val CROSSFADE_GUARD_MS   = 200L
-        private const val BEAT_SNAP_WINDOW_MS  = POSITION_POLL_MS / 2
-        private const val TEMPO_EASE_STEPS     = 40
-        private const val TEMPO_EASE_DURATION_MS = 4_000L
-        private const val MAX_SPEED_RATIO      = 1.15f
-        private const val MIN_SPEED_RATIO      = 0.85f
+        private const val POSITION_POLL_MS        = 300L
+        private const val FADE_STEPS              = 60
+        private const val CROSSFADE_GUARD_MS      = 200L
+        private const val BEAT_SNAP_WINDOW_MS     = POSITION_POLL_MS / 2
+        private const val TEMPO_EASE_STEPS        = 40
+        private const val TEMPO_EASE_DURATION_MS  = 4_000L
+        private const val MAX_SPEED_RATIO         = 1.15f
+        private const val MIN_SPEED_RATIO         = 0.85f
     }
 
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -116,9 +125,17 @@ class CrossfadeEngine @Inject constructor(
     val nextTrackRequest: SharedFlow<Long> = _nextTrackRequest.asSharedFlow()
 
     // ── Settings (kept in sync by DjMixService via DjSessionManager) ─────────
-    var crossfadeDurationMs: Long = 5_000L
-    var isRealMixMode: Boolean    = false
-    var maxTrackDurationMs: Long  = 120_000L
+    var crossfadeDurationMs: Long  = 5_000L
+    var isRealMixMode: Boolean     = false
+    var maxTrackDurationMs: Long   = 120_000L
+
+    /**
+     * When true (default), Real Mix Mode triggers the crossfade once the track
+     * reaches 50% of its duration — no user configuration required.
+     * When false, [maxTrackDurationMs] is used as the fixed trigger point instead.
+     * Kept in sync by [DjMixService.observeEngineSettings].
+     */
+    @Volatile var useHalfwayMix: Boolean = true
 
     // ── Internal jobs ─────────────────────────────────────────────────────────
     private var positionMonitorJob: Job? = null
@@ -220,10 +237,39 @@ class CrossfadeEngine @Inject constructor(
         Log.d(TAG, "updateCurrentBpmInfo: BPM=$bpm, FirstBeat=${firstBeatMs}ms, Vol=$currentTrackBaseVolume")
     }
 
+    /**
+     * Immediately triggers a crossfade to the next queued track, bypassing the
+     * position-based trigger window. Safe to call from any thread.
+     *
+     * Guards:
+     * - No-ops if already crossfading (an in-progress fade cannot be interrupted here).
+     * - No-ops if there is no current track.
+     * - Deduplicates emissions so rapid taps don't fire multiple requests.
+     *
+     * The actual track selection is handled by [DjMixService.observeNextTrackRequests],
+     * keeping the engine decoupled from queue logic.
+     */
+    fun triggerMixNow() {
+        if (isReleased) return
+        if (_state.value.isCrossfading) {
+            Log.d(TAG, "triggerMixNow: ignored — crossfade already in progress.")
+            return
+        }
+        val currentId = _state.value.currentTrack?.id ?: run {
+            Log.d(TAG, "triggerMixNow: ignored — no current track.")
+            return
+        }
+        // Reset lastRequestedTrackId so the emission is always accepted, even if
+        // the automatic monitor already fired once for this track ID.
+        lastRequestedTrackId = null
+        _nextTrackRequest.tryEmit(currentId)
+        Log.d(TAG, "triggerMixNow: nextTrackRequest emitted for trackId=$currentId")
+    }
+
     fun queueNextTrack(
         audioFile: AudioFile,
-        firstBeatMs: Long  = 0L,
-        nextBpm: Float     = 0f,
+        firstBeatMs: Long    = 0L,
+        nextBpm: Float       = 0f,
         nextAmplitude: Float = 0f
     ) {
         if (isReleased) return
@@ -277,8 +323,8 @@ class CrossfadeEngine @Inject constructor(
 
     private suspend fun executeCrossfade(
         nextTrack: AudioFile,
-        firstBeatMs: Long  = 0L,
-        nextBpm: Float     = 0f,
+        firstBeatMs: Long    = 0L,
+        nextBpm: Float       = 0f,
         nextAmplitude: Float = 0f
     ) {
         val primary   = primaryPlayer()   ?: return
@@ -368,9 +414,9 @@ class CrossfadeEngine @Inject constructor(
 
             _state.update {
                 it.copy(
-                    currentTrack             = nextTrack,
-                    isPlaying                = true,
-                    isCrossfading            = false,
+                    currentTrack              = nextTrack,
+                    isPlaying                 = true,
+                    isCrossfading             = false,
                     crossfadeProgressFraction = 0f
                 )
             }
@@ -441,9 +487,20 @@ class CrossfadeEngine @Inject constructor(
                     phase <= BEAT_SNAP_WINDOW_MS || phase >= (beatLengthMs - BEAT_SNAP_WINDOW_MS)
                 } else true
 
-                val triggerWindowMs  = crossfadeDurationMs + beatLengthMs
-                val inTriggerZone    = remaining in CROSSFADE_GUARD_MS..triggerWindowMs
-                val isMaxTimeReached = isRealMixMode && position >= maxTrackDurationMs && remaining > crossfadeDurationMs
+                val triggerWindowMs = crossfadeDurationMs + beatLengthMs
+                val inTriggerZone   = remaining in CROSSFADE_GUARD_MS..triggerWindowMs
+
+                /**
+                 * Real Mix Mode early trigger:
+                 * - If [useHalfwayMix] is true (default), fire once the track has passed
+                 *   the 50% mark and there is still enough time for a full crossfade.
+                 * - If [useHalfwayMix] is false, the user has set a manual [maxTrackDurationMs]
+                 *   and we use that fixed threshold instead.
+                 */
+                val isMaxTimeReached = if (isRealMixMode && duration > 0L) {
+                    val mixTriggerMs = if (useHalfwayMix) duration / 2L else maxTrackDurationMs
+                    position >= mixTriggerMs && remaining > crossfadeDurationMs
+                } else false
 
                 val shouldTrigger = playing
                         && !_state.value.isCrossfading
@@ -455,7 +512,7 @@ class CrossfadeEngine @Inject constructor(
                     val currentId = _state.value.currentTrack?.id ?: continue
                     if (currentId != lastRequestedTrackId) {
                         lastRequestedTrackId = currentId
-                        Log.d(TAG, "nextTrackRequest emitted [remaining=${remaining}ms, beat=$isOnBeatBoundary]")
+                        Log.d(TAG, "nextTrackRequest emitted [remaining=${remaining}ms, beat=$isOnBeatBoundary, halfway=$useHalfwayMix]")
                         _nextTrackRequest.tryEmit(currentId)
                     }
                 }

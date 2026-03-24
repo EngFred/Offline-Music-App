@@ -1,19 +1,7 @@
 package com.engfred.musicplayer.navigation
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CHANGES FROM ORIGINAL AppNavHost.kt
-//
-//  1. Import DjMixScreen and DjMixArgs.
-//  2. Add `onDjMixClick: (Long) -> Unit` parameter.
-//  3. Thread it down to PlaylistDetailScreen.
-//  4. Add the DjMix composable block inside NavHost.
-//
-// Only changed sections are shown. Everything else is unchanged.
-// ─────────────────────────────────────────────────────────────────────────────
-
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
@@ -62,7 +50,10 @@ fun AppNavHost(
     stopAfterCurrent: Boolean,
     onToggleStopAfterCurrent: () -> Unit,
     playbackPositionMs: Long,
-    totalDurationMs: Long
+    totalDurationMs: Long,
+    // NEW parameters:
+    isDjMixActive: Boolean,
+    onNavigateToDjMix: () -> Unit
 ) {
     NavHost(
         navController = rootNavController,
@@ -76,7 +67,6 @@ fun AppNavHost(
             )
         )
     ) {
-
         composable(AppDestinations.MainGraph.route) {
             MainScreen(
                 onNavigateToNowPlaying = onNavigateToNowPlaying,
@@ -106,7 +96,9 @@ fun AppNavHost(
                 stopAfterCurrent = stopAfterCurrent,
                 onToggleStopAfterCurrent = onToggleStopAfterCurrent,
                 playbackPositionMs = playbackPositionMs,
-                totalDurationMs = totalDurationMs
+                totalDurationMs = totalDurationMs,
+                isDjMixActive = isDjMixActive,
+                onNavigateToDjMix = onNavigateToDjMix
             )
         }
 

@@ -29,5 +29,11 @@ data class AppSettings(
     /** Maximum time (in seconds) a track plays before an early mix is triggered. */
     val maxTrackDurationSec: Int = 120,
     /** If true, the DJ queue repeats endlessly. If false, stops on the final track. */
-    val loopQueue: Boolean = true
+    val loopQueue: Boolean = true,
+    /**
+     * NEW: Controls Real Mix Mode behaviour.
+     * false (default) → mix at halfway point of current track.
+     * true → use the manual [maxTrackDurationSec] value.
+     */
+    val useManualMaxDuration: Boolean = false
 )

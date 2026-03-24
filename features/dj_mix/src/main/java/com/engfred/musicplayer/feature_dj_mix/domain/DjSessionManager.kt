@@ -16,21 +16,6 @@ private const val TAG = "DjSessionManager"
 
 /**
  * Singleton that owns all DJ Mix session state that must survive [DjMixViewModel] destruction.
- *
- * ── Why this exists ──────────────────────────────────────────────────────────
- * BUG FIX: Previously, [playedTrackIds] and [smartQueue] lived in DjMixViewModel.
- * When the user navigated away from the DJ screen the ViewModel was cleared, all
- * [crossfadeEngine.nextTrackRequest] emissions went unhandled, and playback stopped
- * at the end of the current track.
- *
- * By moving session state here, [DjMixService] can select and queue the next track
- * entirely without a ViewModel, and [DjMixViewModel] can reconstruct its UI state
- * accurately when the user returns to the screen.
- *
- * ── Who writes / reads ───────────────────────────────────────────────────────
- * DjMixViewModel  → writes smartQueue, bpmCache, settings as data loads.
- * DjMixService    → reads selectNextTrack() in response to nextTrackRequest.
- * DjMixViewModel  → reads isSessionActive on re-entry to skip auto-start.
  */
 @Singleton
 class DjSessionManager @Inject constructor(
@@ -40,28 +25,23 @@ class DjSessionManager @Inject constructor(
     // ── Session lifecycle ─────────────────────────────────────────────────────
 
     private val _isSessionActive = MutableStateFlow(false)
-    /** True once a DJ session has started; survives ViewModel recreation. */
     val isSessionActive: StateFlow<Boolean> = _isSessionActive.asStateFlow()
+
+    // NEW: track which playlist is active
+    private var _activePlaylistId: Long? = null
+    val activePlaylistId: Long? get() = _activePlaylistId
 
     // ── Shared queue state ────────────────────────────────────────────────────
 
     private val _smartQueue = MutableStateFlow<List<AudioFile>>(emptyList())
-    /** BPM-ordered playlist used by the engine. Updated by ViewModel. */
     val smartQueue: StateFlow<List<AudioFile>> = _smartQueue.asStateFlow()
 
     private val _bpmCache = MutableStateFlow<Map<Long, BpmInfo>>(emptyMap())
-    /** audioFileId → BpmInfo. Updated by ViewModel as WorkManager analysis completes. */
     val bpmCache: StateFlow<Map<Long, BpmInfo>> = _bpmCache.asStateFlow()
 
     private val _settings = MutableStateFlow(DjMixSettings())
-    /** Current user-configured DJ settings. Updated by ViewModel via DataStore. */
     val settings: StateFlow<DjMixSettings> = _settings.asStateFlow()
 
-    /**
-     * Thread-safe set of track IDs already played this session.
-     * Prevents the engine from looping between the same two tracks and allows
-     * the Service to pick a correct next track without ViewModel assistance.
-     */
     private val playedTrackIds: MutableSet<Long> =
         Collections.synchronizedSet(mutableSetOf())
 
@@ -82,9 +62,11 @@ class DjSessionManager @Inject constructor(
         Log.d(TAG, "Play history reset. Retained: $keepCurrentId")
     }
 
-    fun startSession() {
+    // NEW: start session with playlist ID
+    fun startSession(playlistId: Long) {
+        _activePlaylistId = playlistId
         _isSessionActive.value = true
-        Log.d(TAG, "Session started.")
+        Log.d(TAG, "Session started for playlist $playlistId.")
     }
 
     /**
@@ -92,6 +74,7 @@ class DjSessionManager @Inject constructor(
      * returning to the DJ screen after a full stop starts a fresh session.
      */
     fun endSession() {
+        _activePlaylistId = null
         _isSessionActive.value = false
         playedTrackIds.clear()
         _smartQueue.value = emptyList()
@@ -100,16 +83,6 @@ class DjSessionManager @Inject constructor(
 
     // ── Next-track selection (DjMixService) ──────────────────────────────────
 
-    /**
-     * Selects the best next track for the engine to crossfade into.
-     *
-     * Called by [DjMixService] in response to [CrossfadeEngine.nextTrackRequest].
-     * This is the core fix for the "queue stops in background" bug: track selection
-     * now works regardless of whether [DjMixViewModel] is alive.
-     *
-     * @param currentTrackId ID of the track currently playing.
-     * @return The next [AudioFile], or null if the queue is exhausted and looping is off.
-     */
     fun selectNextTrack(currentTrackId: Long): AudioFile? {
         val queue    = _smartQueue.value
         val cache    = _bpmCache.value
@@ -139,10 +112,6 @@ class DjSessionManager @Inject constructor(
         ).also { Log.d(TAG, "Next track selected: '${it?.title}' for currentId=$currentTrackId") }
     }
 
-    /**
-     * Returns the (firstBeatMs, bpm, amplitude) tuple for [audioFile], ready to
-     * pass directly to [CrossfadeEngine.queueNextTrack].
-     */
     fun getTrackTransitionInfo(audioFile: AudioFile): Triple<Long, Float, Float> {
         val info = _bpmCache.value[audioFile.id]
         return Triple(info?.firstBeatMs ?: 0L, info?.bpm ?: 0f, info?.amplitude ?: 0f)

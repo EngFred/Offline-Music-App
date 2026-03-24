@@ -18,10 +18,12 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -41,14 +43,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -97,7 +98,10 @@ fun MainScreen(
     stopAfterCurrent: Boolean,
     onToggleStopAfterCurrent: () -> Unit,
     playbackPositionMs: Long,
-    totalDurationMs: Long
+    totalDurationMs: Long,
+    // NEW parameters:
+    isDjMixActive: Boolean,
+    onNavigateToDjMix: () -> Unit
 ) {
     val bottomNavController = rememberNavController()
     val bottomNavItems = listOf(
@@ -111,6 +115,7 @@ fun MainScreen(
     val permissionHandler = remember { PermissionHandlerUseCase(context) }
     var hasPermission by remember { mutableStateOf(permissionHandler.hasAudioPermission() && permissionHandler.hasWriteStoragePermission()) }
     val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+
     // Update permission state on resume
     DisposableEffect(Unit) {
         val observer = LifecycleEventObserver { _, event ->
@@ -123,6 +128,7 @@ fun MainScreen(
             owner.lifecycle.removeObserver(observer)
         }
     }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
@@ -131,6 +137,7 @@ fun MainScreen(
             val isOnLibraryScreen = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Library.baseRoute } == true
             val isOnPlaylistsScreen = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Playlists.baseRoute } == true
             val isOnSettingsScreen = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Settings.baseRoute } == true
+
             // Dynamic title based on current bottom nav screen
             val mainTitle = when {
                 isOnLibraryScreen -> AppDestinations.BottomNavItem.Library.label
@@ -141,6 +148,7 @@ fun MainScreen(
             val subtitle = if (audioItems.isNotEmpty() && isOnLibraryScreen) {
                 "${formatCount(audioItems.size)} ${pluralize(audioItems.size, "Audio files", "Audio files", showCount = false)}"
             } else null
+
             Box(modifier = Modifier.statusBarsPadding()) {
                 CustomTopBar(
                     modifier = Modifier.padding(start = 10.dp),
@@ -186,29 +194,39 @@ fun MainScreen(
                     .navigationBarsPadding()
                     .background(MaterialTheme.colorScheme.surface)
             ) {
-                if (playingAudioFile != null || lastPlaybackAudio != null) {
-                    MiniPlayer(
-                        onClick = onNavigateToNowPlaying,
-                        modifier = Modifier.fillMaxWidth(),
-                        onPlayPause = onPlayPause,
-                        onPlayNext = onPlayNext,
-                        onPlayPrev = onPlayPrev,
-                        isPlaying = isPlaying,
-                        playingAudioFile = playingAudioFile ?: lastPlaybackAudio,
-                        onToggleStopAfterCurrent = onToggleStopAfterCurrent,
-                        stopAfterCurrent = stopAfterCurrent,
-                        playbackPositionMs = playbackPositionMs,
-                        totalDurationMs = totalDurationMs,
+                // NEW: Show DJ bar when DJ mix is active, otherwise normal playback controls
+                if (isDjMixActive) {
+                    DjMixBar(
+                        onClick = onNavigateToDjMix,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 } else {
-                    if (audioItems.isNotEmpty()) {
-                        PlayShuffleBar(
-                            onPlayAll = onPlayAll,
-                            onShuffleAll = onShuffleAll,
-                            modifier = Modifier.fillMaxWidth()
+                    if (playingAudioFile != null || lastPlaybackAudio != null) {
+                        MiniPlayer(
+                            onClick = onNavigateToNowPlaying,
+                            modifier = Modifier.fillMaxWidth(),
+                            onPlayPause = onPlayPause,
+                            onPlayNext = onPlayNext,
+                            onPlayPrev = onPlayPrev,
+                            isPlaying = isPlaying,
+                            playingAudioFile = playingAudioFile ?: lastPlaybackAudio,
+                            onToggleStopAfterCurrent = onToggleStopAfterCurrent,
+                            stopAfterCurrent = stopAfterCurrent,
+                            playbackPositionMs = playbackPositionMs,
+                            totalDurationMs = totalDurationMs,
                         )
+                    } else {
+                        if (audioItems.isNotEmpty()) {
+                            PlayShuffleBar(
+                                onPlayAll = onPlayAll,
+                                onShuffleAll = onShuffleAll,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
+
+                // Bottom navigation row
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -264,13 +282,14 @@ fun MainScreen(
                 ) // LibraryScreen will be laid out inside NavHost's padded area
             }
             composable(AppDestinations.BottomNavItem.Playlists.baseRoute) {
-                PlaylistsScreen(onPlaylistClick = onPlaylistClick, onCreatePlaylist = onCreatePlaylist)
+                PlaylistsScreen(onPlaylistClick = onPlaylistClick, onCreatePlaylist = onCreatePlaylist)  // Fixed
             }
             composable(AppDestinations.BottomNavItem.Settings.baseRoute) {
                 SettingsScreen()
             }
         }
     }
+
     if (showRestartDialog) {
         AlertDialog(
             onDismissRequest = { showRestartDialog = false },
@@ -357,5 +376,49 @@ private fun CustomBottomNavItem(
                 style = MaterialTheme.typography.bodyMedium
             )
         }
+    }
+}
+
+// DJ Mix Bar composable
+@Composable
+private fun DjMixBar(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .background(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primaryContainer,
+                        MaterialTheme.colorScheme.secondaryContainer
+                    )
+                )
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Rounded.MusicNote,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = "DJ Auto-Mix Active",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+        Text(
+            text = "Tap to control",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+        )
     }
 }

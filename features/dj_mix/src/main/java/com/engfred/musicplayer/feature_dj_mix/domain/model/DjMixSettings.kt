@@ -7,16 +7,22 @@ package com.engfred.musicplayer.feature_dj_mix.domain.model
  * is in development. Step 12 wires them into [AppSettings] + DataStore so they
  * persist across sessions.
  *
- * @param crossfadeDurationSec  Length of the volume crossfade transition (2–12 s).
- * @param bpmTolerance          Maximum BPM delta still considered "compatible" (±5–±20 BPM).
- * @param isRealMixMode         If true, tracks are mixed early based on [maxTrackDurationSec].
- * @param maxTrackDurationSec   Maximum time a track plays before an early mix is triggered.
- * @param loopQueue             If true, the playlist resets and loops when exhausted. If false, stops on last track.
+ * @param crossfadeDurationSec    Length of the volume crossfade transition (2–12 s).
+ * @param bpmTolerance            Maximum BPM delta still considered "compatible" (±5–±20 BPM).
+ * @param isRealMixMode           If true, tracks are mixed early based on either the halfway
+ *                                point (default) or [maxTrackDurationSec] if [useManualMaxDuration] is true.
+ * @param maxTrackDurationSec     Maximum time a track plays before an early mix is triggered.
+ *                                Only active when [useManualMaxDuration] is true.
+ * @param loopQueue               If true, the playlist resets and loops when exhausted. If false, stops on last track.
+ * @param useManualMaxDuration    If false (default), Real Mix Mode triggers at the track's halfway point.
+ *                                If true, [maxTrackDurationSec] is used instead — giving the user
+ *                                full manual control over when the mix fires.
  */
 data class DjMixSettings(
     val crossfadeDurationSec: Int = 5,
     val bpmTolerance: Float = 10f,
     val isRealMixMode: Boolean = false,
     val maxTrackDurationSec: Int = 120,
-    val loopQueue: Boolean = true
+    val loopQueue: Boolean = true,
+    val useManualMaxDuration: Boolean = false
 )

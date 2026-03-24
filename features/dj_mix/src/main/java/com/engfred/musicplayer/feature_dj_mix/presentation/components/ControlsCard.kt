@@ -38,11 +38,13 @@ fun ControlsCard(
     bpmTolerance: Float,
     isRealMixMode: Boolean,
     maxTrackDurationSec: Int,
+    useManualMaxDuration: Boolean,           // NEW
     loopQueue: Boolean,
     onPlayPause: () -> Unit,
     onCrossfadeDurationChanged: (Int) -> Unit,
     onBpmToleranceChanged: (Float) -> Unit,
     onToggleRealMixMode: (Boolean) -> Unit,
+    onToggleManualMaxDuration: (Boolean) -> Unit,   // NEW
     onMaxDurationChanged: (Int) -> Unit,
     onToggleLoopQueue: (Boolean) -> Unit,
     modifier: Modifier = Modifier
@@ -104,14 +106,40 @@ fun ControlsCard(
 
             if (isRealMixMode) {
                 Spacer(modifier = Modifier.height(12.dp))
-                SliderWithLabel(
-                    label = "Max Song Playtime",
-                    valueLabel = "${maxTrackDurationSec / 60}m ${maxTrackDurationSec % 60}s",
-                    value = maxTrackDurationSec.toFloat(),
-                    valueRange = 60f..300f, // 1 min to 5 mins
-                    steps = 24, // 10 second increments
-                    onValueChange = { onMaxDurationChanged(it.toInt()) }
-                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Use custom max time",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Switch(
+                        checked = useManualMaxDuration,
+                        onCheckedChange = onToggleManualMaxDuration
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (useManualMaxDuration) {
+                    SliderWithLabel(
+                        label = "Max Song Playtime",
+                        valueLabel = "${maxTrackDurationSec / 60}m ${maxTrackDurationSec % 60}s",
+                        value = maxTrackDurationSec.toFloat(),
+                        valueRange = 60f..300f,
+                        steps = 24,
+                        onValueChange = { onMaxDurationChanged(it.toInt()) }
+                    )
+                } else {
+                    Text(
+                        text = "Mix at halfway point of current track",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
