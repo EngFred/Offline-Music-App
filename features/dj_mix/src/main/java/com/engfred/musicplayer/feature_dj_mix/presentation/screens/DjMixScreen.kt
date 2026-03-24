@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -36,6 +37,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -61,12 +63,12 @@ import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.DjMixViewMo
  * Root screen for the BPM-Aware DJ Auto-Mix feature.
  *
  * Layout:
- *  - [TopAppBar]     — playlist name + back arrow.
- *  - Analysis card   — progress bar while BPM worker is running.
- *  - Now Playing     — current track, BPM badge, playback progress bar.
- *  - Crossfade viz   — animated timeline showing the in-flight fade.
- *  - Controls card   — crossfade duration slider, BPM tolerance slider, play/pause.
- *  - Smart queue     — reordered songs with BPM badges; tap to jump.
+ * - [TopAppBar]     — playlist name + back arrow.
+ * - Analysis card   — progress bar while BPM worker is running.
+ * - Now Playing     — current track, BPM badge, playback progress bar.
+ * - Crossfade viz   — animated timeline showing the in-flight fade.
+ * - Controls card   — crossfade duration slider, BPM tolerance slider, play/pause.
+ * - Smart queue     — reordered songs with BPM badges; tap to jump.
  */
 @UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
@@ -174,12 +176,20 @@ fun DjMixScreen(
                     isPlaying = uiState.isPlaying,
                     crossfadeDurationSec = uiState.settings.crossfadeDurationSec,
                     bpmTolerance = uiState.settings.bpmTolerance,
+                    isRealMixMode = uiState.settings.isRealMixMode,
+                    maxTrackDurationSec = uiState.settings.maxTrackDurationSec,
                     onPlayPause = { viewModel.onEvent(DjMixEvent.PlayPause) },
                     onCrossfadeDurationChanged = { sec ->
                         viewModel.onEvent(DjMixEvent.UpdateCrossfadeDuration(sec))
                     },
                     onBpmToleranceChanged = { tol ->
                         viewModel.onEvent(DjMixEvent.UpdateBpmTolerance(tol))
+                    },
+                    onToggleRealMixMode = { enabled ->
+                        viewModel.onEvent(DjMixEvent.ToggleRealMixMode(enabled))
+                    },
+                    onMaxDurationChanged = { sec ->
+                        viewModel.onEvent(DjMixEvent.UpdateMaxTrackDuration(sec))
                     }
                 )
             }
@@ -424,9 +434,13 @@ private fun ControlsCard(
     isPlaying: Boolean,
     crossfadeDurationSec: Int,
     bpmTolerance: Float,
+    isRealMixMode: Boolean,
+    maxTrackDurationSec: Int,
     onPlayPause: () -> Unit,
     onCrossfadeDurationChanged: (Int) -> Unit,
     onBpmToleranceChanged: (Float) -> Unit,
+    onToggleRealMixMode: (Boolean) -> Unit,
+    onMaxDurationChanged: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -458,11 +472,51 @@ private fun ControlsCard(
                 )
             }
 
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ── Real Mix Mode Toggle ──
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(
+                        text = "Real Mix Mode",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Mix tracks before they finish",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = isRealMixMode,
+                    onCheckedChange = onToggleRealMixMode
+                )
+            }
+
+            if (isRealMixMode) {
+                Spacer(modifier = Modifier.height(12.dp))
+                SliderWithLabel(
+                    label = "Max Song Playtime",
+                    valueLabel = "${maxTrackDurationSec / 60}m ${maxTrackDurationSec % 60}s",
+                    value = maxTrackDurationSec.toFloat(),
+                    valueRange = 60f..300f, // 1 min to 5 mins
+                    steps = 24, // 10 second increments
+                    onValueChange = { onMaxDurationChanged(it.toInt()) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
             Spacer(modifier = Modifier.height(16.dp))
 
             // Crossfade duration slider
             SliderWithLabel(
-                label = "Crossfade",
+                label = "Crossfade Length",
                 valueLabel = "${crossfadeDurationSec}s",
                 value = crossfadeDurationSec.toFloat(),
                 valueRange = 2f..12f,

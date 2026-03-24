@@ -24,9 +24,8 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 import javax.inject.Inject
-import kotlin.collections.mapValues
+import kotlin.math.abs
 
 // ── Nav argument key ──────────────────────────────────────────────────────────
 
@@ -61,6 +60,11 @@ class DjMixViewModel @Inject constructor(
     /** Local copy of the original (unordered) playlist songs for queue rebuilding. */
     private var rawPlaylistSongs: List<AudioFile> = emptyList()
 
+    /** * Keeps track of which songs have been played in the current DJ session to
+     * prevent the engine from looping between the same two tracks.
+     */
+    private val playedTrackIds = mutableSetOf<Long>()
+
     // ── Initialisation ────────────────────────────────────────────────────────
 
     init {
@@ -88,9 +92,25 @@ class DjMixViewModel @Inject constructor(
                 rebuildSmartQueue()
             }
 
+            is DjMixEvent.ToggleRealMixMode -> {
+                val newSettings = _uiState.value.settings.copy(isRealMixMode = event.enabled)
+                crossfadeEngine.isRealMixMode = event.enabled
+                _uiState.update { it.copy(settings = newSettings) }
+            }
+
+            is DjMixEvent.UpdateMaxTrackDuration -> {
+                val newSettings = _uiState.value.settings.copy(maxTrackDurationSec = event.seconds)
+                crossfadeEngine.maxTrackDurationMs = event.seconds * 1000L
+                _uiState.update { it.copy(settings = newSettings) }
+            }
+
             is DjMixEvent.JumpToTrack -> {
+                playedTrackIds.clear() // Reset history when user manually picks a starting point
+                playedTrackIds.add(event.audioFile.id)
                 crossfadeEngine.startPlayback(event.audioFile)
                 _uiState.update { it.copy(currentTrack = event.audioFile) }
+                // Immediately sync the beat grid for the manually selected track
+                syncBeatGridForTrack(event.audioFile.id)
             }
         }
     }
@@ -114,11 +134,13 @@ class DjMixViewModel @Inject constructor(
                     analyzeBpmUseCase(playlistId, songs)
                 }
 
-                _uiState.update { it.copy(
-                    playlistName = playlist.name,
-                    totalSongs = songs.size,
-                    isLoading = false
-                )}
+                _uiState.update {
+                    it.copy(
+                        playlistName = playlist.name,
+                        totalSongs = songs.size,
+                        isLoading = false
+                    )
+                }
 
                 // Observe BPM cache and merge with playlist songs
                 observeBpmCache(songs)
@@ -130,14 +152,36 @@ class DjMixViewModel @Inject constructor(
         djMixRepository.getBpmCacheFlow()
             .onEach { bpmCache ->
                 val analysedCount = songs.count { bpmCache.containsKey(it.id) }
-                val progress = if (songs.isEmpty()) 1f else analysedCount.toFloat() / songs.size
+                val progress      = if (songs.isEmpty()) 1f else analysedCount.toFloat() / songs.size
                 val stillAnalysing = progress < 1f
 
-                _uiState.update { it.copy(
-                    bpmCache = bpmCache,
-                    analysisProgress = progress,
-                    isAnalyzing = stillAnalysing
-                )}
+                // If BPM data just became available for the currently playing track
+                // (i.e., analysis completed mid-playback), immediately push the new beat
+                // grid to the engine so upcoming crossfades use accurate beat alignment.
+                val currentTrackId = _uiState.value.currentTrack?.id
+                if (currentTrackId != null) {
+                    val freshBpmInfo   = bpmCache[currentTrackId]
+                    val cachedBpmInfo  = _uiState.value.bpmCache[currentTrackId]
+                    if (freshBpmInfo != null && cachedBpmInfo == null) {
+                        crossfadeEngine.updateCurrentBpmInfo(
+                            freshBpmInfo.bpm,
+                            freshBpmInfo.firstBeatMs
+                        )
+                        Log.d(
+                            TAG,
+                            "Beat grid updated mid-playback for track $currentTrackId: " +
+                                    "${freshBpmInfo.bpm} BPM firstBeat=${freshBpmInfo.firstBeatMs}ms"
+                        )
+                    }
+                }
+
+                _uiState.update {
+                    it.copy(
+                        bpmCache       = bpmCache,
+                        analysisProgress = progress,
+                        isAnalyzing    = stillAnalysing
+                    )
+                }
 
                 rebuildSmartQueue(bpmCache = bpmCache)
             }
@@ -147,46 +191,96 @@ class DjMixViewModel @Inject constructor(
     private fun observeCrossfadeEngineState() {
         crossfadeEngine.state
             .onEach { engineState ->
-                _uiState.update { it.copy(
-                    currentTrack = engineState.currentTrack,
-                    isPlaying = engineState.isPlaying,
-                    isCrossfading = engineState.isCrossfading,
-                    currentPositionMs = engineState.currentPositionMs,
-                    currentDurationMs = engineState.currentDurationMs,
-                    crossfadeProgressFraction = engineState.crossfadeProgressFraction,
-                    error = engineState.error
-                )}
+                // When the current track changes, push its BPM data to the engine so
+                // beat-aligned transitions use the correct beat grid going forward.
+                val prevTrackId = _uiState.value.currentTrack?.id
+                val newTrackId  = engineState.currentTrack?.id
+                if (newTrackId != null && newTrackId != prevTrackId) {
+                    playedTrackIds.add(newTrackId) // Track has officially started playing
+                    syncBeatGridForTrack(newTrackId)
+                }
+
+                _uiState.update {
+                    it.copy(
+                        currentTrack             = engineState.currentTrack,
+                        isPlaying                = engineState.isPlaying,
+                        isCrossfading            = engineState.isCrossfading,
+                        currentPositionMs        = engineState.currentPositionMs,
+                        currentDurationMs        = engineState.currentDurationMs,
+                        crossfadeProgressFraction = engineState.crossfadeProgressFraction,
+                        error                    = engineState.error
+                    )
+                }
             }
             .launchIn(viewModelScope)
+    }
+
+    /**
+     * Pushes the BPM and first-beat data for [trackId] to [CrossfadeEngine.updateCurrentBpmInfo]
+     * so the engine's beat grid is always in sync with whatever track is currently playing.
+     *
+     * Called from:
+     * - [observeCrossfadeEngineState] when a crossfade completes and the track changes.
+     * - [observeBpmCache] when BPM analysis finishes for the currently playing track.
+     * - [onEvent] (JumpToTrack) when the user manually selects a track.
+     */
+    private fun syncBeatGridForTrack(trackId: Long) {
+        val bpmInfo = _uiState.value.bpmCache[trackId] ?: return
+        crossfadeEngine.updateCurrentBpmInfo(bpmInfo.bpm, bpmInfo.firstBeatMs)
+        Log.d(
+            TAG,
+            "Beat grid synced for track $trackId: ${bpmInfo.bpm} BPM " +
+                    "firstBeat=${bpmInfo.firstBeatMs}ms"
+        )
     }
 
     /**
      * When the engine signals that it is approaching the end of the current track, this
      * observer uses [GetSmartNextTrackUseCase] to pick the best remaining track and feeds
      * it back to the engine via [CrossfadeEngine.queueNextTrack].
+     *
+     * Now passes [nextBpm] alongside [firstBeatMs] so the engine can apply Tempo Sync
+     * (time-stretching) in addition to Smart Cue.
      */
     private fun observeNextTrackRequests() {
         crossfadeEngine.nextTrackRequest
             .onEach { currentTrackId ->
-                val state = _uiState.value
+                val state      = _uiState.value
                 val currentBpm = state.bpmCache[currentTrackId]?.bpm ?: 120f
 
-                // Remaining = smart queue minus the current track
-                val remaining = state.smartQueue.filter { it.id != currentTrackId }
+                // Remaining = smart queue minus the current track AND anything already played
+                var remaining = state.smartQueue.filter {
+                    it.id != currentTrackId && !playedTrackIds.contains(it.id)
+                }
+
+                // If everyone has been played, reset the session and let the mix loop
+                // the whole playlist again.
+                if (remaining.isEmpty() && state.smartQueue.size > 1) {
+                    Log.d(TAG, "Queue exhausted. Resetting session history.")
+                    playedTrackIds.clear()
+                    playedTrackIds.add(currentTrackId)
+                    remaining = state.smartQueue.filter { it.id != currentTrackId }
+                }
 
                 val nextTrack = getSmartNextTrackUseCase(
-                    currentBpm = currentBpm,
+                    currentBpm    = currentBpm,
                     remainingQueue = remaining,
-                    bpmCache = state.bpmCache.mapValues { it.value.bpm }, // backward compat for use-case
-                    tolerance = state.settings.bpmTolerance
+                    bpmCache      = state.bpmCache.mapValues { it.value.bpm },
+                    tolerance     = state.settings.bpmTolerance
                 )
 
                 if (nextTrack != null) {
-                    val firstBeatMs = state.bpmCache[nextTrack.id]?.firstBeatMs ?: 0L
-                    Log.d(TAG, "Next track selected: ${nextTrack.title} " +
-                            "(Δ BPM = ${abs((state.bpmCache[nextTrack.id]?.bpm ?: 0f) - currentBpm)}) " +
-                            "firstBeatMs=${firstBeatMs}ms")
-                    crossfadeEngine.queueNextTrack(nextTrack, firstBeatMs)
+                    val nextBpmInfo   = state.bpmCache[nextTrack.id]
+                    val firstBeatMs   = nextBpmInfo?.firstBeatMs ?: 0L
+                    val nextBpm       = nextBpmInfo?.bpm ?: 0f
+                    val deltaBpm      = abs((nextBpmInfo?.bpm ?: 0f) - currentBpm)
+                    Log.d(
+                        TAG,
+                        "Next track selected: '${nextTrack.title}' " +
+                                "(ΔBPM=%.1f firstBeatMs=${firstBeatMs}ms nextBpm=${nextBpm})".format(deltaBpm)
+                    )
+                    // Pass firstBeatMs (Smart Cue) AND nextBpm (Tempo Sync) to the engine
+                    crossfadeEngine.queueNextTrack(nextTrack, firstBeatMs, nextBpm)
                 } else {
                     Log.d(TAG, "Queue exhausted — DJ Mix will finish after current track.")
                     viewModelScope.launch {
@@ -211,13 +305,15 @@ class DjMixViewModel @Inject constructor(
 
         val tolerance = _uiState.value.settings.bpmTolerance
         val remaining = rawPlaylistSongs.toMutableList()
-        val result = mutableListOf<AudioFile>()
+        val result    = mutableListOf<AudioFile>()
 
         // Pick median-BPM song as the starting point
         val sortedBpms = rawPlaylistSongs.mapNotNull { bpmCache[it.id]?.bpm }.sorted()
-        val medianBpm = sortedBpms.getOrNull(sortedBpms.size / 2) ?: 120f
-        val first = remaining.minByOrNull { abs((bpmCache[it.id]?.bpm ?: Float.MAX_VALUE) - medianBpm) }
-            ?: remaining.first()
+        val medianBpm  = sortedBpms.getOrNull(sortedBpms.size / 2) ?: 120f
+
+        val first = remaining.minByOrNull {
+            abs((bpmCache[it.id]?.bpm ?: Float.MAX_VALUE) - medianBpm)
+        } ?: remaining.first()
 
         result.add(first)
         remaining.remove(first)
@@ -225,10 +321,10 @@ class DjMixViewModel @Inject constructor(
         while (remaining.isNotEmpty()) {
             val lastBpm = bpmCache[result.last().id]?.bpm ?: medianBpm
             val next = getSmartNextTrackUseCase(
-                lastBpm,
-                remaining,
-                bpmCache.mapValues { it.value.bpm },
-                tolerance
+                currentBpm     = lastBpm,
+                remainingQueue = remaining,
+                bpmCache       = bpmCache.mapValues { it.value.bpm },
+                tolerance      = tolerance
             ) ?: remaining.first()
             result.add(next)
             remaining.remove(next)
