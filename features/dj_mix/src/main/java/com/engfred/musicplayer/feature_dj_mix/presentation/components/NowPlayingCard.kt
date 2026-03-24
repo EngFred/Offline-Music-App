@@ -194,9 +194,6 @@ fun NowPlayingCard(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // ── UI/UX TEAM UPDATE: Live Bouncing Visualizer ──────────────────────────
-            // We render the waveform data emitted by the Visualizer API.
-            // We chunk the data into thicker bars for a premium hardware-style aesthetic.
             if (waveform.isNotEmpty()) {
                 val primaryColor = MaterialTheme.colorScheme.primary
                 Canvas(

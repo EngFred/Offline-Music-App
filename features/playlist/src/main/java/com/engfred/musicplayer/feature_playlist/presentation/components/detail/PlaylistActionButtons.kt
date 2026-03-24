@@ -161,7 +161,7 @@ fun PlaylistActionButtons(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        "Mixed order",
+                        "Random order",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                         maxLines = 1,
