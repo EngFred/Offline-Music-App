@@ -19,6 +19,7 @@ import com.engfred.musicplayer.feature_dj_mix.domain.repository.BpmInfo
  * @param currentPositionMs Playback position of the current track.
  * @param currentDurationMs Duration of the current track.
  * @param crossfadeProgressFraction 0f..1f visual progress of an active crossfade.
+ * @param waveform A real-time list of normalized floats (0.0 to 1.0) representing the current audio amplitude.
  * @param settings Current DJ Mix settings (crossfade duration, BPM tolerance).
  * @param isLoading True while the playlist is being fetched from the DB.
  * @param error Non-null when a fatal error has occurred.
@@ -36,6 +37,7 @@ data class DjMixUiState(
     val currentPositionMs: Long = 0L,
     val currentDurationMs: Long = 0L,
     val crossfadeProgressFraction: Float = 0f,
+    val waveform: List<Float> = emptyList(), // <--- UI/UX UPDATE: Bridging the visualizer data
     val settings: DjMixSettings = DjMixSettings(),
     val isLoading: Boolean = true,
     val error: String? = null

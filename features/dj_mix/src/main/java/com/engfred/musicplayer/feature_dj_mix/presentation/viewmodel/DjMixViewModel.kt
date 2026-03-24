@@ -244,6 +244,7 @@ class DjMixViewModel @Inject constructor(
                         currentPositionMs = engineState.currentPositionMs,
                         currentDurationMs = engineState.currentDurationMs,
                         crossfadeProgressFraction = engineState.crossfadeProgressFraction,
+                        waveform = engineState.waveform, // <--- UI/UX UPDATE: Passing visualizer data to UI
                         error = engineState.error
                     )
                 }

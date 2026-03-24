@@ -32,6 +32,11 @@ import javax.inject.Singleton
 
 /**
  * Observable state of the crossfade engine, exposed to ViewModel and Service.
+ *
+ * ── UI/UX TEAM UPDATE: Added [waveform] ──────────────────────────────────────
+ * @param waveform A real-time list of normalized floats (0.0 to 1.0) representing
+ * the current audio amplitude. This allows the UI to render a live, bouncing
+ * DJ waveform rather than a static progress bar.
  */
 data class CrossfadeEngineState(
     val currentTrack: AudioFile? = null,
@@ -40,6 +45,7 @@ data class CrossfadeEngineState(
     val currentPositionMs: Long = 0L,
     val currentDurationMs: Long = 0L,
     val crossfadeProgressFraction: Float = 0f,
+    val waveform: List<Float> = emptyList(), // <-- NEW: Real-time visualizer data
     val error: String? = null
 )
 
@@ -102,6 +108,11 @@ class CrossfadeEngine @Inject constructor(
     // ── Dual players ──────────────────────────────────────────────────────────
     private var playerA: ExoPlayer? = null
     private var playerB: ExoPlayer? = null
+
+    // ── UI/UX TEAM UPDATE: Visualizer ─────────────────────────────────────────
+    // Captures live audio data for the UI waveform.
+    // Requires RECORD_AUDIO permission!
+    private var visualizer: android.media.audiofx.Visualizer? = null
 
     /**
      * FIX: @Volatile ensures writes on one thread are immediately visible on others.
@@ -183,6 +194,9 @@ class CrossfadeEngine @Inject constructor(
             playerB           = null
             _state.value      = CrossfadeEngineState()
 
+            visualizer?.release()
+            visualizer = null
+
             // FIX: Clear the ghost emission from the previous session's replay cache
             _nextTrackRequest.resetReplayCache()
 
@@ -225,6 +239,46 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
+    /**
+     * Attaches an Android Visualizer to the active audio session to capture live waveform data.
+     * Note to Logic Team: This requires RECORD_AUDIO permission in the Manifest.
+     */
+    private fun attachVisualizer(sessionId: Int) {
+        try {
+            visualizer?.release()
+            visualizer = android.media.audiofx.Visualizer(sessionId).apply {
+                captureSize = 256 // Resolution of the waveform bars (must be a power of 2)
+                setDataCaptureListener(object : android.media.audiofx.Visualizer.OnDataCaptureListener {
+                    override fun onWaveFormDataCapture(
+                        vis: android.media.audiofx.Visualizer,
+                        waveform: ByteArray,
+                        samplingRate: Int
+                    ) {
+                        // PCM data from Visualizer is 8-bit unsigned, offset by 128.
+                        // We normalize it to a 0.0 -> 1.0 Float list for the Compose UI.
+                        val amplitudes = waveform.map { byte ->
+                            Math.abs(byte - 128).toFloat() / 128f
+                        }
+                        _state.update { it.copy(waveform = amplitudes) }
+                    }
+
+                    override fun onFftDataCapture(
+                        vis: android.media.audiofx.Visualizer,
+                        fft: ByteArray,
+                        samplingRate: Int
+                    ) {
+                        // Not used currently, but available if we want frequency spectrums later.
+                    }
+                }, android.media.audiofx.Visualizer.getMaxCaptureRate() / 2, true, false)
+                enabled = true
+            }
+        } catch (e: Exception) {
+            // This will catch SecurityExceptions if the user denied RECORD_AUDIO permission.
+            Log.e(TAG, "Visualizer initialization failed. Missing RECORD_AUDIO permission?", e)
+            _state.update { it.copy(waveform = emptyList()) }
+        }
+    }
+
     fun startPlayback(audioFile: AudioFile) {
         if (isReleased) return
         engineScope.launch {
@@ -236,6 +290,13 @@ class CrossfadeEngine @Inject constructor(
                 primary.volume = 1f
                 primary.prepare()
                 primary.play()
+
+                // UI/UX UPDATE: Attach visualizer to the fresh player
+                val sessionId = primary.audioSessionId
+                if (sessionId != C.AUDIO_SESSION_ID_UNSET) {
+                    attachVisualizer(sessionId)
+                }
+
                 lastRequestedTrackId = null
             }
             _state.update { it.copy(currentTrack = audioFile, isPlaying = true, error = null) }
@@ -332,6 +393,11 @@ class CrossfadeEngine @Inject constructor(
         // even after engineScope is cancelled.
         CoroutineScope(Dispatchers.Main.immediate).launch {
             try {
+                // UI/UX UPDATE: Release the visualizer memory
+                visualizer?.release()
+                visualizer = null
+                _state.update { it.copy(waveform = emptyList()) }
+
                 playerA?.stop(); playerA?.release(); playerA = null
                 playerB?.stop(); playerB?.release(); playerB = null
             } catch (e: Exception) {
@@ -395,6 +461,16 @@ class CrossfadeEngine @Inject constructor(
                 }
                 if (ready) break
                 delay(100L); waitMs += 100L
+            }
+
+            // UI/UX UPDATE: Switch the Visualizer to the incoming track!
+            // Doing this here ensures the UI waveform transitions to the new track
+            // visually as it's fading in audibly.
+            withContext(Dispatchers.Main) {
+                val newSessionId = secondary.audioSessionId
+                if (newSessionId != C.AUDIO_SESSION_ID_UNSET) {
+                    attachVisualizer(newSessionId)
+                }
             }
 
             // ── Bass Kill EQ ──────────────────────────────────────────────────
