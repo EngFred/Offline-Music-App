@@ -17,26 +17,50 @@ import javax.inject.Singleton
 /**
  * Concrete implementation of [DjMixRepository].
  *
- * Data sources:
- * - [BpmCacheDao] — Room DAO for reading / writing cached BPM values.
- * - [WorkManager] — used to schedule background [BpmAnalysisWorker] jobs.
+ * ── BUG FIX ──────────────────────────────────────────────────────────────────
+ * Both [getBpmCacheFlow] and [getBpmForAudios] were building [BpmInfo] objects
+ * without mapping the [amplitude] column from the database entity. This meant
+ * every track was presented to the CrossfadeEngine with amplitude = 0f, causing
+ * Auto-Gain normalization to always compute a base volume of 1.0f — effectively
+ * disabling the feature entirely.
+ *
+ * Fixed: BpmCacheEntity.amplitude is now included in both mappings.
  */
 @Singleton
 class DjMixRepositoryImpl @Inject constructor(
     private val bpmCacheDao: BpmCacheDao,
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context,
 ) : DjMixRepository {
 
+    /**
+     * Returns a reactive map of audioFileId → [BpmInfo].
+     * Emits a new value every time any BPM cache row is inserted or replaced
+     * (i.e., as BpmAnalysisWorker processes each file in the playlist).
+     *
+     * FIX: amplitude is now correctly mapped from the entity.
+     */
     override fun getBpmCacheFlow(): Flow<Map<Long, BpmInfo>> =
         bpmCacheDao.getAllBpmEntries().map { entries ->
-            entries.associate {
-                it.audioFileId to BpmInfo(bpm = it.bpm, firstBeatMs = it.firstBeatMs)
+            entries.associate { entity ->
+                entity.audioFileId to BpmInfo(
+                    bpm         = entity.bpm,
+                    firstBeatMs = entity.firstBeatMs,
+                    amplitude   = entity.amplitude  // FIX: was omitted before
+                )
             }
         }
 
+    /**
+     * One-shot lookup for a set of file IDs.
+     * FIX: amplitude is now correctly mapped from the entity.
+     */
     override suspend fun getBpmForAudios(audioFileIds: List<Long>): Map<Long, BpmInfo> =
-        bpmCacheDao.getBpmForAudios(audioFileIds).associate {
-            it.audioFileId to BpmInfo(bpm = it.bpm, firstBeatMs = it.firstBeatMs)
+        bpmCacheDao.getBpmForAudios(audioFileIds).associate { entity ->
+            entity.audioFileId to BpmInfo(
+                bpm         = entity.bpm,
+                firstBeatMs = entity.firstBeatMs,
+                amplitude   = entity.amplitude  // FIX: was omitted before
+            )
         }
 
     override fun enqueueBpmAnalysis(playlistId: Long, songs: List<AudioFile>) {

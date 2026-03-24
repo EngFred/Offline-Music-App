@@ -27,7 +27,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,8 +37,6 @@ fun NowPlayingCard(
     trackTitle: String,
     trackArtist: String,
     bpm: Float?,
-    firstBeatMs: Long,
-    isPlaying: Boolean,
     positionMs: Long,
     durationMs: Long,
     isCrossfading: Boolean,
@@ -51,26 +48,6 @@ fun NowPlayingCard(
         targetValue = playbackProgress,
         animationSpec = tween(durationMillis = 300),
         label = "playback_progress"
-    )
-
-    // ── Visual UI Flare: The Beat Pulse ──
-    val beatLengthMs = if (bpm != null && bpm > 0f) (60_000f / bpm).toLong() else 0L
-    val pulseScale = if (isPlaying && beatLengthMs > 0L && positionMs >= firstBeatMs) {
-        val timeSinceLastBeat = (positionMs - firstBeatMs) % beatLengthMs
-        // If we are in the first 15% of the beat, pulse up!
-        if (timeSinceLastBeat < beatLengthMs * 0.15f) {
-            1.15f // 15% larger on the downbeat
-        } else {
-            1.0f
-        }
-    } else {
-        1.0f
-    }
-
-    val animatedScale by animateFloatAsState(
-        targetValue = pulseScale,
-        animationSpec = tween(durationMillis = 100), // snappy return
-        label = "beat_pulse"
     )
 
     Card(
@@ -86,13 +63,11 @@ fun NowPlayingCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Vinyl disc icon WITH the beat pulse modifier
+                // Vinyl disc icon
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .scale(animatedScale)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.MusicNote,

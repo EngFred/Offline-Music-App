@@ -66,6 +66,7 @@ dependencies {
 
     // Hilt
     implementation(libs.hilt.android)
+    implementation(libs.androidx.lifecycle.service)
     ksp(libs.hilt.android.compiler)
     implementation(libs.hilt.navigation.compose)
 
@@ -94,6 +95,8 @@ dependencies {
 
     // TarsosDSP (BPM analysis)
     implementation(libs.tarsos.dsp.core)
+
+    implementation(libs.androidx.media)
 
     // Testing
     testImplementation(libs.junit)

@@ -18,6 +18,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import androidx.media3.common.util.UnstableApi
+import com.engfred.musicplayer.core.domain.ActivePlayerRegistry
 import javax.inject.Singleton
 
 @Module
@@ -50,7 +51,8 @@ object PlayerModule {
         playlistRepository: PlaylistRepository,
         @ApplicationContext context: Context,
         sessionToken: SessionToken,
-        settingsRepository: SettingsRepository
+        settingsRepository: SettingsRepository,
+        activePlayerRegistry: ActivePlayerRegistry
     ): PlaybackController {
         return PlaybackControllerImpl(
             sharedAudioDataSource,
@@ -59,7 +61,8 @@ object PlayerModule {
             playlistRepository,
             context,
             sessionToken,
-            settingsRepository
+            settingsRepository,
+            activePlayerRegistry
         )
     }
 }

@@ -3,7 +3,6 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- existing permissions (keep yours as well) -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
@@ -12,9 +11,7 @@
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!-- Android 13+ -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    <!-- Legacy read (API <= 32) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
@@ -55,7 +52,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Playback service -->
         <service
             android:name="com.engfred.musicplayer.feature_player.data.service.PlaybackService"
             android:foregroundServiceType="mediaPlayback"
@@ -65,7 +61,11 @@
             </intent-filter>
         </service>
 
-        <!-- Widget receiver -->
+        <service
+            android:name="com.engfred.musicplayer.feature_dj_mix.data.service.DjMixService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
+
         <receiver
             android:name=".widget.PlayerWidgetProvider"
             android:exported="true"

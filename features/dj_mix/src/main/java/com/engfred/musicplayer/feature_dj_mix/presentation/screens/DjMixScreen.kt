@@ -32,9 +32,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.BpmAnalysisCard
@@ -47,13 +49,17 @@ import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.DjMixViewMo
 /**
  * Root screen for the BPM-Aware DJ Auto-Mix feature.
  *
- * Layout:
- * - [TopAppBar]     — playlist name + back arrow.
- * - Analysis card   — progress bar while BPM worker is running.
- * - Now Playing     — current track, BPM badge, playback progress bar.
- * - Crossfade viz   — animated timeline showing the in-flight fade.
- * - Controls card   — crossfade duration slider, BPM tolerance slider, play/pause.
- * - Smart queue     — reordered songs with BPM badges; tap to jump.
+ * ── What changed and why ─────────────────────────────────────────────────────
+ * BUG FIX: The old screen had THREE LaunchedEffect blocks that all called
+ * crossfadeEngine.startPlayback() — a race condition that could start playback
+ * multiple times on the same frame.
+ *
+ * All auto-start logic is now in DjMixViewModel.observeAutoStart(). This screen
+ * only needs a single LaunchedEffect to forward the "START_DJ_SERVICE" event to
+ * the Android context (starting a foreground service requires a Context, which
+ * ViewModels do not have).
+ *
+ * The Screen is now purely reactive: it renders state and delegates events.
  */
 @UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,19 +69,22 @@ fun DjMixScreen(
     viewModel: DjMixViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
 
-    // Initialize the CrossfadeEngine on the Main thread — the Composable's effect
-    // runs on Main, which is exactly what ExoPlayer requires.
+    // Single LaunchedEffect: forward ViewModel events that require a Context.
+    // "START_DJ_SERVICE" is emitted by the ViewModel when auto-start or JumpToTrack
+    // triggers playback, asking the Screen to start the foreground service.
     LaunchedEffect(Unit) {
-        if (uiState.smartQueue.isNotEmpty() && uiState.currentTrack == null) {
-            viewModel.crossfadeEngine.startPlayback(uiState.smartQueue.first())
-        }
-    }
-
-    // Auto-start once the smart queue is first populated
-    LaunchedEffect(uiState.smartQueue) {
-        if (uiState.smartQueue.isNotEmpty() && uiState.currentTrack == null && !uiState.isLoading) {
-            viewModel.crossfadeEngine.startPlayback(uiState.smartQueue.first())
+        viewModel.uiEvent.collect { event ->
+            when (event) {
+                "START_DJ_SERVICE" -> {
+                    val intent = android.content.Intent(
+                        context,
+                        DjMixService::class.java
+                    ).apply { action = DjMixService.ACTION_START }
+                    ContextCompat.startForegroundService(context, intent)
+                }
+            }
         }
     }
 
@@ -129,45 +138,40 @@ fun DjMixScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
 
-            // ── BPM Analysis Progress ────────────────────────────────────────
             if (uiState.isAnalyzing || uiState.analysisProgress < 1f) {
                 item {
                     BpmAnalysisCard(
-                        progress = uiState.analysisProgress,
+                        progress      = uiState.analysisProgress,
                         analysedCount = (uiState.analysisProgress * uiState.totalSongs).toInt(),
-                        totalCount = uiState.totalSongs
+                        totalCount    = uiState.totalSongs
                     )
                 }
             }
 
-            // ── Now Playing ──────────────────────────────────────────────────
             uiState.currentTrack?.let { track ->
                 item {
                     val bpmInfo = uiState.bpmCache[track.id]
                     NowPlayingCard(
-                        trackTitle = track.title,
-                        trackArtist = track.artist ?: "Unknown Artist",
-                        bpm = bpmInfo?.bpm,
-                        firstBeatMs = bpmInfo?.firstBeatMs ?: 0L,
-                        isPlaying = uiState.isPlaying,
-                        positionMs = uiState.currentPositionMs,
-                        durationMs = uiState.currentDurationMs,
-                        isCrossfading = uiState.isCrossfading,
+                        trackTitle       = track.title,
+                        trackArtist      = track.artist ?: "Unknown Artist",
+                        bpm              = bpmInfo?.bpm,
+                        positionMs       = uiState.currentPositionMs,
+                        durationMs       = uiState.currentDurationMs,
+                        isCrossfading    = uiState.isCrossfading,
                         crossfadeProgress = uiState.crossfadeProgressFraction
                     )
                 }
             }
 
-            // ── Playback Controls ────────────────────────────────────────────
             item {
                 ControlsCard(
-                    isPlaying = uiState.isPlaying,
+                    isPlaying            = uiState.isPlaying,
                     crossfadeDurationSec = uiState.settings.crossfadeDurationSec,
-                    bpmTolerance = uiState.settings.bpmTolerance,
-                    isRealMixMode = uiState.settings.isRealMixMode,
-                    maxTrackDurationSec = uiState.settings.maxTrackDurationSec,
-                    loopQueue = uiState.settings.loopQueue,
-                    onPlayPause = { viewModel.onEvent(DjMixEvent.PlayPause) },
+                    bpmTolerance         = uiState.settings.bpmTolerance,
+                    isRealMixMode        = uiState.settings.isRealMixMode,
+                    maxTrackDurationSec  = uiState.settings.maxTrackDurationSec,
+                    loopQueue            = uiState.settings.loopQueue,
+                    onPlayPause          = { viewModel.onEvent(DjMixEvent.PlayPause) },
                     onCrossfadeDurationChanged = { sec ->
                         viewModel.onEvent(DjMixEvent.UpdateCrossfadeDuration(sec))
                     },
@@ -186,7 +190,6 @@ fun DjMixScreen(
                 )
             }
 
-            // ── Smart Queue Header ───────────────────────────────────────────
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -207,17 +210,16 @@ fun DjMixScreen(
                 }
             }
 
-            // ── Smart Queue Items ────────────────────────────────────────────
             itemsIndexed(
                 items = uiState.smartQueue,
                 key = { _, song -> song.id }
             ) { index, song ->
                 SmartQueueItem(
-                    position = index + 1,
-                    song = song,
-                    bpm = uiState.bpmCache[song.id]?.bpm,
+                    position  = index + 1,
+                    song      = song,
+                    bpm       = uiState.bpmCache[song.id]?.bpm,
                     isCurrent = song.id == uiState.currentTrack?.id,
-                    onClick = { viewModel.onEvent(DjMixEvent.JumpToTrack(song)) }
+                    onClick   = { viewModel.onEvent(DjMixEvent.JumpToTrack(song)) }
                 )
             }
 
@@ -225,3 +227,6 @@ fun DjMixScreen(
         }
     }
 }
+
+// Internal alias to avoid repeating the full class path in the LaunchedEffect above.
+private typealias DjMixService = com.engfred.musicplayer.feature_dj_mix.data.service.DjMixService
