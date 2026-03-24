@@ -33,17 +33,13 @@ class BpmAnalysisWorker @AssistedInject constructor(
     private val bpmCacheDao: BpmCacheDao,
     private val bpmAnalyzer: BpmAnalyzer
 ) : CoroutineWorker(context, workerParams) {
-
     companion object {
         private const val TAG = "BpmAnalysisWorker"
-
         /** Unique tag used to identify / cancel work for a specific playlist. */
         const val TAG_PREFIX = "bpm_analysis_"
-
         // Input data keys
-        private const val KEY_AUDIO_IDS = "bpm_audio_ids"   // LongArray
+        private const val KEY_AUDIO_IDS = "bpm_audio_ids" // LongArray
         private const val KEY_AUDIO_URIS = "bpm_audio_uris" // StringArray
-
         /**
          * Builds a one-time work request for the given [audioFiles].
          *
@@ -56,9 +52,9 @@ class BpmAnalysisWorker @AssistedInject constructor(
          * Example:
          * ```
          * WorkManager.getInstance(context).enqueueUniqueWork(
-         *     BpmAnalysisWorker.TAG_PREFIX + playlistId,
-         *     ExistingWorkPolicy.KEEP,
-         *     BpmAnalysisWorker.buildRequest(playlist.songs)
+         * BpmAnalysisWorker.TAG_PREFIX + playlistId,
+         * ExistingWorkPolicy.KEEP,
+         * BpmAnalysisWorker.buildRequest(playlist.songs)
          * )
          * ```
          */
@@ -79,14 +75,11 @@ class BpmAnalysisWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         val ids = inputData.getLongArray(KEY_AUDIO_IDS)
         val uriStrings = inputData.getStringArray(KEY_AUDIO_URIS)
-
         if (ids == null || uriStrings == null || ids.size != uriStrings.size) {
             Log.e(TAG, "Invalid input data — missing or mismatched IDs/URIs")
             return Result.failure()
         }
-
         Log.d(TAG, "Starting BPM analysis for ${ids.size} files")
-
         ids.zip(uriStrings.map { Uri.parse(it) }).forEach { (audioFileId, uri) ->
             // Skip if already cached — idempotent re-runs are safe
             val cached = bpmCacheDao.getBpmForAudio(audioFileId)
@@ -94,24 +87,22 @@ class BpmAnalysisWorker @AssistedInject constructor(
                 Log.d(TAG, "BPM already cached for $audioFileId (${cached.bpm} bpm) — skipping")
                 return@forEach
             }
-
-            Log.d(TAG, "Analysing BPM for audioFileId=$audioFileId  uri=$uri")
-            val bpm = bpmAnalyzer.analyzeBpm(uri)
-
-            if (bpm != null) {
+            Log.d(TAG, "Analysing BPM for audioFileId=$audioFileId uri=$uri")
+            val result = bpmAnalyzer.analyzeBpm(uri)
+            if (result != null) {
                 bpmCacheDao.insertBpm(
                     BpmCacheEntity(
                         audioFileId = audioFileId,
-                        bpm = bpm,
-                        analyzedAt = System.currentTimeMillis()
+                        bpm = result.bpm,
+                        analyzedAt = System.currentTimeMillis(),
+                        firstBeatMs = result.firstBeatMs
                     )
                 )
-                Log.d(TAG, "Cached BPM $bpm for audioFileId=$audioFileId")
+                Log.d(TAG, "Cached BPM ${result.bpm} + firstBeatMs=${result.firstBeatMs}ms for audioFileId=$audioFileId")
             } else {
                 Log.w(TAG, "BPM analysis returned null for audioFileId=$audioFileId — will retry on next open")
             }
         }
-
         Log.d(TAG, "BPM analysis work complete")
         return Result.success()
     }

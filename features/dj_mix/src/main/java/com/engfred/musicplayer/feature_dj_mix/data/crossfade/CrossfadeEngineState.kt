@@ -31,13 +31,13 @@ import javax.inject.Inject
 /**
  * Represents the observable state of the crossfade engine, exposed to the ViewModel.
  *
- * @param currentTrack          The track currently audible (highest volume).
- * @param isPlaying             Whether the primary player is actively playing.
- * @param isCrossfading         True while a crossfade transition is in progress.
- * @param currentPositionMs     Playback position of the primary player in milliseconds.
- * @param currentDurationMs     Duration of the primary player's current track in milliseconds.
- * @param crossfadeProgressFraction  0f → 1f progress of the in-flight crossfade, for UI visuals.
- * @param error                 Non-null when a fatal playback error has occurred.
+ * @param currentTrack The track currently audible (highest volume).
+ * @param isPlaying Whether the primary player is actively playing.
+ * @param isCrossfading True while a crossfade transition is in progress.
+ * @param currentPositionMs Playback position of the primary player in milliseconds.
+ * @param currentDurationMs Duration of the primary player's current track in milliseconds.
+ * @param crossfadeProgressFraction 0f → 1f progress of the in-flight crossfade, for UI visuals.
+ * @param error Non-null when a fatal playback error has occurred.
  */
 data class CrossfadeEngineState(
     val currentTrack: AudioFile? = null,
@@ -54,12 +54,12 @@ data class CrossfadeEngineState(
  *
  * ## Architecture
  * - **Player A / Player B**: One is always the *primary* (audible), the other the *secondary*
- *   (pre-loaded at volume 0 and waiting). After each crossfade they swap roles.
+ * (pre-loaded at volume 0 and waiting). After each crossfade they swap roles.
  * - The engine is intentionally decoupled from [PlaybackService]: it owns its own players and
- *   does NOT interact with the app's [MediaSession] or notification. The [DjMixViewModel] is
- *   responsible for bridging state to the UI.
+ * does NOT interact with the app's [MediaSession] or notification. The [DjMixViewModel] is
+ * responsible for bridging state to the UI.
  * - BPM logic lives entirely in [GetSmartNextTrackUseCase] / [DjMixViewModel]. The engine
- *   asks "what's next?" via [nextTrackRequest] and the ViewModel responds with [queueNextTrack].
+ * asks "what's next?" via [nextTrackRequest] and the ViewModel responds with [queueNextTrack].
  *
  * ## Lifecycle
  * Call [initialize] before any playback. Call [release] in ViewModel.onCleared() to free
@@ -73,16 +73,12 @@ data class CrossfadeEngineState(
 class CrossfadeEngine @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-
     companion object {
         private const val TAG = "CrossfadeEngine"
-
         /** Polling interval for position monitoring. */
         private const val POSITION_POLL_MS = 300L
-
         /** Number of volume steps per crossfade. More steps = smoother fade. */
         private const val FADE_STEPS = 60
-
         /**
          * Start the crossfade this many ms before the natural end of the current track.
          * The actual trigger window is [crossfadeDurationMs] — this constant is a guard
@@ -92,22 +88,17 @@ class CrossfadeEngine @Inject constructor(
     }
 
     // ── Internal coroutine scope ──────────────────────────────────────────────
-
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     // ── Dual players ──────────────────────────────────────────────────────────
-
     private var playerA: ExoPlayer? = null
     private var playerB: ExoPlayer? = null
-
     /** True while Player A is primary (audible). Alternates on each crossfade. */
     private var isPrimaryA = true
-
-    private fun primaryPlayer()   = if (isPrimaryA) playerA   else playerB
-    private fun secondaryPlayer() = if (isPrimaryA) playerB   else playerA
+    private fun primaryPlayer() = if (isPrimaryA) playerA else playerB
+    private fun secondaryPlayer() = if (isPrimaryA) playerB else playerA
 
     // ── State ─────────────────────────────────────────────────────────────────
-
     private val _state = MutableStateFlow(CrossfadeEngineState())
     val state: StateFlow<CrossfadeEngineState> = _state.asStateFlow()
 
@@ -120,18 +111,18 @@ class CrossfadeEngine @Inject constructor(
     val nextTrackRequest: SharedFlow<Long> = _nextTrackRequest.asSharedFlow()
 
     // ── Settings ──────────────────────────────────────────────────────────────
-
     /** Duration of the volume crossfade in milliseconds. */
     var crossfadeDurationMs: Long = 5_000L
 
     // ── Internal jobs ─────────────────────────────────────────────────────────
-
     private var positionMonitorJob: Job? = null
     private var crossfadeJob: Job? = null
-    private var pendingNextTrack: AudioFile? = null
+
+    // NEW: We now hold the file AND its exact cue point (firstBeatMs) so pending
+    // tracks during a crossfade never lose their smart cue position.
+    private var pendingNextTrack: Pair<AudioFile, Long>? = null
 
     // ── Public API ────────────────────────────────────────────────────────────
-
     /**
      * Creates both ExoPlayer instances. Must be called on the Main thread (or the
      * ViewModel's init block which runs on Main).
@@ -143,16 +134,19 @@ class CrossfadeEngine @Inject constructor(
                     .setUsage(C.USAGE_MEDIA)
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                     .build()
-
                 playerA = ExoPlayer.Builder(context).build().apply {
                     setAudioAttributes(attrs, true)
                     setHandleAudioBecomingNoisy(true)
+                    // NEW: Natively skip absolute digital silence at start/end of tracks
+                    skipSilenceEnabled = true
                 }
                 playerB = ExoPlayer.Builder(context).build().apply {
-                    setAudioAttributes(attrs, false)   // secondary: no audio focus
+                    setAudioAttributes(attrs, false) // secondary: no audio focus
                     setHandleAudioBecomingNoisy(false)
+                    // NEW: Natively skip absolute digital silence at start/end of tracks
+                    skipSilenceEnabled = true
                 }
-                Log.d(TAG, "CrossfadeEngine initialised — both players ready.")
+                Log.d(TAG, "CrossfadeEngine initialised — both players ready with skipSilence.")
             }
         }
     }
@@ -193,16 +187,20 @@ class CrossfadeEngine @Inject constructor(
     /**
      * Called by the ViewModel in response to [nextTrackRequest]. The engine will load
      * [audioFile] into the secondary player and execute the crossfade.
+     *
+     * NEW: Accepts firstBeatMs (from BpmCacheEntity) to cue the track exactly on the
+     * first detected onset/beat (true DJ-style drop with zero silence).
      */
-    fun queueNextTrack(audioFile: AudioFile) {
+    fun queueNextTrack(audioFile: AudioFile, firstBeatMs: Long = 0L) {
         if (_state.value.isCrossfading) {
             Log.d(TAG, "Crossfade already in progress — storing as pending next track.")
-            pendingNextTrack = audioFile
+            // Store both the file and the cue point so we don't lose it
+            pendingNextTrack = Pair(audioFile, firstBeatMs)
             return
         }
         crossfadeJob?.cancel()
         crossfadeJob = engineScope.launch {
-            executeCrossfade(audioFile)
+            executeCrossfade(audioFile, firstBeatMs)
         }
     }
 
@@ -224,84 +222,126 @@ class CrossfadeEngine @Inject constructor(
     }
 
     // ── Crossfade logic ───────────────────────────────────────────────────────
-
     /**
      * Loads [nextTrack] into the secondary player, fades the primary player out and
      * the secondary in simultaneously over [crossfadeDurationMs] ms, then swaps roles.
+     *
+     * NEW: Added firstBeatMs parameter to handle the smart cueing from TarsosDSP.
      */
-    private suspend fun executeCrossfade(nextTrack: AudioFile) {
-        val primary   = primaryPlayer()   ?: return
+    private suspend fun executeCrossfade(nextTrack: AudioFile, firstBeatMs: Long = 0L) {
+        val primary = primaryPlayer() ?: return
         val secondary = secondaryPlayer() ?: return
-
         Log.d(TAG, "Beginning crossfade → ${nextTrack.title}")
         _state.update { it.copy(isCrossfading = true, crossfadeProgressFraction = 0f) }
 
-        // Prepare secondary player with next track at volume 0
-        withContext(Dispatchers.Main) {
-            secondary.stop()
-            secondary.clearMediaItems()
-            secondary.setMediaItem(MediaItem.fromUri(nextTrack.uri))
-            secondary.volume = 0f
-            secondary.prepare()
-            secondary.play()
-        }
+        // We declare the Equalizer outside the try block so we can guarantee its release
+        // in the finally block, preventing severe Android AudioFX memory leaks.
+        var bassKillEq: android.media.audiofx.Equalizer? = null
 
-        // Wait briefly for secondary to buffer before starting the fade
-        var waitMs = 0L
-        while (waitMs < 2_000L) {
-            val ready = withContext(Dispatchers.Main) {
-                secondary.playbackState == Player.STATE_READY || secondary.isPlaying
-            }
-            if (ready) break
-            delay(100L)
-            waitMs += 100L
-        }
-
-        // Execute volume ramp over FADE_STEPS
-        val stepDelayMs = (crossfadeDurationMs / FADE_STEPS).coerceAtLeast(16L)
-
-        for (step in 1..FADE_STEPS) {
-            if (!engineScope.isActive) break
-            val toVolume   = step.toFloat() / FADE_STEPS
-            val fromVolume = 1f - toVolume
+        try {
+            // Prepare secondary player with next track at volume 0
             withContext(Dispatchers.Main) {
-                primary.volume   = fromVolume
-                secondary.volume = toVolume
+                secondary.stop()
+                secondary.clearMediaItems()
+                secondary.setMediaItem(MediaItem.fromUri(nextTrack.uri))
+                secondary.volume = 0f
+                secondary.prepare()
+                // NEW: Cue to the exact first beat detected by TarsosDSP!
+                if (firstBeatMs > 0L) {
+                    Log.d(TAG, "Smart Cue: Seeking incoming track to first beat at ${firstBeatMs}ms")
+                    secondary.seekTo(firstBeatMs)
+                }
+                secondary.play()
             }
-            _state.update { it.copy(crossfadeProgressFraction = toVolume) }
-            delay(stepDelayMs)
-        }
 
-        // Finish: primary fades out completely, secondary takes over
-        withContext(Dispatchers.Main) {
-            primary.pause()
-            primary.volume = 1f   // reset for future use as secondary
-            secondary.volume = 1f
-        }
+            // Wait briefly for secondary to buffer before starting the fade
+            var waitMs = 0L
+            while (waitMs < 2_000L) {
+                val ready = withContext(Dispatchers.Main) {
+                    secondary.playbackState == Player.STATE_READY || secondary.isPlaying
+                }
+                if (ready) break
+                delay(100L)
+                waitMs += 100L
+            }
 
-        // Swap primary role
-        isPrimaryA = !isPrimaryA
+            // SMART FEATURE 3: The "Bass Kill" EQ
+            // We drop the low frequencies of the outgoing track so the kicks don't clash.
+            withContext(Dispatchers.Main) {
+                try {
+                    val sessionId = primary.audioSessionId
+                    if (sessionId != C.AUDIO_SESSION_ID_UNSET) {
+                        bassKillEq = android.media.audiofx.Equalizer(0, sessionId).apply {
+                            enabled = true
+                            if (numberOfBands > 0) {
+                                // Band 0 is usually ~60Hz. We cut it to the absolute minimum supported.
+                                val minBassLevel = bandLevelRange[0]
+                                setBandLevel(0, minBassLevel)
+                                Log.d(TAG, "Bass Kill active: Outgoing track low-end reduced.")
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Wrap in try-catch because some OEM Android skins crash when instantiating Equalizer
+                    Log.w(TAG, "Device does not support Bass Kill EQ: ${e.message}")
+                }
+            }
 
-        Log.d(TAG, "Crossfade complete. Now playing: ${nextTrack.title}")
-        _state.update {
-            it.copy(
-                currentTrack = nextTrack,
-                isPlaying = true,
-                isCrossfading = false,
-                crossfadeProgressFraction = 0f
-            )
-        }
+            // Execute volume ramp over FADE_STEPS
+            val stepDelayMs = (crossfadeDurationMs / FADE_STEPS).coerceAtLeast(16L)
+            for (step in 1..FADE_STEPS) {
+                if (!engineScope.isActive) break
+                val toVolume = step.toFloat() / FADE_STEPS
+                val fromVolume = 1f - toVolume
+                withContext(Dispatchers.Main) {
+                    primary.volume = fromVolume
+                    secondary.volume = toVolume
+                }
+                _state.update { it.copy(crossfadeProgressFraction = toVolume) }
+                delay(stepDelayMs)
+            }
 
-        // If a next track was queued while this crossfade ran, start it now
-        val pending = pendingNextTrack
-        if (pending != null) {
-            pendingNextTrack = null
-            executeCrossfade(pending)
+            // Finish: primary fades out completely, secondary takes over
+            withContext(Dispatchers.Main) {
+                primary.pause()
+                primary.volume = 1f // reset for future use as secondary
+                secondary.volume = 1f
+            }
+
+            // Swap primary role
+            isPrimaryA = !isPrimaryA
+            Log.d(TAG, "Crossfade complete. Now playing: ${nextTrack.title}")
+            _state.update {
+                it.copy(
+                    currentTrack = nextTrack,
+                    isPlaying = true,
+                    isCrossfading = false,
+                    crossfadeProgressFraction = 0f
+                )
+            }
+
+            // If a next track was queued while this crossfade ran, start it now
+            val pending = pendingNextTrack
+            if (pending != null) {
+                pendingNextTrack = null
+                // Execute the pending track using the saved Pair (File, CuePoint)
+                executeCrossfade(pending.first, pending.second)
+            }
+
+        } finally {
+            // PRO-DEV GUARD: Ensure Equalizer is ALWAYS released even if the coroutine
+            // is cancelled mid-fade (e.g. user manually skips track).
+            try {
+                bassKillEq?.release()
+                bassKillEq = null
+                Log.d(TAG, "Bass Kill EQ released safely.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to release Bass Kill EQ", e)
+            }
         }
     }
 
     // ── Position monitoring ───────────────────────────────────────────────────
-
     /**
      * Polls the primary player every [POSITION_POLL_MS] ms to:
      * 1. Update [CrossfadeEngineState.currentPositionMs] / [CrossfadeEngineState.currentDurationMs].
@@ -312,21 +352,17 @@ class CrossfadeEngine @Inject constructor(
         positionMonitorJob = engineScope.launch {
             while (isActive) {
                 delay(POSITION_POLL_MS)
-
                 val (position, duration, playing) = withContext(Dispatchers.Main) {
                     val p = primaryPlayer()
                     val dur = p?.duration?.takeIf { it != C.TIME_UNSET } ?: 0L
                     Triple(p?.currentPosition ?: 0L, dur, p?.isPlaying ?: false)
                 }
-
                 _state.update { it.copy(currentPositionMs = position, currentDurationMs = duration) }
-
                 val remaining = duration - position
                 val shouldTrigger = playing
                         && !_state.value.isCrossfading
                         && duration > 0L
                         && remaining in CROSSFADE_GUARD_MS..crossfadeDurationMs
-
                 if (shouldTrigger) {
                     val currentId = _state.value.currentTrack?.id ?: continue
                     Log.d(TAG, "Approaching track end (remaining=${remaining}ms) — requesting next track.")

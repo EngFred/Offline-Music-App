@@ -33,12 +33,12 @@ import javax.inject.Singleton
  * core module and has zero javax.sound dependency.
  *
  * ── Pipeline ─────────────────────────────────────────────────────────────────
- *   URI  ->  MediaExtractor + MediaCodec  (decode to 16-bit PCM)
- *        ->  mix down to mono             (if stereo / multi-channel)
- *        ->  UniversalAudioInputStream    (TarsosDSP I/O bridge, core module)
- *        ->  AudioDispatcher              (frames PCM into fixed-size buffers)
- *        ->  ComplexOnsetDetector         (detects onset timestamps)
- *        ->  median inter-onset interval  ->  BPM
+ * URI -> MediaExtractor + MediaCodec (decode to 16-bit PCM)
+ * -> mix down to mono (if stereo / multi-channel)
+ * -> UniversalAudioInputStream (TarsosDSP I/O bridge, core module)
+ * -> AudioDispatcher (frames PCM into fixed-size buffers)
+ * -> ComplexOnsetDetector (detects onset timestamps)
+ * -> median inter-onset interval -> BPM
  *
  * Only the first MAX_ANALYSIS_DURATION_MS of each file is decoded so the
  * background worker completes quickly even on very long tracks.
@@ -47,45 +47,45 @@ import javax.inject.Singleton
 class BpmAnalyzer @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-
     companion object {
         private const val TAG = "BpmAnalyzer"
-
         /** Decode at most this many ms of audio — sufficient for reliable BPM. */
         private const val MAX_ANALYSIS_DURATION_MS = 60_000L
-
         /**
          * FFT window size for onset detection. Must be a power of 2.
          * 1024 = ~23 ms at 44100 Hz — good tradeoff between time/frequency resolution.
          */
         private const val BUFFER_SIZE = 1024
-
         /** Sensitivity of the onset detector (lower = more onsets detected). */
         private const val ONSET_THRESHOLD = 0.3
-
         /** Inter-onset pairs closer than this are discarded as noise bursts. */
         private const val MIN_INTER_ONSET_SEC = 0.25f
-
         /** Clamp estimated BPM to a sensible DJ range. */
         private const val MIN_BPM = 60f
         private const val MAX_BPM = 200f
     }
 
-    // ── Public API ────────────────────────────────────────────────────────────
-
     /**
-     * Analyses [uri] and returns a BPM estimate, or null if analysis fails
-     * (unreadable file, too short, codec error, etc.).
+     * Result of a full BPM + first-beat analysis.
+     * Used by BpmAnalysisWorker and later by CrossfadeEngine.
+     */
+    data class BpmAnalysisResult(
+        val bpm: Float,
+        val firstBeatMs: Long
+    )
+
+    // ── Public API ────────────────────────────────────────────────────────────
+    /**
+     * Analyses [uri] and returns a BPM estimate + first beat timestamp,
+     * or null if analysis fails (unreadable file, too short, codec error, etc.).
      *
      * Always executes on Dispatchers.IO — safe to call from any coroutine context.
      */
-    suspend fun analyzeBpm(uri: Uri): Float? = withContext(Dispatchers.IO) {
+    suspend fun analyzeBpm(uri: Uri): BpmAnalysisResult? = withContext(Dispatchers.IO) {
         try {
             val (pcmBytes, sampleRate, channelCount) = decodeToPcm(uri)
                 ?: return@withContext null
-
             val monoBytes = if (channelCount > 1) mixToMono(pcmBytes, channelCount) else pcmBytes
-
             runOnsetBpmDetection(monoBytes, sampleRate)
         } catch (e: Exception) {
             Log.e(TAG, "BPM analysis failed for $uri", e)
@@ -94,7 +94,6 @@ class BpmAnalyzer @Inject constructor(
     }
 
     // ── PCM decoding ──────────────────────────────────────────────────────────
-
     /**
      * Decodes audio from [uri] to raw 16-bit signed little-endian PCM bytes.
      * Returns Triple(pcmBytes, sampleRate, channelCount), or null on error.
@@ -105,7 +104,6 @@ class BpmAnalyzer @Inject constructor(
         var codec: MediaCodec? = null
         return try {
             extractor.setDataSource(context, uri, null)
-
             // Find the first audio track
             var audioTrackIndex = -1
             var mediaFormat: MediaFormat? = null
@@ -122,28 +120,23 @@ class BpmAnalyzer @Inject constructor(
                 Log.w(TAG, "No audio track found in $uri")
                 return null
             }
-
             extractor.selectTrack(audioTrackIndex)
-
-            val mime        = mediaFormat.getString(MediaFormat.KEY_MIME)!!
-            val sampleRate  = mediaFormat.getIntegerSafe(MediaFormat.KEY_SAMPLE_RATE, 44100)
+            val mime = mediaFormat.getString(MediaFormat.KEY_MIME)!!
+            val sampleRate = mediaFormat.getIntegerSafe(MediaFormat.KEY_SAMPLE_RATE, 44100)
             val channelCount = mediaFormat.getIntegerSafe(MediaFormat.KEY_CHANNEL_COUNT, 1)
-
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(mediaFormat, null, null, 0)
             codec.start()
-
-            val output     = ByteArrayOutputStream()
+            val output = ByteArrayOutputStream()
             val bufferInfo = MediaCodec.BufferInfo()
-            var inputEos   = false
-            var outputEos  = false
-
+            var inputEos = false
+            var outputEos = false
             while (!outputEos) {
                 // Feed input
                 if (!inputEos) {
                     val inputIdx = codec.dequeueInputBuffer(10_000L)
                     if (inputIdx >= 0) {
-                        val inBuf      = codec.getInputBuffer(inputIdx)!!
+                        val inBuf = codec.getInputBuffer(inputIdx)!!
                         val sampleSize = extractor.readSampleData(inBuf, 0)
                         when {
                             sampleSize < 0 -> {
@@ -166,10 +159,9 @@ class BpmAnalyzer @Inject constructor(
                         }
                     }
                 }
-
                 // Drain output
                 when (val outputIdx = codec.dequeueOutputBuffer(bufferInfo, 10_000L)) {
-                    MediaCodec.INFO_TRY_AGAIN_LATER    -> Unit
+                    MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
                     MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> Unit
                     else -> if (outputIdx >= 0) {
                         val outBuf = codec.getOutputBuffer(outputIdx)
@@ -185,7 +177,6 @@ class BpmAnalyzer @Inject constructor(
                     }
                 }
             }
-
             Triple(output.toByteArray(), sampleRate, channelCount)
         } catch (e: Exception) {
             Log.e(TAG, "PCM decode failed for $uri", e)
@@ -197,18 +188,16 @@ class BpmAnalyzer @Inject constructor(
     }
 
     // ── Audio utilities ───────────────────────────────────────────────────────
-
     /**
      * Mixes interleaved multi-channel 16-bit little-endian PCM down to mono.
      * Input layout per frame: [ch0_lo, ch0_hi, ch1_lo, ch1_hi, ...]
      */
     private fun mixToMono(pcm: ByteArray, channelCount: Int): ByteArray {
         val bytesPerFrame = channelCount * 2
-        val frameCount    = pcm.size / bytesPerFrame
-        val mono          = ByteArray(frameCount * 2)
-        val src           = ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN)
-        val dst           = ByteBuffer.wrap(mono).order(ByteOrder.LITTLE_ENDIAN)
-
+        val frameCount = pcm.size / bytesPerFrame
+        val mono = ByteArray(frameCount * 2)
+        val src = ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN)
+        val dst = ByteBuffer.wrap(mono).order(ByteOrder.LITTLE_ENDIAN)
         repeat(frameCount) {
             var sum = 0L
             repeat(channelCount) { sum += src.short.toLong() }
@@ -217,12 +206,11 @@ class BpmAnalyzer @Inject constructor(
         return mono
     }
 
-    // ── TarsosDSP onset -> BPM ────────────────────────────────────────────────
-
+    // ── TarsosDSP onset -> BPM + first beat ───────────────────────────────────
     /**
      * Feeds raw mono 16-bit PCM bytes into TarsosDSP via UniversalAudioInputStream
      * + AudioDispatcher, runs ComplexOnsetDetector, then derives BPM from the
-     * collected onset timestamps.
+     * collected onset timestamps AND captures the very first onset for cueing.
      *
      * UniversalAudioInputStream is from be.tarsos.dsp.io — part of the core module
      * with no javax.sound dependency — and accepts any InputStream plus a
@@ -230,63 +218,61 @@ class BpmAnalyzer @Inject constructor(
      *
      * MediaCodec always outputs little-endian PCM on Android, so bigEndian = false.
      */
-    private fun runOnsetBpmDetection(monoPcmBytes: ByteArray, sampleRate: Int): Float? {
-        val minBytes = BUFFER_SIZE * 2 * 4  // at least 4 full buffers
+    private fun runOnsetBpmDetection(monoPcmBytes: ByteArray, sampleRate: Int): BpmAnalysisResult? {
+        val minBytes = BUFFER_SIZE * 2 * 4 // at least 4 full buffers
         if (monoPcmBytes.size < minBytes) {
             Log.w(TAG, "Audio too short for BPM detection (${monoPcmBytes.size} bytes)")
             return null
         }
-
         val format = TarsosDSPAudioFormat(
             sampleRate.toFloat(), // sample rate
-            16,                   // sample size in bits
-            1,                    // channels (mono)
-            true,                 // signed
-            false                 // bigEndian — Android MediaCodec outputs little-endian
+            16, // sample size in bits
+            1, // channels (mono)
+            true, // signed
+            false // bigEndian — Android MediaCodec outputs little-endian
         )
-
         val inputStream = UniversalAudioInputStream(
             ByteArrayInputStream(monoPcmBytes),
             format
         )
-
         val dispatcher = AudioDispatcher(inputStream, BUFFER_SIZE, 0)
-
         val onsetTimestamps = mutableListOf<Float>()
-        val onsetDetector   = ComplexOnsetDetector(BUFFER_SIZE, ONSET_THRESHOLD)
+        val onsetDetector = ComplexOnsetDetector(BUFFER_SIZE, ONSET_THRESHOLD)
         onsetDetector.setHandler(OnsetHandler { timeSeconds, _ ->
             onsetTimestamps.add(timeSeconds.toFloat())
         })
         dispatcher.addAudioProcessor(onsetDetector)
-
         // Runs synchronously on Dispatchers.IO (called from analyzeBpm)
         dispatcher.run()
 
-        return estimateBpmFromOnsets(onsetTimestamps)
+        return estimateBpmAndFirstBeat(onsetTimestamps)
     }
 
     /**
      * Derives BPM from onset timestamps (seconds) using the median inter-onset
      * interval. Median is more robust than mean against missed/doubled beats.
+     * Also returns the timestamp of the very first onset (converted to ms).
      */
-    private fun estimateBpmFromOnsets(timestamps: List<Float>): Float? {
+    private fun estimateBpmAndFirstBeat(timestamps: List<Float>): BpmAnalysisResult? {
         if (timestamps.size < 4) {
             Log.w(TAG, "Too few onsets (${timestamps.size}) for reliable BPM")
             return null
         }
-
         val intervals = timestamps
             .zipWithNext { a, b -> b - a }
             .filter { it >= MIN_INTER_ONSET_SEC }
-
         if (intervals.isEmpty()) return null
 
         val median = intervals.sorted()[intervals.size / 2]
-        return (60f / median).coerceIn(MIN_BPM, MAX_BPM)
+        val bpm = (60f / median).coerceIn(MIN_BPM, MAX_BPM)
+
+        // First onset in milliseconds (for cueing the track exactly on the beat)
+        val firstBeatMs = (timestamps.first() * 1000f).toLong()
+
+        return BpmAnalysisResult(bpm = bpm, firstBeatMs = firstBeatMs)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
     private fun MediaFormat.getIntegerSafe(key: String, default: Int): Int =
         if (containsKey(key)) getInteger(key) else default
 }

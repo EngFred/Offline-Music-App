@@ -18,16 +18,16 @@ import javax.inject.Singleton
  * Hilt module for :features:dj_mix.
  *
  * Wires:
- *  - [DjMixDatabase]         — Room database (BPM cache).
- *  - [BpmCacheDao]           — DAO from the database.
- *  - [DjMixRepository]       — bound to [DjMixRepositoryImpl].
+ * - [DjMixDatabase]         — Room database (BPM cache).
+ * - [BpmCacheDao]           — DAO from the database.
+ * - [DjMixRepository]       — bound to [DjMixRepositoryImpl].
  *
  * Not wired here (auto-provided by Hilt):
- *  - [BpmAnalyzer]           — @Singleton @Inject constructor, no manual @Provides needed.
- *  - [BpmAnalysisWorker]     — @HiltWorker, handled by hilt-work integration.
- *  - [CrossfadeEngine]       — @Inject constructor, non-singleton; each ViewModel gets its own.
- *  - [GetSmartNextTrackUseCase] — @Inject constructor, stateless.
- *  - [AnalyzeBpmUseCase]     — @Inject constructor, delegates to repository.
+ * - [BpmAnalyzer]           — @Singleton @Inject constructor, no manual @Provides needed.
+ * - [BpmAnalysisWorker]     — @HiltWorker, handled by hilt-work integration.
+ * - [CrossfadeEngine]       — @Inject constructor, non-singleton; each ViewModel gets its own.
+ * - [GetSmartNextTrackUseCase] — @Inject constructor, stateless.
+ * - [AnalyzeBpmUseCase]     — @Inject constructor, delegates to repository.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -46,7 +46,9 @@ abstract class DjMixModule {
                 context,
                 DjMixDatabase::class.java,
                 "dj_mix_db"
-            ).build()
+            )
+                .addMigrations(DjMixDatabase.MIGRATION_1_2)
+                .build()
 
         @Provides
         @Singleton

@@ -9,6 +9,7 @@ import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.repository.PlaylistRepository
 import com.engfred.musicplayer.feature_dj_mix.data.crossfade.CrossfadeEngine
 import com.engfred.musicplayer.feature_dj_mix.domain.model.DjMixSettings
+import com.engfred.musicplayer.feature_dj_mix.domain.repository.BpmInfo
 import com.engfred.musicplayer.feature_dj_mix.domain.repository.DjMixRepository
 import com.engfred.musicplayer.feature_dj_mix.domain.usecases.AnalyzeBpmUseCase
 import com.engfred.musicplayer.feature_dj_mix.domain.usecases.GetSmartNextTrackUseCase
@@ -19,13 +20,13 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import javax.inject.Inject
+import kotlin.collections.mapValues
 
 // ── Nav argument key ──────────────────────────────────────────────────────────
 
@@ -43,7 +44,7 @@ class DjMixViewModel @Inject constructor(
     private val djMixRepository: DjMixRepository,
     private val analyzeBpmUseCase: AnalyzeBpmUseCase,
     private val getSmartNextTrackUseCase: GetSmartNextTrackUseCase,
-    val crossfadeEngine: CrossfadeEngine        // exposed so the Screen can init on Main thread
+    val crossfadeEngine: CrossfadeEngine // exposed so the Screen can init on Main thread
 ) : ViewModel() {
 
     private val playlistId: Long =
@@ -129,7 +130,7 @@ class DjMixViewModel @Inject constructor(
         djMixRepository.getBpmCacheFlow()
             .onEach { bpmCache ->
                 val analysedCount = songs.count { bpmCache.containsKey(it.id) }
-                val progress      = if (songs.isEmpty()) 1f else analysedCount.toFloat() / songs.size
+                val progress = if (songs.isEmpty()) 1f else analysedCount.toFloat() / songs.size
                 val stillAnalysing = progress < 1f
 
                 _uiState.update { it.copy(
@@ -168,22 +169,24 @@ class DjMixViewModel @Inject constructor(
         crossfadeEngine.nextTrackRequest
             .onEach { currentTrackId ->
                 val state = _uiState.value
-                val currentBpm = state.bpmCache[currentTrackId] ?: 120f
+                val currentBpm = state.bpmCache[currentTrackId]?.bpm ?: 120f
 
                 // Remaining = smart queue minus the current track
                 val remaining = state.smartQueue.filter { it.id != currentTrackId }
 
                 val nextTrack = getSmartNextTrackUseCase(
-                    currentBpm     = currentBpm,
+                    currentBpm = currentBpm,
                     remainingQueue = remaining,
-                    bpmCache       = state.bpmCache,
-                    tolerance      = state.settings.bpmTolerance
+                    bpmCache = state.bpmCache.mapValues { it.value.bpm }, // backward compat for use-case
+                    tolerance = state.settings.bpmTolerance
                 )
 
                 if (nextTrack != null) {
+                    val firstBeatMs = state.bpmCache[nextTrack.id]?.firstBeatMs ?: 0L
                     Log.d(TAG, "Next track selected: ${nextTrack.title} " +
-                            "(Δ BPM = ${abs((state.bpmCache[nextTrack.id] ?: 0f) - currentBpm)})")
-                    crossfadeEngine.queueNextTrack(nextTrack)
+                            "(Δ BPM = ${abs((state.bpmCache[nextTrack.id]?.bpm ?: 0f) - currentBpm)}) " +
+                            "firstBeatMs=${firstBeatMs}ms")
+                    crossfadeEngine.queueNextTrack(nextTrack, firstBeatMs)
                 } else {
                     Log.d(TAG, "Queue exhausted — DJ Mix will finish after current track.")
                     viewModelScope.launch {
@@ -202,27 +205,31 @@ class DjMixViewModel @Inject constructor(
      * rather than an extreme tempo.
      */
     private fun rebuildSmartQueue(
-        bpmCache: Map<Long, Float> = _uiState.value.bpmCache
+        bpmCache: Map<Long, BpmInfo> = _uiState.value.bpmCache
     ) {
         if (rawPlaylistSongs.isEmpty()) return
 
         val tolerance = _uiState.value.settings.bpmTolerance
         val remaining = rawPlaylistSongs.toMutableList()
-        val result    = mutableListOf<AudioFile>()
+        val result = mutableListOf<AudioFile>()
 
         // Pick median-BPM song as the starting point
-        val sortedBpms = rawPlaylistSongs.mapNotNull { bpmCache[it.id] }.sorted()
-        val medianBpm  = sortedBpms.getOrNull(sortedBpms.size / 2) ?: 120f
-        val first = remaining.minByOrNull { abs((bpmCache[it.id] ?: Float.MAX_VALUE) - medianBpm) }
+        val sortedBpms = rawPlaylistSongs.mapNotNull { bpmCache[it.id]?.bpm }.sorted()
+        val medianBpm = sortedBpms.getOrNull(sortedBpms.size / 2) ?: 120f
+        val first = remaining.minByOrNull { abs((bpmCache[it.id]?.bpm ?: Float.MAX_VALUE) - medianBpm) }
             ?: remaining.first()
 
         result.add(first)
         remaining.remove(first)
 
         while (remaining.isNotEmpty()) {
-            val lastBpm = bpmCache[result.last().id] ?: medianBpm
-            val next    = getSmartNextTrackUseCase(lastBpm, remaining, bpmCache, tolerance)
-                ?: remaining.first()
+            val lastBpm = bpmCache[result.last().id]?.bpm ?: medianBpm
+            val next = getSmartNextTrackUseCase(
+                lastBpm,
+                remaining,
+                bpmCache.mapValues { it.value.bpm },
+                tolerance
+            ) ?: remaining.first()
             result.add(next)
             remaining.remove(next)
         }

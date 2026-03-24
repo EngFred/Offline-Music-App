@@ -159,7 +159,7 @@ fun DjMixScreen(
                     NowPlayingCard(
                         trackTitle = track.title,
                         trackArtist = track.artist ?: "Unknown Artist",
-                        bpm = uiState.bpmCache[track.id],
+                        bpm = uiState.bpmCache[track.id]?.bpm,
                         positionMs = uiState.currentPositionMs,
                         durationMs = uiState.currentDurationMs,
                         isCrossfading = uiState.isCrossfading,
@@ -213,7 +213,7 @@ fun DjMixScreen(
                 SmartQueueItem(
                     position = index + 1,
                     song = song,
-                    bpm = uiState.bpmCache[song.id],
+                    bpm = uiState.bpmCache[song.id]?.bpm,
                     isCurrent = song.id == uiState.currentTrack?.id,
                     onClick = { viewModel.onEvent(DjMixEvent.JumpToTrack(song)) }
                 )
