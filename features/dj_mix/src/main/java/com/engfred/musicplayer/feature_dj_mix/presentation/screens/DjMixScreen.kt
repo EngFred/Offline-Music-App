@@ -1,10 +1,5 @@
 package com.engfred.musicplayer.feature_dj_mix.presentation.screens
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,7 +54,6 @@ import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.DjMixViewMo
 
 /**
  * Root screen for the BPM-Aware DJ Auto-Mix feature.
- * Reimagined with a premium, dark-mode-first aesthetic.
  */
 @UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,24 +65,9 @@ fun DjMixScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (!isGranted) {
-            Toast.makeText(
-                context,
-                "Microphone permission is needed to draw the live DJ waveform.",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
+    // Collect one-shot events from the ViewModel (e.g. start the foreground service).
+    // No permission requests here — the synthetic waveform needs none.
     LaunchedEffect(Unit) {
-        // Request visualizer audio permission immediately when the screen opens
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
-
         viewModel.uiEvent.collect { event ->
             when (event) {
                 "START_DJ_SERVICE" -> {
@@ -102,11 +81,11 @@ fun DjMixScreen(
         }
     }
 
-    // Premium Dark Gradient Background
+    // Premium dark gradient background
     val backgroundBrush = Brush.verticalGradient(
         colors = listOf(
-            Color(0xFF0F0F13), // Deep near-black
-            Color(0xFF1A1A24), // Subtle deep violet/blue hue
+            Color(0xFF0F0F13),
+            Color(0xFF1A1A24),
             Color(0xFF0F0F13)
         )
     )
@@ -137,7 +116,11 @@ fun DjMixScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        Icon(
+                            Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -183,69 +166,69 @@ fun DjMixScreen(
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                // Analysis Card
+                // Analysis progress card — visible while WorkManager is running
                 if (uiState.isAnalyzing || uiState.analysisProgress < 1f) {
                     item {
                         BpmAnalysisCard(
-                            progress = uiState.analysisProgress,
+                            progress      = uiState.analysisProgress,
                             analysedCount = (uiState.analysisProgress * uiState.totalSongs).toInt(),
-                            totalCount = uiState.totalSongs
+                            totalCount    = uiState.totalSongs
                         )
                     }
                 }
 
-                // Hero Component: Now Playing
+                // Hero: Now Playing card with synthetic beat-grid waveform
                 uiState.currentTrack?.let { track ->
                     item {
                         val bpmInfo = uiState.bpmCache[track.id]
                         NowPlayingCard(
-                            trackTitle = track.title,
-                            trackArtist = track.artist ?: "Unknown Artist",
-                            bpm = bpmInfo?.bpm,
-                            positionMs = uiState.currentPositionMs,
-                            durationMs = uiState.currentDurationMs,
-                            isCrossfading = uiState.isCrossfading,
+                            trackTitle       = track.title,
+                            trackArtist      = track.artist ?: "Unknown Artist",
+                            bpm              = bpmInfo?.bpm,
+                            positionMs       = uiState.currentPositionMs,
+                            durationMs       = uiState.currentDurationMs,
+                            isCrossfading    = uiState.isCrossfading,
                             crossfadeProgress = uiState.crossfadeProgressFraction,
-                            albumArtUri = track.albumArtUri,
-                            waveform = uiState.waveform,
-                            isPlaying = uiState.isPlaying
+                            albumArtUri      = track.albumArtUri,
+                            waveform         = uiState.waveform,
+                            isPlaying        = uiState.isPlaying
                         )
                     }
                 }
 
-                // Controls Deck
+                // Controls deck
                 item {
                     ControlsCard(
-                        isPlaying = uiState.isPlaying,
-                        crossfadeDurationSec = uiState.settings.crossfadeDurationSec,
-                        bpmTolerance = uiState.settings.bpmTolerance,
-                        isRealMixMode = uiState.settings.isRealMixMode,
-                        maxTrackDurationSec = uiState.settings.maxTrackDurationSec,
-                        useManualMaxDuration = uiState.settings.useManualMaxDuration,
-                        loopQueue = uiState.settings.loopQueue,
-                        onPlayPause = { viewModel.onEvent(DjMixEvent.PlayPause) },
+                        isPlaying             = uiState.isPlaying,
+                        crossfadeDurationSec  = uiState.settings.crossfadeDurationSec,
+                        bpmTolerance          = uiState.settings.bpmTolerance,
+                        isRealMixMode         = uiState.settings.isRealMixMode,
+                        maxTrackDurationSec   = uiState.settings.maxTrackDurationSec,
+                        useManualMaxDuration  = uiState.settings.useManualMaxDuration,
+                        loopQueue             = uiState.settings.loopQueue,
+                        onPlayPause           = { viewModel.onEvent(DjMixEvent.PlayPause) },
                         onCrossfadeDurationChanged = { sec ->
                             viewModel.onEvent(DjMixEvent.UpdateCrossfadeDuration(sec))
                         },
                         onBpmToleranceChanged = { tol ->
                             viewModel.onEvent(DjMixEvent.UpdateBpmTolerance(tol))
                         },
-                        onToggleRealMixMode = { enabled ->
+                        onToggleRealMixMode   = { enabled ->
                             viewModel.onEvent(DjMixEvent.ToggleRealMixMode(enabled))
                         },
                         onToggleManualMaxDuration = { enabled ->
                             viewModel.onEvent(DjMixEvent.ToggleManualMaxDuration(enabled))
                         },
-                        onMaxDurationChanged = { sec ->
+                        onMaxDurationChanged  = { sec ->
                             viewModel.onEvent(DjMixEvent.UpdateMaxTrackDuration(sec))
                         },
-                        onToggleLoopQueue = { enabled ->
+                        onToggleLoopQueue     = { enabled ->
                             viewModel.onEvent(DjMixEvent.ToggleLoopQueue(enabled))
                         }
                     )
                 }
 
-                // Queue Header
+                // Smart queue header
                 item {
                     Row(
                         modifier = Modifier
@@ -276,23 +259,25 @@ fun DjMixScreen(
                     }
                 }
 
-                // Smart Queue Items
+                // Smart queue items
                 itemsIndexed(
                     items = uiState.smartQueue,
-                    key = { _, song -> song.id }
+                    key   = { _, song -> song.id }
                 ) { index, song ->
                     SmartQueueItem(
                         position = index + 1,
-                        song = song,
-                        bpm = uiState.bpmCache[song.id]?.bpm,
+                        song     = song,
+                        bpm      = uiState.bpmCache[song.id]?.bpm,
                         isCurrent = song.id == uiState.currentTrack?.id,
-                        onClick = { viewModel.onEvent(DjMixEvent.JumpToTrack(song)) }
+                        onClick  = { viewModel.onEvent(DjMixEvent.JumpToTrack(song)) }
                     )
                 }
 
-                item { Spacer(modifier = Modifier.height(80.dp)) } // FAB padding
+                item { Spacer(modifier = Modifier.height(80.dp)) }
             }
         }
     }
 }
+
+// Avoids a fully-qualified reference inside the LaunchedEffect above
 private typealias DjMixService = com.engfred.musicplayer.feature_dj_mix.data.service.DjMixService

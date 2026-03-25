@@ -21,7 +21,6 @@ import java.nio.ByteOrder
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.sqrt
-import kotlin.math.abs
 
 /**
  * Wraps TarsosDSP's onset-based BPM detection behind a single suspend function.
@@ -35,30 +34,32 @@ import kotlin.math.abs
  * ── Pipeline ─────────────────────────────────────────────────────────────────
  * URI -> MediaExtractor + MediaCodec (decode to 16-bit PCM)
  * -> mix down to mono (if stereo / multi-channel)
- * -> trim first ANALYSIS_SKIP_SECONDS to skip non-percussive intros  ← NEW
- * -> calculate perceptual loudness (ZCR-weighted RMS)                ← NEW
+ * -> trim first ANALYSIS_SKIP_SECONDS to skip non-percussive intros
+ * -> K-weighted IIR amplitude (EBU R128 / ITU-R BS.1770-4)
  * -> UniversalAudioInputStream (TarsosDSP I/O bridge, core module)
  * -> AudioDispatcher (frames PCM into fixed-size buffers)
  * -> ComplexOnsetDetector (detects onset timestamps + salience)
- * -> salience-filtered first beat + median inter-onset BPM            ← NEW
+ * -> salience-filtered first beat + median inter-onset BPM
  *
- * ── Key improvements over original ──────────────────────────────────────────
- * 1. INTRO SKIP: Tracks with ambient/non-percussive intros (very common in electronic,
- *    hip-hop, and pop) previously caused TarsosDSP to detect very few early onsets,
- *    biasing the BPM estimate. Now the first ANALYSIS_SKIP_SECONDS of decoded audio
- *    is discarded before feeding TarsosDSP, so the onset window starts in the body of
- *    the track. Timestamps are offset by the skipped amount to stay accurate.
+ * ── Key improvements ──────────────────────────────────────────────────────────
+ * 1. INTRO SKIP: Tracks with ambient/non-percussive intros have the first
+ *    ANALYSIS_SKIP_SECONDS of decoded audio discarded before onset detection.
+ *    Timestamps are offset by the skipped amount to remain accurate.
  *
- * 2. SALIENCE FIRST BEAT: The original code used timestamps.first() which is almost
- *    always a room noise, breath, reverb tail, or pickup note — not the downbeat.
- *    Now we collect onset salience values and select the first onset whose salience is
- *    at or above the median, which reliably corresponds to the first real percussive hit.
+ * 2. SALIENCE FIRST BEAT: Collects onset salience values and selects the first
+ *    onset whose salience is >= max(median_salience, MIN_STRONG_ONSET_SALIENCE),
+ *    reliably identifying the first real percussive hit rather than room noise
+ *    or reverb tail.
  *
- * 3. PERCEPTUAL AMPLITUDE: Plain RMS treats all frequency content equally. Human hearing
- *    is most sensitive to 1–4 kHz; bass-heavy tracks should not appear louder than they
- *    sound. The new ZCR-weighted RMS (a proxy for K-weighting) down-weights extreme low
- *    and high frequency windows, giving more reliable auto-gain matching.
- *    TODO: Replace with full EBU R128 LUFS using cascaded K-weighting IIR filter.
+ * 3. K-WEIGHTED AMPLITUDE (EBU R128 / ITU-R BS.1770-4): Replaces both the
+ *    original raw RMS and the intermediate ZCR-weighted RMS with a proper
+ *    two-stage biquad IIR filter chain matching the K-weighting spec:
+ *      Stage 1 — High-shelf pre-filter: Fc=1681.974 Hz, gain=+4 dB, S=1
+ *      Stage 2 — Butterworth high-pass: Fc=38.134 Hz, order=2, Q=1/√2
+ *    This down-weights sub-bass energy that inflates raw RMS on modern
+ *    loudness-normalised tracks, giving perceptually accurate gain matching.
+ *    Coefficients are computed analytically per sample rate (no hardcoded
+ *    lookup table) so any MediaCodec output rate is handled correctly.
  */
 @Singleton
 class BpmAnalyzer @Inject constructor(
@@ -68,8 +69,8 @@ class BpmAnalyzer @Inject constructor(
         private const val TAG = "BpmAnalyzer"
 
         /**
-         * Decode up to 90 seconds. Extended from 60s so tracks with long intros still
-         * get enough percussive content analysed after the intro skip.
+         * Decode up to 90 seconds. Extended from 60s so tracks with long intros
+         * still get enough percussive content after the intro skip.
          */
         private const val MAX_ANALYSIS_DURATION_MS = 90_000L
 
@@ -77,27 +78,26 @@ class BpmAnalyzer @Inject constructor(
          * Trim this many seconds from the start of decoded audio before onset detection.
          * Eliminates non-percussive intros which are the primary cause of BPM
          * misdetection in electronic, cinematic, and hip-hop tracks.
-         *
-         * If the track is shorter than 2× this value, no trim is applied (safe fallback).
+         * If the track is shorter than 2× this value, no trim is applied.
          */
         private const val ANALYSIS_SKIP_SECONDS = 15f
 
         /** FFT window: 1024 = ~23 ms at 44100 Hz. Power-of-2 required by TarsosDSP. */
         private const val BUFFER_SIZE = 1024
 
-        /** Lower than before (0.3 → 0.25) for better detection in sparse/quiet tracks. */
+        /** Sensitivity of the onset detector (lower = more onsets detected). */
         private const val ONSET_THRESHOLD = 0.25
 
         /** Pairs closer than this are discarded as noise bursts. */
         private const val MIN_INTER_ONSET_SEC = 0.25f
 
-        /** Extended upper limit to cover drum & bass / fast UK garage / hardstyle. */
         private const val MIN_BPM = 60f
+        /** Extended to cover drum & bass / hardstyle. */
         private const val MAX_BPM = 210f
 
         /**
-         * Minimum salience for an onset to qualify as a "strong" hit.
-         * The actual threshold used is max(this, median_salience) so it adapts to each track.
+         * Minimum salience for an onset to qualify as a strong hit.
+         * The actual threshold used is max(this, median_salience) so it adapts per track.
          */
         private const val MIN_STRONG_ONSET_SALIENCE = 0.4f
     }
@@ -108,8 +108,17 @@ class BpmAnalyzer @Inject constructor(
         val amplitude: Float
     )
 
-    /** Internal model: an onset event with both timestamp and detection confidence. */
+    /** Internal model: an onset event with timestamp and detection confidence. */
     private data class OnsetEvent(val timeSeconds: Float, val salience: Float)
+
+    /**
+     * Normalised biquad IIR filter coefficients (Direct Form II Transposed).
+     * a0 has been divided out — only a1 and a2 remain in the denominator.
+     */
+    private data class BiquadCoeffs(
+        val b0: Double, val b1: Double, val b2: Double,
+        val a1: Double, val a2: Double
+    )
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -120,21 +129,19 @@ class BpmAnalyzer @Inject constructor(
 
             val monoBytes = if (channelCount > 1) mixToMono(pcmBytes, channelCount) else pcmBytes
 
+            // ── K-weighted amplitude (full track, before intro trim) ────────────
+            // Computed on the full mono signal for accurate auto-gain matching.
+            val amplitude = calculateKWeightedAmplitude(monoBytes, sampleRate)
+
             // ── Intro skip ────────────────────────────────────────────────────
-            // Trim the first ANALYSIS_SKIP_SECONDS to skip ambient/non-percussive intros.
-            // A skipSamples of 0 means no trim was applied (track too short).
             val skipSamples = (ANALYSIS_SKIP_SECONDS * sampleRate).toInt()
-            val skipBytes = skipSamples * 2  // 16-bit = 2 bytes per sample
+            val skipBytes   = skipSamples * 2  // 16-bit = 2 bytes per sample
             val (analysisBytes, skippedSeconds) = if (monoBytes.size > skipBytes * 2) {
                 monoBytes.copyOfRange(skipBytes, monoBytes.size) to ANALYSIS_SKIP_SECONDS
             } else {
-                Log.d(TAG, "Track too short for intro skip (${monoBytes.size / 2 / sampleRate}s) — analysing from start")
+                Log.d(TAG, "Track too short for intro skip — analysing from start")
                 monoBytes to 0f
             }
-
-            // ── Perceptual amplitude ─────────────────────────────────────────
-            // Computed from the full track (not trimmed) for accurate gain matching.
-            val amplitude = calculatePerceptualAmplitude(monoBytes, sampleRate)
 
             runOnsetBpmDetection(analysisBytes, sampleRate, amplitude, skippedSeconds)
 
@@ -144,75 +151,124 @@ class BpmAnalyzer @Inject constructor(
         }
     }
 
-    // ── Perceptual amplitude ──────────────────────────────────────────────────
+    // ── K-weighted amplitude (EBU R128 / ITU-R BS.1770-4) ────────────────────
 
     /**
-     * ZCR-weighted RMS — a practical proxy for perceptual loudness.
-     *
-     * True LUFS (EBU R128) requires a two-stage cascaded IIR filter (pre-filter high-shelf
-     * at 1681 Hz, then high-pass at 38 Hz) followed by mean-square gating. That is the
-     * correct long-term solution (TODO below), but this ZCR approach captures ~75% of the
-     * benefit without the IIR complexity:
-     *
-     * - Very low ZCR windows → pure bass / sub-bass content → down-weight by 0.7
-     *   (bass-heavy modern tracks have unnaturally high raw RMS from the sub content)
-     * - Very high ZCR windows → broadband noise / cymbals → slight down-weight by 0.85
-     * - Mid-range ZCR → speech/vocal range most sensitive to human hearing → full weight
-     *
-     * Result: a loudness estimate that is better correlated with subjective loudness
-     * than raw RMS, without requiring IIR filter coefficients.
-     *
-     * TODO: Replace with full EBU R128 LUFS implementation:
-     *   Stage 1 pre-filter: high-shelf, Fc=1681 Hz, gain=+4 dB, Q=0.7
-     *   Stage 2 high-pass:  Fc=38 Hz, order=2, Butterworth
-     *   Then: gated mean-square (absolute gate –70 LUFS, relative gate –10 LUFS)
+     * Designs an Audio EQ Cookbook high-shelf biquad filter.
+     * Used for EBU R128 K-weighting Stage 1: Fc = 1681.974 Hz, gain = +4 dB, S = 1.
      */
-    private fun calculatePerceptualAmplitude(pcmBytes: ByteArray, sampleRate: Int): Float {
-        if (pcmBytes.isEmpty()) return 0f
+    private fun designHighShelf(fc: Double, gainDb: Double, sampleRate: Double): BiquadCoeffs {
+        val A     = Math.pow(10.0, gainDb / 40.0)          // linear amplitude gain
+        val w0    = 2.0 * Math.PI * fc / sampleRate
+        val cosW0 = Math.cos(w0)
+        val sinW0 = Math.sin(w0)
+        val sqrtA = Math.sqrt(A)
+        // With S = 1 (maximum shelf slope): (A + 1/A)*(1/S - 1) + 2 = 2
+        // → alpha = sin(w0)/2 * sqrt(2) = sin(w0)/√2
+        val alpha          = sinW0 * 0.7071067811865476
+        val twoSqrtAAlpha  = 2.0 * sqrtA * alpha
 
-        val buffer = ByteBuffer.wrap(pcmBytes).order(ByteOrder.LITTLE_ENDIAN)
-        val numSamples = pcmBytes.size / 2
-        val windowSamples = (sampleRate / 100).coerceAtLeast(1) // 10ms window
+        val b0  = A  * ((A + 1) + (A - 1) * cosW0 + twoSqrtAAlpha)
+        val b1  = -2.0 * A * ((A - 1) + (A + 1) * cosW0)
+        val b2  = A  * ((A + 1) + (A - 1) * cosW0 - twoSqrtAAlpha)
+        val a0  =       (A + 1) - (A - 1) * cosW0 + twoSqrtAAlpha
+        val a1  = 2.0 * ((A - 1) - (A + 1) * cosW0)
+        val a2  =       (A + 1) - (A - 1) * cosW0 - twoSqrtAAlpha
 
-        var weightedSumSquares = 0.0
-        var windowCount = 0
-        var windowRmsAccum = 0.0
-        var zeroCrossings = 0
-        var prevSample = 0f
-        var samplesInWindow = 0
+        return BiquadCoeffs(b0/a0, b1/a0, b2/a0, a1/a0, a2/a0)
+    }
 
-        for (i in 0 until numSamples) {
-            val sample = buffer.short.toFloat() / Short.MAX_VALUE
-            windowRmsAccum += sample * sample
-            if (prevSample * sample < 0f) zeroCrossings++
-            prevSample = sample
-            samplesInWindow++
+    /**
+     * Designs a 2nd-order Butterworth high-pass biquad filter.
+     * Used for EBU R128 K-weighting Stage 2: Fc = 38.134 Hz, Q = 1/√2.
+     */
+    private fun designHighPass2nd(fc: Double, sampleRate: Double): BiquadCoeffs {
+        val w0    = 2.0 * Math.PI * fc / sampleRate
+        val cosW0 = Math.cos(w0)
+        val sinW0 = Math.sin(w0)
+        // Q = 1/√2 (Butterworth) → alpha = sin(w0) / (2 * Q) = sin(w0) / √2
+        val alpha = sinW0 * 0.7071067811865476
 
-            if (samplesInWindow >= windowSamples) {
-                val windowRms = sqrt(windowRmsAccum / samplesInWindow)
-                // ZCR per sample in this window (normalised 0..1)
-                val zcr = zeroCrossings.toFloat() / samplesInWindow
-                // Weight: sub-bass (very low ZCR) and pure noise (very high ZCR) are down-weighted
-                val weight = when {
-                    zcr < 0.01f -> 0.70f   // Sub-bass dominates — sounds quieter than raw RMS suggests
-                    zcr > 0.35f -> 0.85f   // Bright cymbal / noise content
-                    else        -> 1.00f   // Mid-range — full weight
-                }
-                val weighted = windowRms * weight
-                weightedSumSquares += weighted * weighted
-                windowCount++
-                // Reset window
-                windowRmsAccum = 0.0
-                zeroCrossings = 0
-                samplesInWindow = 0
-            }
+        val b0 = (1.0 + cosW0) / 2.0
+        val b1 = -(1.0 + cosW0)
+        val b2 = (1.0 + cosW0) / 2.0
+        val a0 = 1.0 + alpha
+        val a1 = -2.0 * cosW0
+        val a2 = 1.0 - alpha
+
+        return BiquadCoeffs(b0/a0, b1/a0, b2/a0, a1/a0, a2/a0)
+    }
+
+    /**
+     * Applies a biquad IIR filter using Direct Form II Transposed.
+     * This form avoids the internal state overflow issues of Direct Form I
+     * and is numerically better conditioned for double-precision arithmetic.
+     */
+    private fun applyBiquad(input: FloatArray, c: BiquadCoeffs): FloatArray {
+        val output = FloatArray(input.size)
+        var w1 = 0.0
+        var w2 = 0.0
+        for (i in input.indices) {
+            val x = input[i].toDouble()
+            val y = c.b0 * x + w1
+            w1    = c.b1 * x - c.a1 * y + w2
+            w2    = c.b2 * x - c.a2 * y
+            output[i] = y.toFloat()
         }
+        return output
+    }
 
-        return if (windowCount > 0) sqrt(weightedSumSquares / windowCount).toFloat() else 0f
+    /**
+     * Computes K-weighted RMS amplitude, approximating EBU R128 integrated loudness.
+     *
+     * Filter chain (ITU-R BS.1770-4 K-weighting):
+     *   Stage 1 — High-shelf pre-filter: Fc = 1681.974 Hz, gain = +4 dB, S = 1
+     *   Stage 2 — Butterworth high-pass: Fc =   38.134 Hz, order = 2, Q = 1/√2
+     *
+     * After filtering, returns sqrt(mean_square) of the filtered signal.
+     * This is proportional to ITU-R BS.1770 integrated loudness and is
+     * perceptually accurate for auto-gain matching:
+     *
+     *   — Bass-heavy EDM / hip-hop tracks: sub-bass attenuated → lower amplitude
+     *     → CrossfadeEngine assigns higher base volume (correct — felt level is lower)
+     *   — Loud, compressed pop: full gain applied → lower base volume (correct)
+     *   — Older music with low dynamic compression: gains boosted appropriately
+     *
+     * Coefficients are computed analytically for [sampleRate], so any MediaCodec
+     * output rate (44100, 48000, 32000, etc.) is handled without a lookup table.
+     *
+     * No RECORD_AUDIO permission required — operates entirely on decoded PCM bytes.
+     */
+    private fun calculateKWeightedAmplitude(pcmBytes: ByteArray, sampleRate: Int): Float {
+        if (pcmBytes.isEmpty()) return 0f
+        val numSamples = pcmBytes.size / 2
+        if (numSamples == 0) return 0f
+
+        // Decode 16-bit LE PCM to normalised float samples (-1.0 .. +1.0)
+        val buf     = ByteBuffer.wrap(pcmBytes).order(ByteOrder.LITTLE_ENDIAN)
+        val samples = FloatArray(numSamples) { buf.short.toFloat() / Short.MAX_VALUE }
+
+        val fs = sampleRate.toDouble()
+
+        // Apply two-stage K-weighting filter
+        val stage1 = designHighShelf(1681.974, 4.0, fs)
+        val stage2 = designHighPass2nd(38.134, fs)
+        val filtered = applyBiquad(applyBiquad(samples, stage1), stage2)
+
+        // K-weighted mean-square → RMS
+        var sumSq = 0.0
+        for (s in filtered) sumSq += s.toDouble() * s
+
+        return sqrt(sumSq / numSamples).toFloat()
     }
 
     // ── PCM decoding ──────────────────────────────────────────────────────────
 
+    /**
+     * Decodes audio from [uri] to raw 16-bit signed little-endian PCM bytes.
+     * Returns Triple(pcmBytes, sampleRate, channelCount), or null on error.
+     * Decoding stops after MAX_ANALYSIS_DURATION_MS.
+     */
     private fun decodeToPcm(uri: Uri): Triple<ByteArray, Int, Int>? {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
@@ -222,11 +278,11 @@ class BpmAnalyzer @Inject constructor(
             var audioTrackIndex = -1
             var mediaFormat: MediaFormat? = null
             for (i in 0 until extractor.trackCount) {
-                val fmt = extractor.getTrackFormat(i)
+                val fmt  = extractor.getTrackFormat(i)
                 val mime = fmt.getString(MediaFormat.KEY_MIME) ?: continue
                 if (mime.startsWith("audio/")) {
                     audioTrackIndex = i
-                    mediaFormat = fmt
+                    mediaFormat     = fmt
                     break
                 }
             }
@@ -236,9 +292,9 @@ class BpmAnalyzer @Inject constructor(
             }
 
             extractor.selectTrack(audioTrackIndex)
-            val mime        = mediaFormat.getString(MediaFormat.KEY_MIME)!!
-            val sampleRate  = mediaFormat.getIntegerSafe(MediaFormat.KEY_SAMPLE_RATE, 44100)
-            val channelCount= mediaFormat.getIntegerSafe(MediaFormat.KEY_CHANNEL_COUNT, 1)
+            val mime         = mediaFormat.getString(MediaFormat.KEY_MIME)!!
+            val sampleRate   = mediaFormat.getIntegerSafe(MediaFormat.KEY_SAMPLE_RATE, 44100)
+            val channelCount = mediaFormat.getIntegerSafe(MediaFormat.KEY_CHANNEL_COUNT, 1)
 
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(mediaFormat, null, null, 0)
@@ -267,15 +323,15 @@ class BpmAnalyzer @Inject constructor(
                                 inputEos = true
                             }
                             else -> {
-                                codec.queueInputBuffer(inputIdx, 0, sampleSize,
-                                    extractor.sampleTime, 0)
+                                codec.queueInputBuffer(
+                                    inputIdx, 0, sampleSize, extractor.sampleTime, 0)
                                 extractor.advance()
                             }
                         }
                     }
                 }
                 when (val outputIdx = codec.dequeueOutputBuffer(bufferInfo, 10_000L)) {
-                    MediaCodec.INFO_TRY_AGAIN_LATER  -> Unit
+                    MediaCodec.INFO_TRY_AGAIN_LATER      -> Unit
                     MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> Unit
                     else -> if (outputIdx >= 0) {
                         val outBuf = codec.getOutputBuffer(outputIdx)
@@ -304,6 +360,10 @@ class BpmAnalyzer @Inject constructor(
 
     // ── Audio utilities ───────────────────────────────────────────────────────
 
+    /**
+     * Mixes interleaved multi-channel 16-bit little-endian PCM down to mono.
+     * Input layout per frame: [ch0_lo, ch0_hi, ch1_lo, ch1_hi, ...]
+     */
     private fun mixToMono(pcm: ByteArray, channelCount: Int): ByteArray {
         val bytesPerFrame = channelCount * 2
         val frameCount    = pcm.size / bytesPerFrame
@@ -337,19 +397,17 @@ class BpmAnalyzer @Inject constructor(
             16,
             1,
             true,
-            false // little-endian — Android MediaCodec always outputs LE
+            false  // little-endian — Android MediaCodec always outputs LE
         )
-        val inputStream = UniversalAudioInputStream(ByteArrayInputStream(monoPcmBytes), format)
-        val dispatcher  = AudioDispatcher(inputStream, BUFFER_SIZE, 0)
-
-        // Collect both timestamp and salience for salience-based first beat selection
+        val inputStream  = UniversalAudioInputStream(ByteArrayInputStream(monoPcmBytes), format)
+        val dispatcher   = AudioDispatcher(inputStream, BUFFER_SIZE, 0)
         val onsetEvents  = mutableListOf<OnsetEvent>()
         val onsetDetector = ComplexOnsetDetector(BUFFER_SIZE, ONSET_THRESHOLD)
         onsetDetector.setHandler(OnsetHandler { timeSeconds, salience ->
             onsetEvents.add(OnsetEvent(timeSeconds.toFloat(), salience.toFloat()))
         })
         dispatcher.addAudioProcessor(onsetDetector)
-        dispatcher.run() // synchronous, on Dispatchers.IO
+        dispatcher.run()  // synchronous, on Dispatchers.IO
 
         return estimateBpmAndFirstBeat(onsetEvents, amplitude, skippedSeconds)
     }
@@ -357,16 +415,14 @@ class BpmAnalyzer @Inject constructor(
     /**
      * Derives BPM from onset timestamps and selects the first *strong* beat.
      *
-     * BPM method: median inter-onset interval — robust against missed or doubled beats.
+     * BPM: median inter-onset interval — robust against missed/doubled beats.
      *
-     * First beat method (NEW):
-     *   Original code used timestamps.first() which is almost always a non-beat transient
-     *   (room noise, reverb tail, intro effect). Now we select the first onset whose
-     *   salience is ≥ max(median_salience, MIN_STRONG_ONSET_SALIENCE). This reliably
-     *   corresponds to the first real percussive hit in the body of the track.
+     * First beat: the first onset whose salience >= max(median_salience,
+     * MIN_STRONG_ONSET_SALIENCE). This reliably identifies the first real
+     * percussive hit rather than a pickup note or reverb tail.
      *
-     * The [skippedSeconds] offset is added back to all timestamps so they map correctly
-     * to real playback positions in the original (un-trimmed) audio.
+     * [skippedSeconds] is added back to all timestamps so they correctly
+     * map to playback positions in the original (un-trimmed) audio.
      */
     private fun estimateBpmAndFirstBeat(
         onsetEvents: List<OnsetEvent>,
@@ -385,18 +441,17 @@ class BpmAnalyzer @Inject constructor(
 
         if (intervals.isEmpty()) return null
 
-        val sorted = intervals.sorted()
-        val median = sorted[sorted.size / 2]
+        val sortedIntervals = intervals.sorted()
+        val median = sortedIntervals[sortedIntervals.size / 2]
         val bpm    = (60f / median).coerceIn(MIN_BPM, MAX_BPM)
 
-        // Select first strong onset as the first beat cue point.
-        // Threshold = max(median salience, minimum absolute salience).
+        // Salience-based first beat selection
         val sortedSaliences   = onsetEvents.map { it.salience }.sorted()
         val medianSalience    = sortedSaliences[sortedSaliences.size / 2]
         val salienceThreshold = maxOf(medianSalience, MIN_STRONG_ONSET_SALIENCE)
 
         val firstStrongOnset = onsetEvents.firstOrNull { it.salience >= salienceThreshold }
-            ?: onsetEvents.first() // safe fallback: use chronologically first onset
+            ?: onsetEvents.first()
 
         // Re-add the intro skip offset so the timestamp is correct in the full track
         val firstBeatMs = ((firstStrongOnset.timeSeconds + skippedSeconds) * 1000f).toLong()
@@ -404,7 +459,8 @@ class BpmAnalyzer @Inject constructor(
         Log.d(TAG, "BPM=$bpm firstBeat=${firstBeatMs}ms " +
                 "(salience=${String.format("%.2f", firstStrongOnset.salience)}, " +
                 "threshold=${String.format("%.2f", salienceThreshold)}, " +
-                "skipped=${skippedSeconds}s, onsets=${onsetEvents.size})")
+                "skipped=${skippedSeconds}s, onsets=${onsetEvents.size}, " +
+                "kWeightedRms=${String.format("%.4f", amplitude)})")
 
         return BpmAnalysisResult(bpm = bpm, firstBeatMs = firstBeatMs, amplitude = amplitude)
     }
