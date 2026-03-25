@@ -22,10 +22,11 @@ import javax.inject.Singleton
  * - [BpmCacheDao]           — DAO from the database.
  * - [DjMixRepository]       — bound to [DjMixRepositoryImpl].
  *
- * Not wired here (auto-provided by Hilt):
- * - [BpmAnalyzer]           — @Singleton @Inject constructor, no manual @Provides needed.
+ * Auto-provided by Hilt (no manual @Provides needed):
+ * - [BpmAnalyzer]           — @Singleton @Inject constructor.
  * - [BpmAnalysisWorker]     — @HiltWorker, handled by hilt-work integration.
- * - [CrossfadeEngine]       — @Inject constructor, non-singleton; each ViewModel gets its own.
+ * - [CrossfadeEngine]       — @Singleton @Inject constructor.
+ * - [DjSessionManager]      — @Singleton @Inject constructor.
  * - [GetSmartNextTrackUseCase] — @Inject constructor, stateless.
  * - [AnalyzeBpmUseCase]     — @Inject constructor, delegates to repository.
  */

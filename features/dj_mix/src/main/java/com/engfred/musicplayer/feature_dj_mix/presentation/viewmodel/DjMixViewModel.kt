@@ -17,6 +17,8 @@ import com.engfred.musicplayer.feature_dj_mix.domain.repository.DjMixRepository
 import com.engfred.musicplayer.feature_dj_mix.domain.usecases.AnalyzeBpmUseCase
 import com.engfred.musicplayer.feature_dj_mix.domain.usecases.GetSmartNextTrackUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -35,6 +37,24 @@ object DjMixArgs {
 
 private const val TAG = "DjMixViewModel"
 
+/**
+ * ViewModel for the DJ Mix screen.
+ *
+ * ── What changed in this version ─────────────────────────────────────────────
+ * DEBOUNCED rebuildSmartQueue (Issue #9 fix)
+ *
+ * During BPM analysis of a 200-song playlist, [observeBpmCache] fires once per song
+ * as WorkManager reports each result. The original [rebuildSmartQueue] ran synchronously
+ * on each emission — a 200-iteration greedy algorithm × 200 emissions = up to 40,000
+ * comparisons on the Default dispatcher, causing measurable UI jank and battery drain.
+ *
+ * Fix: [rebuildSmartQueue] now cancels any pending rebuild job and schedules a new one
+ * with a 300ms delay. Rapid sequential BPM results are coalesced into a single rebuild.
+ * User-triggered events (BPM tolerance slider) use the same debounce — 300ms is
+ * imperceptible for a settings interaction.
+ *
+ * The [performRebuild] function contains the actual algorithm (unchanged).
+ */
 @UnstableApi
 @HiltViewModel
 class DjMixViewModel @Inject constructor(
@@ -48,33 +68,39 @@ class DjMixViewModel @Inject constructor(
     private val activePlayerRegistry: ActivePlayerRegistry,
     val crossfadeEngine: CrossfadeEngine
 ) : ViewModel() {
+
     private val playlistId: Long =
         checkNotNull(savedStateHandle[DjMixArgs.PLAYLIST_ID]) {
             "DjMixViewModel requires a playlistId in SavedStateHandle"
         }
+
     private val _uiState = MutableStateFlow(DjMixUiState())
     val uiState: StateFlow<DjMixUiState> = _uiState.asStateFlow()
+
     private val _uiEvent = MutableSharedFlow<String>()
     val uiEvent: SharedFlow<String> = _uiEvent.asSharedFlow()
+
     private var rawPlaylistSongs: List<AudioFile> = emptyList()
+
+    /**
+     * Tracks the pending debounced rebuild job so it can be cancelled when a newer
+     * BPM result arrives before the delay expires.
+     */
+    private var rebuildJob: Job? = null
 
     init {
         crossfadeEngine.initialize()
         observeSettings()
         observeCrossfadeEngineState()
         loadPlaylist()
-        // PATCH: Removed observeAutoStart() to allow manual user trigger.
     }
 
     fun onEvent(event: DjMixEvent) {
         when (event) {
             DjMixEvent.PlayPause -> {
-                // If the engine isn't active or current track is null, start from the top of the queue.
                 if (!crossfadeEngine.isActive || crossfadeEngine.state.value.currentTrack == null) {
-                    // Engine was released when normal playback took over or is starting fresh.
-                    // Restart the session from the top of the smart queue.
                     val firstTrack = _uiState.value.smartQueue.firstOrNull() ?: return
-                    crossfadeEngine.initialize() // reset + init
+                    crossfadeEngine.initialize()
                     djSessionManager.startSession(playlistId)
                     djSessionManager.markTrackPlayed(firstTrack.id)
                     activePlayerRegistry.onDjMixStarted()
@@ -86,7 +112,9 @@ class DjMixViewModel @Inject constructor(
                     crossfadeEngine.playPause()
                 }
             }
+
             DjMixEvent.MixNow -> crossfadeEngine.triggerMixNow()
+
             is DjMixEvent.UpdateCrossfadeDuration -> {
                 val s = _uiState.value.settings.copy(crossfadeDurationSec = event.seconds)
                 crossfadeEngine.crossfadeDurationMs = event.seconds * 1000L
@@ -94,13 +122,16 @@ class DjMixViewModel @Inject constructor(
                 djSessionManager.updateSettings(s)
                 viewModelScope.launch { settingsRepository.updateDjCrossfadeDuration(event.seconds) }
             }
+
             is DjMixEvent.UpdateBpmTolerance -> {
                 val s = _uiState.value.settings.copy(bpmTolerance = event.tolerance)
                 _uiState.update { it.copy(settings = s) }
                 djSessionManager.updateSettings(s)
+                // Debounced — tolerance slider can fire many events while dragging
                 rebuildSmartQueue()
                 viewModelScope.launch { settingsRepository.updateDjBpmTolerance(event.tolerance) }
             }
+
             is DjMixEvent.ToggleRealMixMode -> {
                 val s = _uiState.value.settings.copy(isRealMixMode = event.enabled)
                 crossfadeEngine.isRealMixMode = event.enabled
@@ -108,6 +139,7 @@ class DjMixViewModel @Inject constructor(
                 djSessionManager.updateSettings(s)
                 viewModelScope.launch { settingsRepository.updateDjRealMixMode(event.enabled) }
             }
+
             is DjMixEvent.ToggleManualMaxDuration -> {
                 val s = _uiState.value.settings.copy(useManualMaxDuration = event.enabled)
                 crossfadeEngine.useHalfwayMix = !event.enabled
@@ -115,6 +147,7 @@ class DjMixViewModel @Inject constructor(
                 djSessionManager.updateSettings(s)
                 viewModelScope.launch { settingsRepository.updateDjManualMaxDuration(event.enabled) }
             }
+
             is DjMixEvent.UpdateMaxTrackDuration -> {
                 val s = _uiState.value.settings.copy(maxTrackDurationSec = event.seconds)
                 crossfadeEngine.maxTrackDurationMs = event.seconds * 1000L
@@ -122,12 +155,14 @@ class DjMixViewModel @Inject constructor(
                 djSessionManager.updateSettings(s)
                 viewModelScope.launch { settingsRepository.updateDjMaxTrackDuration(event.seconds) }
             }
+
             is DjMixEvent.ToggleLoopQueue -> {
                 val s = _uiState.value.settings.copy(loopQueue = event.enabled)
                 _uiState.update { it.copy(settings = s) }
                 djSessionManager.updateSettings(s)
                 viewModelScope.launch { settingsRepository.updateDjLoopQueue(event.enabled) }
             }
+
             is DjMixEvent.JumpToTrack -> {
                 djSessionManager.resetPlayHistory()
                 djSessionManager.markTrackPlayed(event.audioFile.id)
@@ -143,22 +178,25 @@ class DjMixViewModel @Inject constructor(
         }
     }
 
+    // ── Private observers ─────────────────────────────────────────────────────
+
     private fun observeSettings() {
         settingsRepository.getAppSettings()
             .onEach { appSettings ->
                 val currentSettings = _uiState.value.settings
                 val newSettings = DjMixSettings(
                     crossfadeDurationSec = appSettings.crossfadeDurationSec,
-                    bpmTolerance = appSettings.bpmTolerance,
-                    isRealMixMode = appSettings.isRealMixMode,
-                    maxTrackDurationSec = appSettings.maxTrackDurationSec,
-                    loopQueue = appSettings.loopQueue,
+                    bpmTolerance         = appSettings.bpmTolerance,
+                    isRealMixMode        = appSettings.isRealMixMode,
+                    maxTrackDurationSec  = appSettings.maxTrackDurationSec,
+                    loopQueue            = appSettings.loopQueue,
                     useManualMaxDuration = appSettings.useManualMaxDuration
                 )
                 crossfadeEngine.crossfadeDurationMs = newSettings.crossfadeDurationSec * 1000L
-                crossfadeEngine.isRealMixMode = newSettings.isRealMixMode
-                crossfadeEngine.maxTrackDurationMs = newSettings.maxTrackDurationSec * 1000L
-                crossfadeEngine.useHalfwayMix = !newSettings.useManualMaxDuration
+                crossfadeEngine.isRealMixMode       = newSettings.isRealMixMode
+                crossfadeEngine.maxTrackDurationMs  = newSettings.maxTrackDurationSec * 1000L
+                crossfadeEngine.useHalfwayMix       = !newSettings.useManualMaxDuration
+
                 val toleranceChanged = currentSettings.bpmTolerance != newSettings.bpmTolerance
                 _uiState.update { it.copy(settings = newSettings) }
                 djSessionManager.updateSettings(newSettings)
@@ -177,7 +215,6 @@ class DjMixViewModel @Inject constructor(
                 val songs = playlist.songs
                 rawPlaylistSongs = songs
 
-                // Skip re-analysis if session is already active for this playlist
                 val sessionAlreadyActive = djSessionManager.isSessionActive.value
                         && djSessionManager.activePlaylistId == playlistId
 
@@ -202,11 +239,12 @@ class DjMixViewModel @Inject constructor(
         djMixRepository.getBpmCacheFlow()
             .onEach { bpmCache ->
                 val analysedCount = songs.count { bpmCache.containsKey(it.id) }
-                val progress = if (songs.isEmpty()) 1f else analysedCount.toFloat() / songs.size
+                val progress      = if (songs.isEmpty()) 1f else analysedCount.toFloat() / songs.size
                 val stillAnalysing = progress < 1f
+
                 val currentTrackId = _uiState.value.currentTrack?.id
                 if (currentTrackId != null) {
-                    val freshBpmInfo = bpmCache[currentTrackId]
+                    val freshBpmInfo  = bpmCache[currentTrackId]
                     val cachedBpmInfo = _uiState.value.bpmCache[currentTrackId]
                     if (freshBpmInfo != null && cachedBpmInfo == null) {
                         crossfadeEngine.updateCurrentBpmInfo(
@@ -214,14 +252,19 @@ class DjMixViewModel @Inject constructor(
                         )
                     }
                 }
+
                 _uiState.update {
                     it.copy(
-                        bpmCache = bpmCache,
+                        bpmCache         = bpmCache,
                         analysisProgress = progress,
-                        isAnalyzing = stillAnalysing
+                        isAnalyzing      = stillAnalysing
                     )
                 }
                 djSessionManager.updateBpmCache(bpmCache)
+
+                // Debounced — BPM results arrive rapidly during analysis. Without debouncing,
+                // a 200-song playlist triggers 200 full greedy-sort passes (~40,000 ops).
+                // With 300ms debounce, all results within a 300ms window are coalesced into one pass.
                 rebuildSmartQueue(bpmCache = bpmCache)
             }
             .launchIn(viewModelScope)
@@ -231,21 +274,21 @@ class DjMixViewModel @Inject constructor(
         crossfadeEngine.state
             .onEach { engineState ->
                 val prevTrackId = _uiState.value.currentTrack?.id
-                val newTrackId = engineState.currentTrack?.id
+                val newTrackId  = engineState.currentTrack?.id
                 if (newTrackId != null && newTrackId != prevTrackId) {
                     djSessionManager.markTrackPlayed(newTrackId)
                     syncBeatGridForTrack(newTrackId)
                 }
                 _uiState.update {
                     it.copy(
-                        currentTrack = engineState.currentTrack,
-                        isPlaying = engineState.isPlaying,
-                        isCrossfading = engineState.isCrossfading,
-                        currentPositionMs = engineState.currentPositionMs,
-                        currentDurationMs = engineState.currentDurationMs,
+                        currentTrack              = engineState.currentTrack,
+                        isPlaying                 = engineState.isPlaying,
+                        isCrossfading             = engineState.isCrossfading,
+                        currentPositionMs         = engineState.currentPositionMs,
+                        currentDurationMs         = engineState.currentDurationMs,
                         crossfadeProgressFraction = engineState.crossfadeProgressFraction,
-                        waveform = engineState.waveform, // <--- UI/UX UPDATE: Passing visualizer data to UI
-                        error = engineState.error
+                        waveform                  = engineState.waveform,
+                        error                     = engineState.error
                     )
                 }
             }
@@ -258,30 +301,53 @@ class DjMixViewModel @Inject constructor(
         Log.d(TAG, "Beat grid synced: trackId=$trackId BPM=${bpmInfo.bpm}")
     }
 
+    /**
+     * Schedules a debounced smart queue rebuild.
+     *
+     * Any call within 300ms of the previous cancels the pending job and resets the timer.
+     * This coalesces the burst of [observeBpmCache] emissions during WorkManager analysis
+     * into a single rebuild once the burst settles.
+     *
+     * The actual rebuild logic lives in [performRebuild] and is unchanged from the original.
+     */
     private fun rebuildSmartQueue(
         bpmCache: Map<Long, BpmInfo> = _uiState.value.bpmCache
     ) {
         if (rawPlaylistSongs.isEmpty()) return
+        rebuildJob?.cancel()
+        rebuildJob = viewModelScope.launch {
+            delay(300L)
+            performRebuild(bpmCache)
+        }
+    }
+
+    private fun performRebuild(bpmCache: Map<Long, BpmInfo>) {
+        if (rawPlaylistSongs.isEmpty()) return
         val tolerance = _uiState.value.settings.bpmTolerance
         val remaining = rawPlaylistSongs.toMutableList()
-        val result = mutableListOf<AudioFile>()
+        val result    = mutableListOf<AudioFile>()
+
+        // Start from the track with the lowest known BPM (anchor the chain)
         val first = remaining.minByOrNull { bpmCache[it.id]?.bpm ?: Float.MAX_VALUE }
             ?: remaining.first()
         result.add(first)
         remaining.remove(first)
+
         while (remaining.isNotEmpty()) {
             val lastBpm = bpmCache[result.last().id]?.bpm ?: 120f
             val next = getSmartNextTrackUseCase(
-                currentBpm = lastBpm,
+                currentBpm     = lastBpm,
                 remainingQueue = remaining,
-                bpmCache = bpmCache.mapValues { it.value.bpm },
-                tolerance = tolerance
+                bpmCache       = bpmCache.mapValues { it.value.bpm },
+                tolerance      = tolerance
             ) ?: remaining.first()
             result.add(next)
             remaining.remove(next)
         }
+
         _uiState.update { it.copy(smartQueue = result) }
         djSessionManager.updateSmartQueue(result)
+        Log.d(TAG, "performRebuild: queue rebuilt with ${result.size} tracks")
     }
 
     override fun onCleared() {

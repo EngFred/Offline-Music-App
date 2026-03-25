@@ -37,7 +37,7 @@ data class DjMixUiState(
     val currentPositionMs: Long = 0L,
     val currentDurationMs: Long = 0L,
     val crossfadeProgressFraction: Float = 0f,
-    val waveform: List<Float> = emptyList(), // <--- UI/UX UPDATE: Bridging the visualizer data
+    val waveform: List<Float> = emptyList(),
     val settings: DjMixSettings = DjMixSettings(),
     val isLoading: Boolean = true,
     val error: String? = null

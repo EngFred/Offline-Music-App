@@ -31,87 +31,76 @@ import javax.inject.Inject
 /**
  * Foreground Service for the DJ Mix feature.
  *
- * ── BUG FIXES in this version ────────────────────────────────────────────────
- * 1. nextTrackRequest handling moved HERE from DjMixViewModel.
- * Previously, when the user left the DJ screen the ViewModel was cleared,
- * nextTrackRequest emissions went unhandled, and the queue stopped after the
- * current track. The Service has the same lifecycle as playback, so it is the
- * correct owner of this logic. [DjSessionManager] provides the stateful
- * selectNextTrack() method.
+ * ── What changed in this version ─────────────────────────────────────────────
+ * Added [observePrebufferRequests] — new companion to [observeNextTrackRequests].
  *
- * 2. startForeground called immediately in onCreate().
- * On Android 8+, a foreground service started via startForegroundService()
- * must call startForeground() within 5 seconds or the OS throws an ANR.
- * The old code called startForeground only inside updateNotification(), which
- * returned early when currentTrack == null — meaning it was never called until
- * the engine emitted its first state update. Fixed by calling
- * showStartingNotification() at the top of onCreate().
+ * When the position monitor determines that remaining time < crossfadeDurationMs × 3,
+ * it emits on [CrossfadeEngine.prebufferRequest]. This service:
+ *   1. Selects the next track from DjSessionManager (same algorithm, NOT marked as played)
+ *   2. Calls crossfadeEngine.prebufferTrack() to silently load it into the secondary ExoPlayer
  *
- * 3. onSkipToNext bug fixed.
- * Old code: crossfadeEngine.queueNextTrack(currentTrack) — passed the CURRENT
- * track as the next track, causing it to loop on itself.
- * Fixed: djSessionManager.selectNextTrack(currentId) selects the correct track.
+ * When the actual crossfade fires shortly after, the secondary player is already in
+ * STATE_READY and seeked to firstBeatMs. [executeCrossfade] skips the 2-second buffer
+ * wait entirely — zero silence gap.
  *
- * 4. Engine settings kept in sync after ViewModel is cleared.
- * Service now observes DjSessionManager.settings and applies crossfadeDurationMs,
- * isRealMixMode, and maxTrackDurationMs to the engine continuously.
+ * Key distinction: observePrebufferRequests does NOT call markTrackPlayed.
+ * That happens only in observeNextTrackRequests when the crossfade actually starts.
  *
- * 5. ActivePlayerRegistry coordination.
- * Service observes stopDjMixSignal (emitted by PlaybackControllerImpl when a
- * normal song is tapped) and shuts itself down cleanly.
- *
- * 6. Engine released in onDestroy if not already released via ACTION_STOP.
- *
- * NEW: Syncs the new useHalfwayMix flag based on useManualMaxDuration.
+ * ── Previously fixed (retained from prior version) ───────────────────────────
+ * 1. nextTrackRequest handling lives here (not ViewModel) — survives screen exit
+ * 2. startForeground called immediately in onCreate() — satisfies Android 8+ ANR rule
+ * 3. onSkipToNext uses DjSessionManager.selectNextTrack (not current track)
+ * 4. Engine settings kept in sync after ViewModel cleared
+ * 5. ActivePlayerRegistry coordination (stop signal from normal player)
+ * 6. Engine released in onDestroy if not already released via ACTION_STOP
+ * 7. useHalfwayMix synced from useManualMaxDuration setting
  */
 @UnstableApi
 @AndroidEntryPoint
 class DjMixService : Service() {
+
     @Inject lateinit var crossfadeEngine: CrossfadeEngine
     @Inject lateinit var djSessionManager: DjSessionManager
     @Inject lateinit var activePlayerRegistry: ActivePlayerRegistry
+
     private lateinit var mediaSession: MediaSessionCompat
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    /**
-     * Tracks whether the engine was explicitly released inside this service lifecycle.
-     * Prevents double-release in onDestroy if ACTION_STOP was already handled.
-     */
+
+    /** Guards against double-release if both ACTION_STOP and onDestroy fire. */
     private var engineReleased = false
+
     companion object {
         private const val TAG = "DjMixService"
-        const val DJ_CHANNEL_ID = "dj_mix_channel"
+        const val DJ_CHANNEL_ID   = "dj_mix_channel"
         const val NOTIFICATION_ID = 505
-        const val ACTION_START = "com.engfred.musicplayer.dj.START"
+        const val ACTION_START      = "com.engfred.musicplayer.dj.START"
         const val ACTION_PLAY_PAUSE = "com.engfred.musicplayer.dj.PLAY_PAUSE"
-        const val ACTION_NEXT = "com.engfred.musicplayer.dj.NEXT"
-        const val ACTION_STOP = "com.engfred.musicplayer.dj.STOP"
+        const val ACTION_NEXT       = "com.engfred.musicplayer.dj.NEXT"
+        const val ACTION_STOP       = "com.engfred.musicplayer.dj.STOP"
     }
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        // FIX #2: Call startForeground immediately — must happen within 5 s of
-        // startForegroundService() on Android 8+, regardless of engine state.
+        // Must call startForeground within 5s of startForegroundService on Android 8+
         showStartingNotification()
-        // Mark DJ as active so PlaybackControllerImpl pauses the normal player.
         activePlayerRegistry.onDjMixStarted()
         setupMediaSession()
         observeEngineState()
-        observeNextTrackRequests() // FIX #1: Service owns this, not ViewModel
-        observeEngineSettings() // FIX #4: Keep engine in sync after ViewModel cleared
-        observeStopSignal() // FIX #5: Stop when normal playback takes over
+        observeNextTrackRequests()
+        observePrebufferRequests()   // ← NEW: wire pre-buffer loop
+        observeEngineSettings()
+        observeStopSignal()
     }
+
     // ── Media session ─────────────────────────────────────────────────────────
+
     private fun setupMediaSession() {
         mediaSession = MediaSessionCompat(this, TAG).apply {
             isActive = true
             setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() { crossfadeEngine.playPause() }
+                override fun onPlay()  { crossfadeEngine.playPause() }
                 override fun onPause() { crossfadeEngine.playPause() }
-                /**
-                 * FIX #3: Old code passed currentTrack as the next track, causing
-                 * the engine to loop on itself. Now uses DjSessionManager to pick
-                 * the correct next track.
-                 */
                 override fun onSkipToNext() {
                     val currentId = crossfadeEngine.state.value.currentTrack?.id ?: return
                     val next = djSessionManager.selectNextTrack(currentId) ?: return
@@ -119,20 +108,18 @@ class DjMixService : Service() {
                     djSessionManager.markTrackPlayed(next.id)
                     crossfadeEngine.queueNextTrack(next, firstBeatMs, bpm, amplitude)
                 }
-                override fun onStop() {
-                    releaseAndStop()
-                }
+                override fun onStop() { releaseAndStop() }
             })
         }
     }
+
     // ── Core observers ────────────────────────────────────────────────────────
-    /** Updates the notification whenever the engine state changes. */
+
     private fun observeEngineState() {
         serviceScope.launch {
             crossfadeEngine.state.collectLatest { state ->
-                // Pass current position and duration for progress bar support
                 updateNotification(
-                    track = state.currentTrack,
+                    track    = state.currentTrack,
                     isPlaying = state.isPlaying,
                     position = state.currentPositionMs,
                     duration = state.currentDurationMs
@@ -140,26 +127,20 @@ class DjMixService : Service() {
             }
         }
     }
+
     /**
-     * FIX #1: The entire next-track selection loop now lives here in the Service.
-     *
-     * Previously this was in DjMixViewModel.observeNextTrackRequests(). When the
-     * user left the DJ screen the ViewModel was cleared, the coroutine was cancelled,
-     * and the queue stopped advancing. Since this Service lives as long as playback
-     * continues, it is the correct lifecycle owner.
+     * Owns the automatic next-track crossfade loop for the lifetime of this Service.
+     * Lives here (not ViewModel) so it continues when the user leaves the DJ screen.
      */
     private fun observeNextTrackRequests() {
         serviceScope.launch {
             crossfadeEngine.nextTrackRequest.collect { currentTrackId ->
-
-                // GUARD: Only process the request if it matches the CURRENT track.
-                // This protects against any stray replay emissions from a previous session.
+                // Guard against stale replay emissions from a previous session
                 val actualCurrentId = crossfadeEngine.state.value.currentTrack?.id
                 if (currentTrackId != actualCurrentId) {
                     Log.d(TAG, "Ignored stale nextTrackRequest for ID $currentTrackId")
                     return@collect
                 }
-
                 Log.d(TAG, "nextTrackRequest received for trackId=$currentTrackId")
                 val nextTrack = djSessionManager.selectNextTrack(currentTrackId)
                 if (nextTrack != null) {
@@ -173,28 +154,49 @@ class DjMixService : Service() {
             }
         }
     }
+
     /**
-     * FIX #4: Applies engine settings from DjSessionManager continuously.
-     * After ViewModel is cleared, user-configured settings (crossfade duration,
-     * real-mix mode, max duration) are still respected.
+     * Observes the engine's pre-buffer signal and silently loads the next track into the
+     * secondary ExoPlayer BEFORE the crossfade trigger fires.
      *
-     * NEW: Also syncs useHalfwayMix = !useManualMaxDuration
+     * Design: selectNextTrack is called WITHOUT markTrackPlayed so the same track will be
+     * selected again by observeNextTrackRequests when the crossfade actually starts. This is
+     * intentional — pre-buffering does not advance the queue position.
+     *
+     * If the queue is exhausted or the engine is already crossfading, this is a no-op.
      */
+    private fun observePrebufferRequests() {
+        serviceScope.launch {
+            crossfadeEngine.prebufferRequest.collect { currentTrackId ->
+                val actualCurrentId = crossfadeEngine.state.value.currentTrack?.id
+                if (currentTrackId != actualCurrentId) {
+                    Log.d(TAG, "Ignored stale prebufferRequest for ID $currentTrackId")
+                    return@collect
+                }
+                // Do not prebuffer if a crossfade is already in progress
+                if (crossfadeEngine.state.value.isCrossfading) return@collect
+
+                Log.d(TAG, "prebufferRequest received for trackId=$currentTrackId")
+                val nextTrack = djSessionManager.selectNextTrack(currentTrackId) ?: return@collect
+                val (firstBeatMs, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(nextTrack)
+                // NOT marking as played here — that happens in observeNextTrackRequests
+                crossfadeEngine.prebufferTrack(nextTrack, firstBeatMs, bpm, amplitude)
+                Log.d(TAG, "Prebuffering '${nextTrack.title}' (bpm=$bpm firstBeatMs=$firstBeatMs)")
+            }
+        }
+    }
+
     private fun observeEngineSettings() {
         serviceScope.launch {
             djSessionManager.settings.collect { settings ->
                 crossfadeEngine.crossfadeDurationMs = settings.crossfadeDurationSec * 1000L
-                crossfadeEngine.isRealMixMode = settings.isRealMixMode
-                crossfadeEngine.maxTrackDurationMs = settings.maxTrackDurationSec * 1000L
-                crossfadeEngine.useHalfwayMix = !settings.useManualMaxDuration
+                crossfadeEngine.isRealMixMode       = settings.isRealMixMode
+                crossfadeEngine.maxTrackDurationMs  = settings.maxTrackDurationSec * 1000L
+                crossfadeEngine.useHalfwayMix       = !settings.useManualMaxDuration
             }
         }
     }
-    /**
-     * FIX #5: Stop this service when PlaybackControllerImpl starts a normal song.
-     * PlaybackControllerImpl calls activePlayerRegistry.requestStopDjMix() which
-     * emits on stopDjMixSignal.
-     */
+
     private fun observeStopSignal() {
         serviceScope.launch {
             activePlayerRegistry.stopDjMixSignal.collect {
@@ -203,21 +205,21 @@ class DjMixService : Service() {
             }
         }
     }
+
     // ── onStartCommand ────────────────────────────────────────────────────────
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_PLAY_PAUSE -> crossfadeEngine.playPause()
-            ACTION_STOP -> releaseAndStop()
-            // ACTION_START: startForeground already called in onCreate; nothing extra needed.
+            ACTION_STOP       -> releaseAndStop()
         }
         return START_NOT_STICKY
     }
+
     override fun onBind(intent: Intent?): IBinder? = null
+
     // ── Notification ──────────────────────────────────────────────────────────
-    /**
-     * Shows a minimal placeholder notification immediately.
-     * Required to satisfy Android 8+ foreground service contract.
-     */
+
     private fun showStartingNotification() {
         val notification = NotificationCompat.Builder(this, DJ_CHANNEL_ID)
             .setContentTitle("DJ Auto-Mix")
@@ -228,6 +230,7 @@ class DjMixService : Service() {
             .build()
         startForeground(NOTIFICATION_ID, notification)
     }
+
     private fun updateNotification(
         track: AudioFile?,
         isPlaying: Boolean,
@@ -235,6 +238,7 @@ class DjMixService : Service() {
         duration: Long = 0L
     ) {
         if (track == null) return
+
         val playbackState = PlaybackStateCompat.Builder()
             .setActions(
                 PlaybackStateCompat.ACTION_PLAY or
@@ -248,24 +252,29 @@ class DjMixService : Service() {
                 1.0f
             ).build()
         mediaSession.setPlaybackState(playbackState)
+
         val metadata = MediaMetadataCompat.Builder()
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, track.title)
             .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, track.artist ?: "Unknown Artist")
             .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration)
             .build()
         mediaSession.setMetadata(metadata)
-        val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
-        // NEW: Add deep link extra to launch intent
+
+        val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause
+        else           android.R.drawable.ic_media_play
+
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("OPEN_DJ_MIX", true)   // <-- NEW: Tell MainActivity to open DJ screen
+            putExtra("OPEN_DJ_MIX", true)
         }
         val openAppPi = launchIntent?.let {
-            PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            PendingIntent.getActivity(this, 0, it,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
         val appIconBitmap = runCatching {
             BitmapFactory.decodeResource(resources, applicationInfo.icon)
         }.getOrNull()
+
         val notification = NotificationCompat.Builder(this, DJ_CHANNEL_ID)
             .setContentTitle(track.title)
             .setContentText(track.artist ?: "Unknown Artist")
@@ -276,7 +285,6 @@ class DjMixService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(playPauseIcon, "Play/Pause", getServicePendingIntent(ACTION_PLAY_PAUSE))
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", getServicePendingIntent(ACTION_STOP))
-            // FIX: Added progress bar support for the DJ notification
             .setProgress(duration.toInt(), position.toInt(), false)
             .setStyle(
                 androidx.media.app.NotificationCompat.MediaStyle()
@@ -286,6 +294,7 @@ class DjMixService : Service() {
             .build()
         startForeground(NOTIFICATION_ID, notification)
     }
+
     private fun getServicePendingIntent(action: String): PendingIntent {
         val intent = Intent(this, DjMixService::class.java).apply { this.action = action }
         return PendingIntent.getService(
@@ -293,6 +302,7 @@ class DjMixService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -302,11 +312,9 @@ class DjMixService : Service() {
                 .createNotificationChannel(channel)
         }
     }
+
     // ── Lifecycle ─────────────────────────────────────────────────────────────
-    /**
-     * Clean shutdown: release engine, update registries, stop foreground.
-     * Called from ACTION_STOP, MediaSession onStop, and the stop signal observer.
-     */
+
     private fun releaseAndStop() {
         if (!engineReleased) {
             engineReleased = true
@@ -318,10 +326,9 @@ class DjMixService : Service() {
         stopForeground(true)
         stopSelf()
     }
+
     override fun onDestroy() {
         serviceScope.cancel()
-        // FIX: Release engine if it wasn't already released via releaseAndStop().
-        // This handles the case where the OS kills the service unexpectedly.
         if (!engineReleased) {
             engineReleased = true
             crossfadeEngine.release()
