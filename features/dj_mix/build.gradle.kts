@@ -17,6 +17,16 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
+
+        externalNativeBuild {
+            cmake {
+                cppFlags += ""
+                // arm64-v8a  = all 64-bit Android phones (2018+)
+                // armeabi-v7a = older 32-bit ARM devices (covers minSdk 23)
+                // x86_64     = emulators
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            }
+        }
     }
 
     buildTypes {
@@ -28,25 +38,37 @@ android {
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
     kotlin {
         compilerOptions {
             jvmTarget = JvmTarget.JVM_17
         }
     }
+
     buildFeatures {
         compose = true
     }
+
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.composeBom.get()
+    }
+
+    // Wire AGP to our CMakeLists.txt — aubio source is downloaded by CMake
+    // FetchContent on first sync, then cached in the Gradle build cache.
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 }
 
 dependencies {
-
     implementation(project(":core"))
 
     // Android Core & Lifecycle
@@ -84,21 +106,23 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
 
-    // WorkManager + Hilt integration (BPM analysis background worker)
+    // WorkManager + Hilt integration
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)
 
-    // Coil (album art in the DJ screen)
+    // Coil (album art)
     implementation(libs.coil.compose)
     implementation(libs.landscapist.coil)
 
-    // TarsosDSP (BPM analysis)
-    implementation(libs.tarsos.dsp.core)
+    // TarsosDSP intentionally removed.
+    // BPM analysis now uses native aubio via JNI (aubio_bridge.c).
+    // Remove the line below from libs.versions.toml if nothing else uses it:
+    //   tarsos-dsp-core = { group = "be.tarsos.dsp", name = "core", version.ref = "tarsosDsp" }
+    // implementation(libs.tarsos.dsp.core)
 
     implementation(libs.androidx.media)
 
-    // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

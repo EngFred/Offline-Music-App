@@ -13,31 +13,12 @@ import kotlin.math.abs
  * the globally closest BPM track. If no BPM data is available at all, returns the
  * natural first track in the remaining queue.
  *
- * NEW: Added "Double/Half-Time" mixing logic. A 90 BPM track mathematically matches
- * a 180 BPM track perfectly (2:1 ratio). This algorithm now recognizes those harmonic
- * tempo relationships as perfect matches within the tolerance window.
- *
  * Returns null only when [remainingQueue] is empty.
  *
  * This class is intentionally free of Android / coroutine dependencies so it can
  * be unit-tested without a device or Robolectric.
  */
 class GetSmartNextTrackUseCase @Inject constructor() {
-
-    /**
-     * Calculates the "Effective Difference" between two BPMs, accounting for
-     * Double-Time and Half-Time mixing.
-     * * e.g., 90 vs 180 -> Effective difference is 0 (Because 90 * 2 = 180).
-     * e.g., 100 vs 205 -> Effective difference is 5 (Because 100 * 2 = 200, 205-200 = 5).
-     */
-    private fun getEffectiveBpmDifference(bpmA: Float, bpmB: Float): Float {
-        val diffNormal = abs(bpmA - bpmB)
-        val diffDouble = abs((bpmA * 2) - bpmB)
-        val diffHalf = abs((bpmA / 2) - bpmB)
-
-        // Return whichever mathematical relationship is the closest match
-        return minOf(diffNormal, diffDouble, diffHalf)
-    }
 
     /**
      * @param currentBpm     BPM of the track currently playing.
@@ -65,14 +46,16 @@ class GetSmartNextTrackUseCase @Inject constructor() {
         if (withBpm.isEmpty()) return remainingQueue.first()
 
         // Prefer in-tolerance candidates; fall back to closest-overall if none qualify.
-        // We use the new getEffectiveBpmDifference to catch 90->180 jumps as "in tolerance".
+        // Uses standard absolute difference between BPMs.
         val inTolerance = withBpm.filter { song ->
-            getEffectiveBpmDifference(bpmCache[song.id] ?: Float.MAX_VALUE, currentBpm) <= tolerance
+            val songBpm = bpmCache[song.id] ?: Float.MAX_VALUE
+            abs(songBpm - currentBpm) <= tolerance
         }
         val candidates = inTolerance.ifEmpty { withBpm }
 
         return candidates.minByOrNull { song ->
-            getEffectiveBpmDifference(bpmCache[song.id] ?: Float.MAX_VALUE, currentBpm)
+            val songBpm = bpmCache[song.id] ?: Float.MAX_VALUE
+            abs(songBpm - currentBpm)
         } ?: withoutBpm.firstOrNull() ?: remainingQueue.first()
     }
 }

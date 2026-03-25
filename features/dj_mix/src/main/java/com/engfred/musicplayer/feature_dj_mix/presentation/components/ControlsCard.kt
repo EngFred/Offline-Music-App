@@ -91,7 +91,7 @@ fun ControlsCard(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 PremiumToggleRow(
-                    title = "Real Mix Mode",
+                    title = "Smart Mix",
                     subtitle = "Crossfade before tracks finish",
                     isChecked = isRealMixMode,
                     onCheckedChange = onToggleRealMixMode

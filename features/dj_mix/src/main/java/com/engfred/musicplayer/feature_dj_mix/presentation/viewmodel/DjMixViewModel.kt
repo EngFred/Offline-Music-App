@@ -37,24 +37,6 @@ object DjMixArgs {
 
 private const val TAG = "DjMixViewModel"
 
-/**
- * ViewModel for the DJ Mix screen.
- *
- * ── What changed in this version ─────────────────────────────────────────────
- * DEBOUNCED rebuildSmartQueue (Issue #9 fix)
- *
- * During BPM analysis of a 200-song playlist, [observeBpmCache] fires once per song
- * as WorkManager reports each result. The original [rebuildSmartQueue] ran synchronously
- * on each emission — a 200-iteration greedy algorithm × 200 emissions = up to 40,000
- * comparisons on the Default dispatcher, causing measurable UI jank and battery drain.
- *
- * Fix: [rebuildSmartQueue] now cancels any pending rebuild job and schedules a new one
- * with a 300ms delay. Rapid sequential BPM results are coalesced into a single rebuild.
- * User-triggered events (BPM tolerance slider) use the same debounce — 300ms is
- * imperceptible for a settings interaction.
- *
- * The [performRebuild] function contains the actual algorithm (unchanged).
- */
 @UnstableApi
 @HiltViewModel
 class DjMixViewModel @Inject constructor(
@@ -81,11 +63,6 @@ class DjMixViewModel @Inject constructor(
     val uiEvent: SharedFlow<String> = _uiEvent.asSharedFlow()
 
     private var rawPlaylistSongs: List<AudioFile> = emptyList()
-
-    /**
-     * Tracks the pending debounced rebuild job so it can be cancelled when a newer
-     * BPM result arrives before the delay expires.
-     */
     private var rebuildJob: Job? = null
 
     init {
@@ -104,10 +81,16 @@ class DjMixViewModel @Inject constructor(
                     djSessionManager.startSession(playlistId)
                     djSessionManager.markTrackPlayed(firstTrack.id)
                     activePlayerRegistry.onDjMixStarted()
+                    // Sync BPM info BEFORE startPlayback so the waveform loop has
+                    // valid currentTrackBpm the moment it starts. Without this,
+                    // the waveform stays blank on a fresh session start because the
+                    // ViewModel's observeCrossfadeEngineState flow hasn't fired yet
+                    // when the waveform loop makes its first check.
+                    syncBeatGridForTrack(firstTrack.id)
                     crossfadeEngine.startPlayback(firstTrack)
                     _uiState.update { it.copy(currentTrack = firstTrack) }
                     viewModelScope.launch { _uiEvent.emit("START_DJ_SERVICE") }
-                    Log.d(TAG, "PlayPause: manually started session with '${firstTrack.title}'")
+                    Log.d(TAG, "PlayPause: started session with '${firstTrack.title}'")
                 } else {
                     crossfadeEngine.playPause()
                 }
@@ -127,7 +110,6 @@ class DjMixViewModel @Inject constructor(
                 val s = _uiState.value.settings.copy(bpmTolerance = event.tolerance)
                 _uiState.update { it.copy(settings = s) }
                 djSessionManager.updateSettings(s)
-                // Debounced — tolerance slider can fire many events while dragging
                 rebuildSmartQueue()
                 viewModelScope.launch { settingsRepository.updateDjBpmTolerance(event.tolerance) }
             }
@@ -166,9 +148,10 @@ class DjMixViewModel @Inject constructor(
             is DjMixEvent.JumpToTrack -> {
                 djSessionManager.resetPlayHistory()
                 djSessionManager.markTrackPlayed(event.audioFile.id)
+                // Sync before startPlayback for the same reason as PlayPause above
+                syncBeatGridForTrack(event.audioFile.id)
                 crossfadeEngine.startPlayback(event.audioFile)
                 _uiState.update { it.copy(currentTrack = event.audioFile) }
-                syncBeatGridForTrack(event.audioFile.id)
                 if (!djSessionManager.isSessionActive.value) {
                     djSessionManager.startSession(playlistId)
                     activePlayerRegistry.onDjMixStarted()
@@ -238,8 +221,8 @@ class DjMixViewModel @Inject constructor(
     private fun observeBpmCache(songs: List<AudioFile>) {
         djMixRepository.getBpmCacheFlow()
             .onEach { bpmCache ->
-                val analysedCount = songs.count { bpmCache.containsKey(it.id) }
-                val progress      = if (songs.isEmpty()) 1f else analysedCount.toFloat() / songs.size
+                val analysedCount  = songs.count { bpmCache.containsKey(it.id) }
+                val progress       = if (songs.isEmpty()) 1f else analysedCount.toFloat() / songs.size
                 val stillAnalysing = progress < 1f
 
                 val currentTrackId = _uiState.value.currentTrack?.id
@@ -261,10 +244,6 @@ class DjMixViewModel @Inject constructor(
                     )
                 }
                 djSessionManager.updateBpmCache(bpmCache)
-
-                // Debounced — BPM results arrive rapidly during analysis. Without debouncing,
-                // a 200-song playlist triggers 200 full greedy-sort passes (~40,000 ops).
-                // With 300ms debounce, all results within a 300ms window are coalesced into one pass.
                 rebuildSmartQueue(bpmCache = bpmCache)
             }
             .launchIn(viewModelScope)
@@ -301,15 +280,6 @@ class DjMixViewModel @Inject constructor(
         Log.d(TAG, "Beat grid synced: trackId=$trackId BPM=${bpmInfo.bpm}")
     }
 
-    /**
-     * Schedules a debounced smart queue rebuild.
-     *
-     * Any call within 300ms of the previous cancels the pending job and resets the timer.
-     * This coalesces the burst of [observeBpmCache] emissions during WorkManager analysis
-     * into a single rebuild once the burst settles.
-     *
-     * The actual rebuild logic lives in [performRebuild] and is unchanged from the original.
-     */
     private fun rebuildSmartQueue(
         bpmCache: Map<Long, BpmInfo> = _uiState.value.bpmCache
     ) {
@@ -327,7 +297,6 @@ class DjMixViewModel @Inject constructor(
         val remaining = rawPlaylistSongs.toMutableList()
         val result    = mutableListOf<AudioFile>()
 
-        // Start from the track with the lowest known BPM (anchor the chain)
         val first = remaining.minByOrNull { bpmCache[it.id]?.bpm ?: Float.MAX_VALUE }
             ?: remaining.first()
         result.add(first)
