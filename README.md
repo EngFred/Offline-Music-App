@@ -9,7 +9,7 @@
 
 <br />
 
-[![Download APK](https://img.shields.io/badge/Download%20APK-v2.3.2-beta01-success?style=for-the-badge&logo=android&logoColor=white)](https://github.com/EngFred/Offline-Music-App/releases/download/v2.3.2-beta01/app-release.apk)
+[![Download APK](https://img.shields.io/badge/Download%20APK-v2.3.2--beta01-success?style=for-the-badge&logo=android&logoColor=white)](https://github.com/EngFred/Offline-Music-App/releases/download/v2.3.2-beta01/app-release.apk)
 ![Size](https://img.shields.io/badge/Size-24.13_MB-blue?style=for-the-badge)
 
 ---
