@@ -18,35 +18,6 @@ import kotlin.math.sqrt
 
 /**
  * Performs BPM analysis and first-beat detection for DJ Auto-Mix.
- *
- * ── Pipeline ─────────────────────────────────────────────────────────────────
- * URI
- *   → MediaExtractor + MediaCodec        (decode to 16-bit LE PCM)
- *   → mixToMono                          (multi-channel → mono)
- *   → calculateKWeightedAmplitude        (EBU R128 / ITU-R BS.1770-4 loudness)
- *   → intro skip (first 15 s discarded)  (avoids non-percussive intros)
- *   → PCM bytes → FloatArray             (normalised to -1.0 .. +1.0)
- *   → analyzeBeatsNative (JNI → aubio)   (dynamic-programming beat tracker)
- *   → BpmAnalysisResult
- *
- * ── Why native aubio replaces TarsosDSP ──────────────────────────────────────
- * TarsosDSP's ComplexOnsetDetector derives BPM from the median inter-onset
- * interval — a heuristic that fails on swing/groove, dense EDM, and tracks
- * with atmospheric intros. Typical accuracy on real-world music: ~65%.
- *
- * aubio_tempo uses a dynamic programming (Viterbi-like) beat tracker that fits
- * a probabilistic tempo model to the onset detection function. It handles all
- * the hard cases and reaches ~88–93% accuracy on standard MIREX benchmarks.
- * The native library is compiled from aubio 0.4.9 source (GPL-3.0-or-later)
- * via CMake FetchContent — see features/dj_mix/src/main/cpp/CMakeLists.txt.
- *
- * ── K-weighted amplitude (EBU R128) ──────────────────────────────────────────
- * Two-stage biquad IIR filter chain (ITU-R BS.1770-4 K-weighting):
- *   Stage 1 — High-shelf pre-filter : Fc = 1681.974 Hz, gain = +4 dB, S = 1
- *   Stage 2 — Butterworth high-pass : Fc =   38.134 Hz, order = 2,  Q = 1/√2
- * Result is perceptually accurate for auto-gain matching across genres.
- *
- * No RECORD_AUDIO permission is used anywhere in this class.
  */
 @Singleton
 class BpmAnalyzer @Inject constructor(
@@ -71,48 +42,18 @@ class BpmAnalyzer @Inject constructor(
         private const val MAX_BPM = 215f
     }
 
-    /**
-     * Result of a full BPM + first-beat analysis.
-     *
-     * @param bpm         Estimated tempo in beats-per-minute.
-     * @param firstBeatMs Timestamp (ms) of the first strong beat in the original track.
-     *                    Used by CrossfadeEngine to cue the incoming track exactly on beat.
-     * @param amplitude   K-weighted RMS of the full track. Used by CrossfadeEngine for
-     *                    auto-gain normalisation so tracks play at equal perceived loudness.
-     */
     data class BpmAnalysisResult(
         val bpm: Float,
         val firstBeatMs: Long,
         val amplitude: Float
     )
 
-    // ── Native library ────────────────────────────────────────────────────────
-
     init {
         System.loadLibrary("bpm_analyzer")
     }
 
-    /**
-     * Implemented in aubio_bridge.c (native code).
-     *
-     * @param monoSamples Normalised mono PCM float samples in [-1.0, +1.0].
-     *                    Already intro-skipped on the Kotlin side.
-     * @param sampleRate  Original sample rate of the decoded audio.
-     * @return float[3] { bpm, firstBeatMs_relative, confidence }
-     *         where firstBeatMs_relative is relative to the START of [monoSamples]
-     *         (not the original track — the intro-skip offset is added back in Kotlin).
-     *         Returns null if beat tracking fails.
-     */
     private external fun analyzeBeatsNative(monoSamples: FloatArray, sampleRate: Int): FloatArray?
 
-    // ── Public API ────────────────────────────────────────────────────────────
-
-    /**
-     * Analyses [uri] and returns a BPM estimate, first-beat cue point, and
-     * perceptual loudness. Returns null on any failure.
-     *
-     * Always runs on Dispatchers.IO — safe to call from any coroutine scope.
-     */
     suspend fun analyzeBpm(uri: Uri): BpmAnalysisResult? = withContext(Dispatchers.IO) {
         try {
             val (pcmBytes, sampleRate, channelCount) = decodeToPcm(uri)
@@ -120,13 +61,12 @@ class BpmAnalyzer @Inject constructor(
 
             val monoBytes = if (channelCount > 1) mixToMono(pcmBytes, channelCount) else pcmBytes
 
-            // ── K-weighted amplitude on the FULL track ────────────────────────
             // Computed before the intro skip so auto-gain reflects the whole song.
             val amplitude = calculateKWeightedAmplitude(monoBytes, sampleRate)
 
-            // ── Intro skip ────────────────────────────────────────────────────
+            // Intro skip
             val skipSamples = (ANALYSIS_SKIP_SECONDS * sampleRate).toInt()
-            val skipBytes   = skipSamples * 2  // 16-bit = 2 bytes per sample
+            val skipBytes   = skipSamples * 2
             val (analysisBytes, skippedSeconds) = if (monoBytes.size > skipBytes * 2) {
                 monoBytes.copyOfRange(skipBytes, monoBytes.size) to ANALYSIS_SKIP_SECONDS
             } else {
@@ -134,7 +74,6 @@ class BpmAnalyzer @Inject constructor(
                 monoBytes to 0f
             }
 
-            // ── Convert 16-bit LE PCM → normalised FloatArray for native code ─
             val numSamples  = analysisBytes.size / 2
             val floatSamples = FloatArray(numSamples)
             val buf = ByteBuffer.wrap(analysisBytes).order(ByteOrder.LITTLE_ENDIAN)
@@ -142,7 +81,6 @@ class BpmAnalyzer @Inject constructor(
                 floatSamples[i] = buf.short.toFloat() / Short.MAX_VALUE
             }
 
-            // ── Native aubio beat tracking ─────────────────────────────────────
             val nativeResult = analyzeBeatsNative(floatSamples, sampleRate)
                 ?: run {
                     Log.w(TAG, "analyzeBeatsNative returned null for $uri")
@@ -170,25 +108,18 @@ class BpmAnalyzer @Inject constructor(
 
     // ── K-weighted amplitude (EBU R128 / ITU-R BS.1770-4) ────────────────────
 
-    /**
-     * Biquad IIR coefficients in Direct Form II Transposed (normalised: a0 = 1).
-     */
     private data class BiquadCoeffs(
         val b0: Double, val b1: Double, val b2: Double,
         val a1: Double, val a2: Double
     )
 
-    /**
-     * EBU R128 K-weighting Stage 1: high-shelf pre-filter.
-     * Fc = 1681.974 Hz, gain = +4 dB, shelf slope S = 1.
-     */
     private fun designHighShelf(fc: Double, gainDb: Double, sampleRate: Double): BiquadCoeffs {
         val A     = Math.pow(10.0, gainDb / 40.0)
         val w0    = 2.0 * Math.PI * fc / sampleRate
         val cosW0 = Math.cos(w0)
         val sinW0 = Math.sin(w0)
         val sqrtA = Math.sqrt(A)
-        val alpha = sinW0 * 0.7071067811865476  // sin(w0) / (2Q), Q = 1/√2
+        val alpha = sinW0 * 0.7071067811865476
         val twoSqrtAAlpha = 2.0 * sqrtA * alpha
 
         val b0 = A  * ((A + 1) + (A - 1) * cosW0 + twoSqrtAAlpha)
@@ -201,10 +132,6 @@ class BpmAnalyzer @Inject constructor(
         return BiquadCoeffs(b0/a0, b1/a0, b2/a0, a1/a0, a2/a0)
     }
 
-    /**
-     * EBU R128 K-weighting Stage 2: 2nd-order Butterworth high-pass.
-     * Fc = 38.134 Hz, Q = 1/√2.
-     */
     private fun designHighPass2nd(fc: Double, sampleRate: Double): BiquadCoeffs {
         val w0    = 2.0 * Math.PI * fc / sampleRate
         val cosW0 = Math.cos(w0)
@@ -221,9 +148,6 @@ class BpmAnalyzer @Inject constructor(
         return BiquadCoeffs(b0/a0, b1/a0, b2/a0, a1/a0, a2/a0)
     }
 
-    /**
-     * Direct Form II Transposed biquad filter — numerically stable for double precision.
-     */
     private fun applyBiquad(input: FloatArray, c: BiquadCoeffs): FloatArray {
         val output = FloatArray(input.size)
         var w1 = 0.0
@@ -238,20 +162,6 @@ class BpmAnalyzer @Inject constructor(
         return output
     }
 
-    /**
-     * Computes K-weighted RMS amplitude — approximates EBU R128 integrated loudness.
-     *
-     * Two-stage K-weighting filter (ITU-R BS.1770-4):
-     *   Stage 1: high-shelf, Fc = 1681.974 Hz, +4 dB  — boosts high-frequency content
-     *   Stage 2: high-pass,  Fc =   38.134 Hz          — removes DC / sub-bass shelf
-     *
-     * Returns sqrt(mean_square) of the filtered signal. This is proportional to
-     * BS.1770 integrated loudness and correctly assigns lower amplitude to bass-heavy
-     * modern tracks, enabling accurate auto-gain in CrossfadeEngine.
-     *
-     * Filter coefficients are computed analytically for [sampleRate] so any MediaCodec
-     * output rate (44100, 48000, 32000, etc.) is handled without a lookup table.
-     */
     private fun calculateKWeightedAmplitude(pcmBytes: ByteArray, sampleRate: Int): Float {
         if (pcmBytes.isEmpty()) return 0f
         val numSamples = pcmBytes.size / 2
@@ -273,11 +183,6 @@ class BpmAnalyzer @Inject constructor(
 
     // ── PCM decoding ──────────────────────────────────────────────────────────
 
-    /**
-     * Decodes audio from [uri] to raw 16-bit signed little-endian PCM.
-     * Stops decoding after [MAX_ANALYSIS_DURATION_MS] to keep analysis fast.
-     * Returns Triple(pcmBytes, sampleRate, channelCount), or null on error.
-     */
     private fun decodeToPcm(uri: Uri): Triple<ByteArray, Int, Int>? {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
@@ -367,12 +272,6 @@ class BpmAnalyzer @Inject constructor(
         }
     }
 
-    // ── Audio utilities ───────────────────────────────────────────────────────
-
-    /**
-     * Mixes interleaved multi-channel 16-bit little-endian PCM down to mono.
-     * Input frame layout: [ch0_lo, ch0_hi, ch1_lo, ch1_hi, ...]
-     */
     private fun mixToMono(pcm: ByteArray, channelCount: Int): ByteArray {
         val bytesPerFrame = channelCount * 2
         val frameCount    = pcm.size / bytesPerFrame

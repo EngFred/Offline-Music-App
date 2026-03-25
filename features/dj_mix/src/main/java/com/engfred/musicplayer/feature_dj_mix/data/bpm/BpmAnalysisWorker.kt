@@ -45,18 +45,6 @@ class BpmAnalysisWorker @AssistedInject constructor(
          *
          * WorkManager's [Data] class natively supports LongArray and StringArray,
          * so we avoid any manual serialisation.
-         *
-         * The caller should enqueue using a unique name derived from the playlist ID
-         * so that tapping "DJ Mix" twice doesn't queue duplicate analysis runs.
-         *
-         * Example:
-         * ```
-         * WorkManager.getInstance(context).enqueueUniqueWork(
-         * BpmAnalysisWorker.TAG_PREFIX + playlistId,
-         * ExistingWorkPolicy.KEEP,
-         * BpmAnalysisWorker.buildRequest(playlist.songs)
-         * )
-         * ```
          */
         fun buildRequest(audioFiles: List<AudioFile>): OneTimeWorkRequest {
             val ids = audioFiles.map { it.id }.toLongArray()

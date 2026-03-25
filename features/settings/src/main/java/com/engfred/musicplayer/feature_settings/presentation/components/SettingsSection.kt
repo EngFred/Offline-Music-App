@@ -2,20 +2,17 @@ package com.engfred.musicplayer.feature_settings.presentation.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -25,113 +22,110 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
- * Generic settings section with radio items.
+ * A clean, flat settings section with radio items. No cards, no shadows.
  */
 @Composable
 fun <T> SettingsSection(
+    modifier: Modifier = Modifier,
     title: String,
     subtitle: String? = null,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     items: List<T>,
     selectedItem: T,
     displayName: (T) -> String,
-    onSelect: (T) -> Unit
+    onSelect: (T) -> Unit,
 ) {
-    Column {
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Section Header
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
+            modifier = Modifier
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 12.dp)
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(24.dp)
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-        // Optional subtitle
-        subtitle?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
-            )
-        }
-
-        val cardElevation by animateDpAsState(targetValue = 6.dp)
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .shadow(cardElevation, RoundedCornerShape(14.dp)),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = cardElevation),
-            shape = RoundedCornerShape(14.dp)
-        ) {
+            Spacer(modifier = Modifier.width(12.dp))
             Column {
-                items.forEachIndexed { index, item ->
-                    val isSelected = selectedItem == item
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                subtitle?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
 
-                    val backgroundColor by animateColorAsState(
-                        targetValue = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.06f) else Color.Transparent,
-                        animationSpec = androidx.compose.animation.core.tween(
-                            durationMillis = 220,
-                            easing = FastOutSlowInEasing
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Flat edge-to-edge list of items
+        Column(modifier = Modifier.fillMaxWidth()) {
+            items.forEach { item ->
+                val isSelected = selectedItem == item
+
+                // Extremely subtle background highlight for the selected item
+                val backgroundColor by animateColorAsState(
+                    targetValue = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.05f) else Color.Transparent,
+                    animationSpec = tween(
+                        durationMillis = 220,
+                        easing = FastOutSlowInEasing
+                    ),
+                    label = "selection_bg_color"
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(backgroundColor)
+                        // Clickable before padding ensures full-width ripple effect
+                        .clickable { onSelect(item) }
+                        .padding(horizontal = 24.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = isSelected,
+                        onClick = { onSelect(item) },
+                        colors = RadioButtonDefaults.colors(
+                            selectedColor = MaterialTheme.colorScheme.primary,
+                            unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     )
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelect(item) }
-                            .background(backgroundColor)
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(
-                            selected = isSelected,
-                            onClick = { onSelect(item) },
-                            colors = RadioButtonDefaults.colors(
-                                selectedColor = MaterialTheme.colorScheme.primary,
-                                unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        )
+                    Spacer(modifier = Modifier.width(16.dp))
 
-                        Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = displayName(item),
+                        style = MaterialTheme.typography.bodyLarge,
+                        // Bolder text for the selected item to reinforce hierarchy
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
 
+                    if (isSelected) {
                         Text(
-                            text = displayName(item),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        if (isSelected) {
-                            Text(
-                                text = "Selected",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(start = 8.dp)
-                            )
-                        }
-                    }
-
-                    if (index < items.lastIndex) {
-                        Divider(
-                            modifier = Modifier.padding(start = 16.dp),
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f),
-                            thickness = 1.dp
+                            text = "Selected",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            letterSpacing = 1.sp
                         )
                     }
                 }
