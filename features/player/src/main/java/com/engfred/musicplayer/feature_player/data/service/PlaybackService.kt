@@ -5,7 +5,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.media.audiofx.Equalizer
 import android.os.Build
 import android.util.Log
 import android.widget.Toast
@@ -15,7 +14,10 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.engfred.musicplayer.core.data.SharedAudioDataSource
@@ -29,6 +31,7 @@ import com.engfred.musicplayer.core.domain.repository.PlaybackController
 import com.engfred.musicplayer.core.domain.repository.RepeatMode
 import com.engfred.musicplayer.core.domain.repository.SettingsRepository
 import com.engfred.musicplayer.core.util.sortAudioFiles
+import com.engfred.musicplayer.feature_player.data.service.eq.BandEqAudioProcessor
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -67,14 +70,16 @@ class PlaybackService : MediaSessionService() {
     @Inject
     lateinit var activePlayerRegistry: ActivePlayerRegistry
 
+    // ── Add injection (remove the old Equalizer field) ────────────────────────
+    @Inject
+    lateinit var eqProcessor: BandEqAudioProcessor
+
     private lateinit var exoPlayer: ExoPlayer
     private var mediaSession: MediaSession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private var equalizer: Equalizer? = null
     private var lastIdleDisplayInfo: WidgetDisplayInfo? = null
     private var preferredRepeatMode: RepeatMode = RepeatMode.OFF
     private var widgetThemeAware: Boolean = false
-    private var lastAppliedPreset: AudioPreset? = null  // To avoid redundant applies
     private var isFullShown: Boolean = false  //Track if full was rendered to prevent idle reversion
 
     companion object {
@@ -115,7 +120,20 @@ class PlaybackService : MediaSessionService() {
                 .setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                 .build()
-            exoPlayer = ExoPlayer.Builder(this).build().apply {
+
+            val renderersFactory = object : DefaultRenderersFactory(this) {
+                override fun buildAudioSink(
+                    context: Context,
+                    enableFloatOutput: Boolean,
+                    enableAudioTrackPlaybackParams: Boolean
+                ): AudioSink {
+                    return DefaultAudioSink.Builder(context)
+                        .setAudioProcessors(arrayOf(eqProcessor))
+                        .build()
+                }
+            }
+
+            exoPlayer = ExoPlayer.Builder(this, renderersFactory).build().apply {
                 setAudioAttributes(audioAttributes, true)
                 setHandleAudioBecomingNoisy(true)
             }
@@ -162,7 +180,6 @@ class PlaybackService : MediaSessionService() {
                     }
                 }
 
-                @RequiresApi(Build.VERSION_CODES.P)
                 override fun onPositionDiscontinuity(reason: Int) {
                     super.onPositionDiscontinuity(reason)
                     updateWidgetWithInfo()
@@ -190,8 +207,6 @@ class PlaybackService : MediaSessionService() {
                     }
                 }
             }
-
-            equalizer = Equalizer(0, exoPlayer.audioSessionId)
 
             // Load preferred repeat and widget mode (async, as less critical)
             serviceScope.launch {
@@ -230,20 +245,7 @@ class PlaybackService : MediaSessionService() {
                     }
                     if (settings.audioPreset != lastPreset) {
                         lastPreset = settings.audioPreset
-                        EqualizerPresetApplier.applyPreset(
-                            eq = equalizer,
-                            scope = serviceScope,
-                            preset = settings.audioPreset,
-                            intensity = 1.0f,
-                            steps = 8,
-                            stepDelayMs = 30L,
-                            onApplied = { applied ->
-                                lastAppliedPreset = applied
-                            },
-                            onError = { t ->
-                                Log.w(TAG, "Failed to apply preset: ${t.message}")
-                            }
-                        )
+                        eqProcessor.setPreset(settings.audioPreset)
                     }
                 }
             }
@@ -409,8 +411,6 @@ class PlaybackService : MediaSessionService() {
                 release()
                 mediaSession = null
             }
-            equalizer?.release()
-            equalizer = null
         } catch (_: Exception) {
         }
         super.onDestroy()
