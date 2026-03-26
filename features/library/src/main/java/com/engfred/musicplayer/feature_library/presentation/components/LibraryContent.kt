@@ -1,5 +1,6 @@
 package com.engfred.musicplayer.feature_library.presentation.components
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -43,6 +45,13 @@ fun LibraryContent(
     onLongPress: (AudioFile) -> Unit,
     onOpenMixOfTheDay: (Long) -> Unit
 ) {
+
+    LaunchedEffect(uiState.mixOfTheDayPlaylist) {
+        if (uiState.mixOfTheDayPlaylist != null && lazyListState.firstVisibleItemIndex <= 1) {
+            lazyListState.scrollToItem(0)
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -89,7 +98,7 @@ fun LibraryContent(
 
                     if (uiState.searchQuery.isEmpty()) {
                         uiState.mixOfTheDayPlaylist?.let { mixPlaylist ->
-                            item {
+                            item(key = "mix_of_the_day") { // Standard item, NOT sticky!
                                 MixOfTheDayCard(
                                     playlist = mixPlaylist,
                                     onClick = { onOpenMixOfTheDay(mixPlaylist.id) }

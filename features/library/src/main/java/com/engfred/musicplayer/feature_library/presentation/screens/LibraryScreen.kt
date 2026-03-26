@@ -300,6 +300,9 @@ fun LibraryScreen(
                     )
                 }
 
+                // CHANGED: Added Spacer here so the Mix of the Day card isn't touching the Search Bar!
+                Spacer(modifier = Modifier.height(8.dp))
+
                 LibraryContent(
                     uiState = uiState,
                     onAudioClick = { audioFile ->
