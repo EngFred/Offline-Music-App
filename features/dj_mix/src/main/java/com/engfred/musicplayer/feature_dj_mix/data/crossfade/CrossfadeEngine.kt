@@ -57,11 +57,6 @@ data class CrossfadeEngineState(
     val error: String? = null,
     val timeToNextMixMs: Long? = null
 )
-
-// ═════════════════════════════════════════════════════════════════════════════
-// MIX STRATEGY — the DJ's decision tree
-// ═════════════════════════════════════════════════════════════════════════════
-
 /**
  * Classifies the mix technique to use, based on the BPM relationship between the
  * outgoing and incoming tracks.
@@ -341,7 +336,9 @@ class CrossfadeEngine @Inject constructor(
     private var isInitialized                            = false
 
 
-    @Volatile private var currentWaveformEnvelope: FloatArray = FloatArray(0)   // ── NEW ──
+    @Volatile private var currentWaveformEnvelope: FloatArray = FloatArray(0)
+
+    @Volatile private var abortCrossfade = false
 
     val isActive: Boolean get() = isInitialized && !isReleased
 
@@ -363,6 +360,7 @@ class CrossfadeEngine @Inject constructor(
             engineScope              = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             isReleased               = false
             isPrimaryA               = true
+            abortCrossfade           = false
             lastRequestedTrackId     = null
             lastPrebufferRequestedId = null
             pendingNextTrack         = null
@@ -482,6 +480,13 @@ class CrossfadeEngine @Inject constructor(
         lastRequestedTrackId = null
         _nextTrackRequest.tryEmit(currentId)
         Log.d(TAG, "triggerMixNow: nextTrackRequest emitted for trackId=$currentId")
+    }
+
+    fun abortCurrentCrossfade() {
+        if (!_state.value.isCrossfading) return
+        Log.d(TAG, "abortCurrentCrossfade: abort requested")
+        abortCrossfade = true
+        crossfadeJob?.cancel()
     }
 
     fun prebufferTrack(audioFile: AudioFile, firstBeatMs: Long, bpm: Float, amplitude: Float) {
@@ -693,6 +698,7 @@ class CrossfadeEngine @Inject constructor(
     ) {
         val primary   = primaryPlayer()   ?: return
         val secondary = secondaryPlayer() ?: return
+        abortCrossfade = false  // clear any stale abort from a previous call
 
         // ── Step 1: Compute mix decision ──────────────────────────────────────
         val decision = computeMixDecision(
@@ -770,14 +776,13 @@ class CrossfadeEngine @Inject constructor(
             var bassKillApplied   = false
 
             for (step in 1..FADE_STEPS) {
-                if (!engineScope.isActive) break
+                if (!engineScope.isActive || abortCrossfade) break
 
                 val progress = step.toFloat() / FADE_STEPS
                 val angle    = progress * (PI.toFloat() / 2f)
                 val toGain   = sin(angle)
                 val fromGain = cos(angle)
 
-                // Apply bass kill at the strategy-defined threshold fraction
                 if (!bassKillApplied && progress >= decision.bassKillThresholdFraction) {
                     bassKillApplied = true
                     withContext(Dispatchers.Main) {
@@ -804,6 +809,23 @@ class CrossfadeEngine @Inject constructor(
 
                 _state.update { it.copy(crossfadeProgressFraction = toGain) }
                 delay(stepDelayMs)
+            }
+
+            // ── Abort recovery ────────────────────────────────────────────────
+            // If the loop exited early due to abortCrossfade, restore the primary
+            // player to full volume and silence the secondary so the user hears
+            // only the original track continuing cleanly.
+            if (abortCrossfade) {
+                Log.d(TAG, "executeCrossfade: ABORTED — restoring primary player")
+                withContext(Dispatchers.Main) {
+                    primary.volume   = primaryBaseVolume
+                    secondary.pause()
+                    secondary.volume = 0f
+                    secondary.setPlaybackParameters(PlaybackParameters(1.0f, 1.0f))
+                }
+                abortCrossfade = false
+                _state.update { it.copy(isCrossfading = false, crossfadeProgressFraction = 0f) }
+                return  // skip Step 5–7: no player swap, no tempo ease-back
             }
 
             // ── Step 5: Finalise player swap ───────────────────────────────────

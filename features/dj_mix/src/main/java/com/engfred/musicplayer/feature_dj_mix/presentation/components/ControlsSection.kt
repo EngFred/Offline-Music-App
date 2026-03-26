@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +49,8 @@ fun ControlsSection(
     onToggleManualMaxDuration: (Boolean) -> Unit,
     onMaxDurationChanged: (Int) -> Unit,
     onToggleLoopQueue: (Boolean) -> Unit,
+    canSkipBack: Boolean,
+    onSkipBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     // Removed all background layers and borders. Controls float purely on the canvas.
@@ -55,20 +59,50 @@ fun ControlsSection(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Massive pro Play/Pause button
-        Box(
-            modifier = Modifier
-                .size(80.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary)
-                .clickable(onClick = onPlayPause),
-            contentAlignment = Alignment.Center
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = if (isPlaying) "Pause" else "Play",
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(40.dp)
-            )
+            // Skip back
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (canSkipBack) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        else Color.White.copy(alpha = 0.05f)
+                    )
+                    .clickable(enabled = canSkipBack, onClick = onSkipBack),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.SkipPrevious,
+                    contentDescription = "Skip back",
+                    tint = if (canSkipBack) MaterialTheme.colorScheme.primary
+                    else Color.White.copy(alpha = 0.25f),
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+
+            // Play/Pause (keep existing 80dp box as-is)
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .clickable(onClick = onPlayPause),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
+
+            // Balancing spacer (same size as skip-back)
+            Spacer(modifier = Modifier.size(52.dp))
         }
 
         Spacer(modifier = Modifier.height(48.dp))
@@ -76,16 +110,16 @@ fun ControlsSection(
         // Clean, flat toggle list with minimal dividers
         Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
             PremiumToggleRow(
-                title = "Smart Mix",
-                subtitle = "Crossfade before tracks finish",
+                title = "Auto-Mix Mode",
+                subtitle = "Starts the next track before this one ends",
                 isChecked = isRealMixMode,
                 onCheckedChange = onToggleRealMixMode
             )
 
             if (isRealMixMode) {
                 PremiumToggleRow(
-                    title = "Custom Max Time",
-                    subtitle = if (useManualMaxDuration) "Set a precise mix trigger" else "Mix at 50% duration",
+                    title = "Manual Mix Point",
+                    subtitle = if (useManualMaxDuration) "You choose when to trigger the mix" else "Mixes at the halfway point",
                     isChecked = useManualMaxDuration,
                     onCheckedChange = onToggleManualMaxDuration
                 )
@@ -106,7 +140,7 @@ fun ControlsSection(
 
             PremiumToggleRow(
                 title = "Loop Session",
-                subtitle = "Restart queue when finished",
+                subtitle = "When the last track ends, loop back to the start",
                 isChecked = loopQueue,
                 onCheckedChange = onToggleLoopQueue
             )
@@ -114,20 +148,26 @@ fun ControlsSection(
             HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
 
             SliderWithLabel(
-                label = "Crossfade Duration",
+                label = "Blend Length",
                 valueLabel = "${crossfadeDurationSec} SEC",
                 value = crossfadeDurationSec.toFloat(),
                 valueRange = 2f..12f,
                 steps = 9,
+                description = "How long the two tracks overlap during a mix",
                 onValueChange = { onCrossfadeDurationChanged(it.toInt()) }
             )
 
             SliderWithLabel(
-                label = "BPM Tolerance",
-                valueLabel = "±${bpmTolerance.toInt()}",
+                label = "Mix Tightness",
+                valueLabel = "±${bpmTolerance.toInt()} BPM",
                 value = bpmTolerance,
                 valueRange = 5f..20f,
                 steps = 14,
+                description = when {
+                    bpmTolerance <= 8f  -> "Strict — only very similar BPMs mix together"
+                    bpmTolerance <= 14f -> "Balanced — most tracks will mix smoothly"
+                    else                -> "Flexible — any two tracks can mix, may sound rough"
+                },
                 onValueChange = onBpmToleranceChanged
             )
         }
@@ -179,6 +219,7 @@ private fun SliderWithLabel(
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,
     steps: Int,
+    description: String? = null,
     onValueChange: (Float) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -211,5 +252,14 @@ private fun SliderWithLabel(
                 inactiveTrackColor = Color.White.copy(alpha = 0.1f)
             )
         )
+        // New optional description rendered below the slider
+        if (description != null) {
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.5f),
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
     }
 }

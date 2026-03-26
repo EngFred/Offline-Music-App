@@ -42,12 +42,13 @@ class DjMixRepositoryImpl @Inject constructor(
     override fun getBpmCacheFlow(): Flow<Map<Long, BpmInfo>> =
         bpmCacheDao.getAllBpmEntries().map { entries ->
             entries.associate { entity ->
-                entity.audioFileId to // In getBpmCacheFlow() and getBpmForAudios(), change the BpmInfo construction:
+                entity.audioFileId to
                         BpmInfo(
-                            bpm             = entity.bpm,
-                            firstBeatMs     = entity.firstBeatMs,
-                            amplitude       = entity.amplitude,
-                            waveformEnvelope = entity.waveformEnvelope   // ── NEW ──
+                            bpm              = entity.bpm,
+                            firstBeatMs      = entity.firstBeatMs,
+                            amplitude        = entity.amplitude,
+                            waveformEnvelope = entity.waveformEnvelope,
+                            analysisFailed   = entity.analysisFailed
                         )
             }
         }
@@ -58,12 +59,13 @@ class DjMixRepositoryImpl @Inject constructor(
      */
     override suspend fun getBpmForAudios(audioFileIds: List<Long>): Map<Long, BpmInfo> =
         bpmCacheDao.getBpmForAudios(audioFileIds).associate { entity ->
-            entity.audioFileId to // In getBpmCacheFlow() and getBpmForAudios(), change the BpmInfo construction:
+            entity.audioFileId to
                     BpmInfo(
-                        bpm             = entity.bpm,
-                        firstBeatMs     = entity.firstBeatMs,
-                        amplitude       = entity.amplitude,
-                        waveformEnvelope = entity.waveformEnvelope   // ── NEW ──
+                        bpm              = entity.bpm,
+                        firstBeatMs      = entity.firstBeatMs,
+                        amplitude        = entity.amplitude,
+                        waveformEnvelope = entity.waveformEnvelope,
+                        analysisFailed   = entity.analysisFailed
                     )
         }
 

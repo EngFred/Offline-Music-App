@@ -85,12 +85,25 @@ class BpmAnalysisWorker @AssistedInject constructor(
                         analyzedAt       = System.currentTimeMillis(),
                         firstBeatMs      = result.firstBeatMs,
                         amplitude        = result.amplitude,
-                        waveformEnvelope = result.waveformEnvelope   // ── NEW ──
+                        waveformEnvelope = result.waveformEnvelope,
+                        analysisFailed   = false
                     )
                 )
-                Log.d(TAG, "Cached BPM ${result.bpm} + firstBeatMs=${result.firstBeatMs}ms RMS=${result.amplitude} for audioFileId=$audioFileId")
+                Log.d(TAG, "Cached BPM ${result.bpm} for audioFileId=$audioFileId")
             } else {
-                Log.w(TAG, "BPM analysis returned null for audioFileId=$audioFileId — will retry on next open")
+                // Insert a tombstone row so the UI can distinguish "not yet analyzed" from
+                // "permanently failed." bpm=0f + analysisFailed=true is the sentinel contract.
+                // The worker skips rows that already have a cache entry (see getBpmForAudio check
+                // above), so this tombstone prevents repeated analysis attempts on broken files.
+                bpmCacheDao.insertBpm(
+                    BpmCacheEntity(
+                        audioFileId    = audioFileId,
+                        bpm            = 0f,
+                        analyzedAt     = System.currentTimeMillis(),
+                        analysisFailed = true
+                    )
+                )
+                Log.w(TAG, "BPM analysis failed for audioFileId=$audioFileId — tombstone inserted")
             }
         }
         Log.d(TAG, "BPM analysis work complete")

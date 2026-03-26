@@ -5,29 +5,6 @@ import com.engfred.musicplayer.feature_dj_mix.data.crossfade.MixStrategy
 import com.engfred.musicplayer.feature_dj_mix.domain.model.DjMixSettings
 import com.engfred.musicplayer.feature_dj_mix.domain.repository.BpmInfo
 
-/**
- * Immutable snapshot of everything [DjMixScreen] needs to render itself.
- *
- * @param playlistName            Name shown in the header.
- * @param totalSongs              Total number of songs in the playlist.
- * @param smartQueue              Songs ordered by the genius DJ arc algorithm for display.
- * @param bpmCache                Map of audioFileId → BPM info (bpm, firstBeatMs, amplitude).
- * @param analysisProgress        0f..1f fraction of songs whose BPM has been analysed.
- * @param isAnalyzing             True while the background worker is running.
- * @param currentTrack            Track currently audible in the crossfade engine.
- * @param isPlaying               Whether the engine is actively playing.
- * @param isCrossfading           True during an in-progress crossfade transition.
- * @param currentPositionMs       Playback position of the current track in milliseconds.
- * @param currentDurationMs       Duration of the current track in milliseconds.
- * @param crossfadeProgressFraction 0f..1f visual progress of an active crossfade.
- * @param currentMixStrategy      The [MixStrategy] chosen for the most recent crossfade.
- *                                Expose in the UI as a label ("Harmonic Drop", "Power Mix" etc.)
- *                                to help DJs and users understand what's happening.
- * @param waveform                Real-time list of normalised floats (0.0–1.0) for the visualiser.
- * @param settings                Current DJ Mix settings (crossfade duration, BPM tolerance, etc.).
- * @param isLoading               True while the playlist is being fetched from the database.
- * @param error                   Non-null when a fatal error has occurred.
- */
 data class DjMixUiState(
     val playlistName: String = "",
     val totalSongs: Int = 0,
@@ -46,8 +23,17 @@ data class DjMixUiState(
     val settings: DjMixSettings = DjMixSettings(),
     val isLoading: Boolean = true,
     val error: String? = null,
-    // ── NEW ──────────────────────────────────────────────────────────────────
-    // Mirrors CrossfadeEngineState.timeToNextMixMs for the UI layer.
-    // Non-null while approaching an automatic mix trigger.
-    val timeToNextMixMs: Long? = null
+    val timeToNextMixMs: Long? = null,
+
+    // ── Feature 1: Failed BPM visibility ─────────────────────────────────────
+    val analysisFailedCount: Int = 0,
+
+    // ── Feature 2: Manual queue ordering ─────────────────────────────────────
+    val isQueueUserOrdered: Boolean = false,
+
+    // ── Feature 3: Skip back ──────────────────────────────────────────────────
+    val canSkipBack: Boolean = false,
+
+    // ── NEW: Track History Synchronization ───────────────────────────────────
+    val playedTrackIds: Set<Long> = emptySet()
 )

@@ -123,6 +123,8 @@ dependencies {
 
     implementation(libs.androidx.media)
 
+    implementation("sh.calvin.reorderable:reorderable:2.4.3")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

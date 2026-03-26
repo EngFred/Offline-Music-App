@@ -17,7 +17,8 @@ data class BpmInfo(
     val bpm: Float,
     val firstBeatMs: Long = 0L,
     val amplitude: Float = 0f,
-    val waveformEnvelope: FloatArray = FloatArray(0)   // ── NEW ──
+    val waveformEnvelope: FloatArray = FloatArray(0),
+    val analysisFailed: Boolean = false
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -25,7 +26,8 @@ data class BpmInfo(
         return bpm == other.bpm &&
                 firstBeatMs == other.firstBeatMs &&
                 amplitude == other.amplitude &&
-                waveformEnvelope.contentEquals(other.waveformEnvelope)
+                waveformEnvelope.contentEquals(other.waveformEnvelope) &&
+                analysisFailed == other.analysisFailed
     }
 
     override fun hashCode(): Int {
@@ -33,6 +35,7 @@ data class BpmInfo(
         result = 31 * result + firstBeatMs.hashCode()
         result = 31 * result + amplitude.hashCode()
         result = 31 * result + waveformEnvelope.contentHashCode()
+        result = 31 * result + analysisFailed.hashCode()
         return result
     }
 }

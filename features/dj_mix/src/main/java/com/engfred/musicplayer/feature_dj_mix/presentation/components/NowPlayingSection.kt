@@ -16,6 +16,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -91,7 +93,8 @@ fun NowPlayingSection(
     albumArtUri: Uri?,
     waveform: List<Float> = emptyList(),
     isPlaying: Boolean,
-    timeToNextMixMs: Long? = null    // ── NEW ──
+    timeToNextMixMs: Long? = null,
+    onAbortCrossfade: () -> Unit // ── NEW ──
 ) {
     val playbackProgress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
     val animatedPlayback by animateFloatAsState(
@@ -388,12 +391,12 @@ fun NowPlayingSection(
                     fontWeight    = FontWeight.Black,
                     letterSpacing = 1.sp,
                     color         = strategyColor,
-                    modifier      = Modifier.padding(end = 12.dp)
+                    modifier      = Modifier.padding(end = 8.dp)
                 )
                 val animatedCrossfade by animateFloatAsState(
-                    targetValue    = crossfadeProgress,
-                    animationSpec  = tween(100),
-                    label          = "crossfade_progress"
+                    targetValue   = crossfadeProgress,
+                    animationSpec = tween(100),
+                    label         = "crossfade_progress"
                 )
                 LinearProgressIndicator(
                     progress   = { animatedCrossfade },
@@ -402,6 +405,21 @@ fun NowPlayingSection(
                     color      = strategyColor,
                     trackColor = strategyColor.copy(alpha = 0.15f)
                 )
+                // ── Abort button ──────────────────────────────────────────────────
+                // Subtle — same hue as the strategy color but lower alpha so it
+                // doesn't compete visually with the strategy label.
+                TextButton(
+                    onClick      = onAbortCrossfade,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    modifier     = Modifier.padding(start = 4.dp)
+                ) {
+                    Text(
+                        text       = "✕",
+                        style      = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color      = strategyColor.copy(alpha = 0.55f)
+                    )
+                }
             }
         }
     }

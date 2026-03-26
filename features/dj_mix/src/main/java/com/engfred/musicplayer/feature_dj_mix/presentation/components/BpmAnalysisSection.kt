@@ -8,7 +8,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,7 +32,8 @@ fun BpmAnalysisSection(
     progress: Float,
     analysedCount: Int,
     totalCount: Int,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    failedCount: Int = 0   // ── NEW ──
 ) {
     val animatedProgress by animateFloatAsState(
         targetValue = progress,
@@ -36,7 +41,6 @@ fun BpmAnalysisSection(
         label = "bpm_analysis_progress"
     )
 
-    // Stripped the card background. Progress floats clean at the top.
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -57,7 +61,9 @@ fun BpmAnalysisSection(
                 color = Color.White.copy(alpha = 0.6f)
             )
         }
+
         Spacer(modifier = Modifier.height(12.dp))
+
         LinearProgressIndicator(
             progress = { animatedProgress },
             modifier = Modifier
@@ -68,5 +74,31 @@ fun BpmAnalysisSection(
             color = MaterialTheme.colorScheme.secondary,
             trackColor = Color.White.copy(alpha = 0.1f)
         )
+
+        // ── NEW: non-alarming failure notice ─────────────────────────────────
+        // Only visible once analysis is complete (progress == 1f) and there are
+        // failures. Shown after the progress bar so it doesn't compete with the
+        // "still working" state. Phrased to set expectations without alarming.
+        if (failedCount > 0 && progress >= 1f) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector        = Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint               = Color(0xFFF57C00).copy(alpha = 0.8f),
+                    modifier           = Modifier.size(14.dp)
+                )
+                Text(
+                    text = "$failedCount ${if (failedCount == 1) "track" else "tracks"} couldn't be analyzed" +
+                            " — transitions may be less precise for ${if (failedCount == 1) "it" else "them"}",
+                    style     = MaterialTheme.typography.labelSmall,
+                    color     = Color.White.copy(alpha = 0.5f),
+                    maxLines  = 2
+                )
+            }
+        }
     }
 }

@@ -69,6 +69,8 @@ class DjMixViewModel @Inject constructor(
         crossfadeEngine.initialize()
         observeSettings()
         observeCrossfadeEngineState()
+        observeCanSkipBack()
+        observePlayedTracks()
         loadPlaylist()
     }
 
@@ -81,12 +83,6 @@ class DjMixViewModel @Inject constructor(
                     djSessionManager.startSession(playlistId)
                     djSessionManager.markTrackPlayed(firstTrack.id)
                     activePlayerRegistry.onDjMixStarted()
-
-                    // Sync BPM info BEFORE startPlayback so the waveform loop has
-                    // valid currentTrackBpm the moment it starts. Without this,
-                    // the waveform stays blank on a fresh session start because the
-                    // ViewModel's observeCrossfadeEngineState flow hasn't fired yet
-                    // when the waveform loop makes its first check.
                     syncBeatGridForTrack(firstTrack.id)
                     crossfadeEngine.startPlayback(firstTrack)
                     _uiState.update { it.copy(currentTrack = firstTrack) }
@@ -99,6 +95,54 @@ class DjMixViewModel @Inject constructor(
 
             DjMixEvent.MixNow -> crossfadeEngine.triggerMixNow()
 
+            // ── Feature 3: Skip back ──────────────────────────────────────────
+            DjMixEvent.SkipBack -> {
+                val previous = djSessionManager.popPreviousTrack()
+                if (previous != null) {
+                    djSessionManager.markTrackPlayed(previous.id)
+                    syncBeatGridForTrack(previous.id)
+                    crossfadeEngine.startPlayback(previous)
+                    _uiState.update { it.copy(currentTrack = previous) }
+                    viewModelScope.launch { _uiEvent.emit("START_DJ_SERVICE") }
+                    Log.d(TAG, "SkipBack: now playing '${previous.title}'")
+                } else {
+                    Log.d(TAG, "SkipBack: no history — ignored")
+                    viewModelScope.launch { _uiEvent.emit("SKIP_BACK_UNAVAILABLE") }
+                }
+            }
+
+            // ── Feature 2: Manual queue reordering ───────────────────────────
+            DjMixEvent.ShuffleQueue -> {
+                val shuffled = _uiState.value.smartQueue.shuffled()
+                _uiState.update { it.copy(smartQueue = shuffled, isQueueUserOrdered = true) }
+                djSessionManager.updateSmartQueue(shuffled)
+                Log.d(TAG, "ShuffleQueue: queue shuffled")
+            }
+
+            DjMixEvent.SortByBpm -> {
+                val cache = _uiState.value.bpmCache
+                // Unanalyzed / failed tracks sort to the end so they don't break the sort
+                val sorted = _uiState.value.smartQueue.sortedWith(
+                    compareBy(
+                        { cache[it.id]?.analysisFailed == true }, // failures last
+                        { if (cache[it.id]?.analysisFailed == true) 0f else cache[it.id]?.bpm ?: Float.MAX_VALUE }
+                    )
+                )
+                _uiState.update { it.copy(smartQueue = sorted, isQueueUserOrdered = true) }
+                djSessionManager.updateSmartQueue(sorted)
+                Log.d(TAG, "SortByBpm: queue sorted")
+            }
+
+            is DjMixEvent.MoveTrack -> {
+                val current = _uiState.value.smartQueue.toMutableList()
+                if (event.fromIndex !in current.indices || event.toIndex !in current.indices) return
+                val item = current.removeAt(event.fromIndex)
+                current.add(event.toIndex, item)
+                _uiState.update { it.copy(smartQueue = current, isQueueUserOrdered = true) }
+                djSessionManager.updateSmartQueue(current)
+            }
+
+            // ── Existing events (unchanged) ───────────────────────────────────
             is DjMixEvent.UpdateCrossfadeDuration -> {
                 val s = _uiState.value.settings.copy(crossfadeDurationSec = event.seconds)
                 crossfadeEngine.crossfadeDurationMs = event.seconds * 1000L
@@ -158,10 +202,26 @@ class DjMixViewModel @Inject constructor(
                 }
                 viewModelScope.launch { _uiEvent.emit("START_DJ_SERVICE") }
             }
+
+            DjMixEvent.AbortCrossfade -> crossfadeEngine.abortCurrentCrossfade()
         }
     }
 
     // ── Private observers ─────────────────────────────────────────────────────
+
+    private fun observeCanSkipBack() {
+        djSessionManager.canSkipBack
+            .onEach { can -> _uiState.update { it.copy(canSkipBack = can) } }
+            .launchIn(viewModelScope)
+    }
+
+    private fun observePlayedTracks() {
+        djSessionManager.playedTrackIds
+            .onEach { ids ->
+                _uiState.update { it.copy(playedTrackIds = ids) }
+            }
+            .launchIn(viewModelScope)
+    }
 
     private fun observeSettings() {
         settingsRepository.getAppSettings()
@@ -175,7 +235,6 @@ class DjMixViewModel @Inject constructor(
                     loopQueue            = appSettings.loopQueue,
                     useManualMaxDuration = appSettings.useManualMaxDuration
                 )
-
                 crossfadeEngine.crossfadeDurationMs = newSettings.crossfadeDurationSec * 1000L
                 crossfadeEngine.isRealMixMode       = newSettings.isRealMixMode
                 crossfadeEngine.maxTrackDurationMs  = newSettings.maxTrackDurationSec * 1000L
@@ -196,7 +255,6 @@ class DjMixViewModel @Inject constructor(
                     _uiState.update { it.copy(isLoading = false, error = "Playlist not found.") }
                     return@onEach
                 }
-
                 val songs = playlist.songs
                 rawPlaylistSongs = songs
 
@@ -209,13 +267,8 @@ class DjMixViewModel @Inject constructor(
                 }
 
                 _uiState.update {
-                    it.copy(
-                        playlistName = playlist.name,
-                        totalSongs   = songs.size,
-                        isLoading    = false
-                    )
+                    it.copy(playlistName = playlist.name, totalSongs = songs.size, isLoading = false)
                 }
-
                 observeBpmCache(songs)
             }
             .launchIn(viewModelScope)
@@ -224,29 +277,37 @@ class DjMixViewModel @Inject constructor(
     private fun observeBpmCache(songs: List<AudioFile>) {
         djMixRepository.getBpmCacheFlow()
             .onEach { bpmCache ->
-                val analysedCount  = songs.count { bpmCache.containsKey(it.id) }
-                val progress       = if (songs.isEmpty()) 1f else analysedCount.toFloat() / songs.size
+                // ── Feature 1: separate success / failure counts ──────────────
+                // A track is "done" (for progress purposes) if it has any row in the
+                // cache — success or failure. Progress fills to 100% either way; we
+                // just also surface how many of those rows are failure tombstones.
+                val doneCount    = songs.count { bpmCache.containsKey(it.id) }
+                val failedCount  = bpmCache.values.count { it.analysisFailed }
+                val progress     = if (songs.isEmpty()) 1f else doneCount.toFloat() / songs.size
                 val stillAnalysing = progress < 1f
 
+                // Live-update BPM info for the currently playing track when its
+                // analysis row arrives for the first time.
                 val currentTrackId = _uiState.value.currentTrack?.id
                 if (currentTrackId != null) {
                     val freshBpmInfo  = bpmCache[currentTrackId]
                     val cachedBpmInfo = _uiState.value.bpmCache[currentTrackId]
-                    if (freshBpmInfo != null && cachedBpmInfo == null) {
+                    if (freshBpmInfo != null && cachedBpmInfo == null && !freshBpmInfo.analysisFailed) {
                         crossfadeEngine.updateCurrentBpmInfo(
                             bpm              = freshBpmInfo.bpm,
                             firstBeatMs      = freshBpmInfo.firstBeatMs,
                             amplitude        = freshBpmInfo.amplitude,
-                            waveformEnvelope = freshBpmInfo.waveformEnvelope   // ── NEW ──
+                            waveformEnvelope = freshBpmInfo.waveformEnvelope
                         )
                     }
                 }
 
                 _uiState.update {
                     it.copy(
-                        bpmCache         = bpmCache,
-                        analysisProgress = progress,
-                        isAnalyzing      = stillAnalysing
+                        bpmCache             = bpmCache,
+                        analysisProgress     = progress,
+                        isAnalyzing          = stillAnalysing,
+                        analysisFailedCount  = failedCount   // ── NEW ──
                     )
                 }
 
@@ -278,7 +339,7 @@ class DjMixViewModel @Inject constructor(
                         currentMixStrategy        = engineState.currentMixStrategy,
                         waveform                  = engineState.waveform,
                         error                     = engineState.error,
-                        timeToNextMixMs           = engineState.timeToNextMixMs   // ── NEW ──
+                        timeToNextMixMs           = engineState.timeToNextMixMs
                     )
                 }
             }
@@ -287,19 +348,24 @@ class DjMixViewModel @Inject constructor(
 
     private fun syncBeatGridForTrack(trackId: Long) {
         val bpmInfo = _uiState.value.bpmCache[trackId] ?: return
+        if (bpmInfo.analysisFailed) return  // ── NEW: don't feed garbage BPM to the engine ──
         crossfadeEngine.updateCurrentBpmInfo(
             bpm              = bpmInfo.bpm,
             firstBeatMs      = bpmInfo.firstBeatMs,
             amplitude        = bpmInfo.amplitude,
-            waveformEnvelope = bpmInfo.waveformEnvelope   // ── NEW ──
+            waveformEnvelope = bpmInfo.waveformEnvelope
         )
-        Log.d(TAG, "Beat grid synced: trackId=$trackId BPM=${bpmInfo.bpm} " +
-                "envelope=${bpmInfo.waveformEnvelope.size}bars")
+        Log.d(TAG, "Beat grid synced: trackId=$trackId BPM=${bpmInfo.bpm}")
     }
 
     private fun rebuildSmartQueue(
         bpmCache: Map<Long, BpmInfo> = _uiState.value.bpmCache
     ) {
+        // ── Feature 2: respect user's manual ordering ─────────────────────────
+        if (_uiState.value.isQueueUserOrdered) {
+            Log.d(TAG, "rebuildSmartQueue: skipped — user has manually ordered the queue")
+            return
+        }
         if (rawPlaylistSongs.isEmpty()) return
         rebuildJob?.cancel()
         rebuildJob = viewModelScope.launch {
@@ -308,146 +374,79 @@ class DjMixViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Builds the smart queue using the genius DJ algorithm.
-     *
-     * ════════════════════════════════════════════════════════════════════════
-     * ENERGY ARC QUEUE BUILDING
-     * ════════════════════════════════════════════════════════════════════════
-     *
-     * A real DJ doesn't build their set by picking the next "closest BPM" track
-     * greedily from position 1. They think about the shape of the whole set first:
-     *
-     *   Classic DJ set energy arc:
-     *     ┌─────────────────────────────────────────────────────────────────┐
-     *     │  ♪  ♪  ♪  ♪  ♪  ♪  ♪  ♪♪♪♪♪♪  ♪♪♪♪  ♪♪♪  ♪♪  ♪  ♪  ♪  ♪  ♪  │
-     *     │  ─────────────────╱───────────╲──────────────────────────────  │
-     *     │  BUILD           PEAK          COOLDOWN                         │
-     *     │  (30%)           (40%)         (30%)                            │
-     *     └─────────────────────────────────────────────────────────────────┘
-     *
-     * Implementation:
-     *
-     * 1. OPENER SELECTION
-     *    We don't start with the lowest BPM track (boring) or the highest (too
-     *    intense too soon). We find a track in the lower-medium BPM range —
-     *    roughly the 20th–40th percentile — that gives room to build upward.
-     *
-     * 2. GREEDY SELECTION WITH ENERGY ARC AWARENESS
-     *    Each subsequent track is picked by [GetSmartNextTrackUseCase] with:
-     *      - setProgressFraction: where we are in the total set (0f → 1f)
-     *        This signals the use case to apply BUILD/PEAK/COOLDOWN energy direction.
-     *      - recentBpms: the last 3 selected BPMs, for anti-stagnation.
-     *    The use case's harmonic detection, proximity scoring, and direction bonus
-     *    all combine to produce an arc that feels intentional rather than random.
-     *
-     * 3. LOGGING
-     *    Every step of the rebuild is logged with BPMs so you can see the arc
-     *    taking shape in Logcat — helpful for verifying the algorithm's output.
-     */
     private fun performRebuild(bpmCache: Map<Long, BpmInfo>) {
         if (rawPlaylistSongs.isEmpty()) return
 
-        val tolerance    = _uiState.value.settings.bpmTolerance
-        val remaining    = rawPlaylistSongs.toMutableList()
-        val result       = mutableListOf<AudioFile>()
+        // Exclude permanently failed tracks from the BPM-ordered positions —
+        // they are still included in the queue but treated as having no BPM.
+        val tolerance = _uiState.value.settings.bpmTolerance
+        val remaining = rawPlaylistSongs.toMutableList()
+        val result    = mutableListOf<AudioFile>()
 
-        // ── Step 1: Opener selection ───────────────────────────────────────────
-        // Target the 20th–40th BPM percentile so there's room to build.
-        // Falls back to the overall median if the playlist is very small.
         val opener = selectOpener(remaining, bpmCache)
         result.add(opener)
         remaining.remove(opener)
 
-        val openerBpm = bpmCache[opener.id]?.bpm ?: 120f
+        val openerBpm = bpmCache[opener.id]?.bpm?.takeIf { bpmCache[opener.id]?.analysisFailed != true } ?: 120f
         Log.d(TAG, "performRebuild: Opener '${opener.title}' @ ${openerBpm.fmt()} BPM")
 
-        // ── Step 2: Greedy selection with arc awareness ────────────────────────
-        // Maintain a rolling window of recent BPMs for anti-stagnation checks.
         val recentBpms = ArrayDeque<Float>(4)
         if (openerBpm > 0f) recentBpms.addLast(openerBpm)
 
         while (remaining.isNotEmpty()) {
             val setProgressFraction = result.size.toFloat() / rawPlaylistSongs.size.toFloat()
-
-            val lastBpm = bpmCache[result.last().id]?.bpm ?: 120f
+            val lastInfo = bpmCache[result.last().id]
+            val lastBpm = if (lastInfo?.analysisFailed == true) 120f else lastInfo?.bpm ?: 120f
 
             val next = getSmartNextTrackUseCase(
                 currentBpm          = lastBpm,
                 remainingQueue      = remaining,
-                bpmCache            = bpmCache.mapValues { it.value.bpm },
+                bpmCache            = bpmCache.mapValues {
+                    if (it.value.analysisFailed) 120f else it.value.bpm
+                },
                 tolerance           = tolerance,
                 recentBpms          = recentBpms.toList(),
                 setProgressFraction = setProgressFraction
-            ) ?: remaining.first() // safety: never stall
+            ) ?: remaining.first()
 
             result.add(next)
             remaining.remove(next)
 
-            // Update rolling BPM history (keep last 3)
-            val nextBpm = bpmCache[next.id]?.bpm
+            val nextBpm = bpmCache[next.id]?.bpm?.takeIf { bpmCache[next.id]?.analysisFailed != true }
             if (nextBpm != null && nextBpm > 0f) {
                 recentBpms.addLast(nextBpm)
                 if (recentBpms.size > 3) recentBpms.removeFirst()
             }
-
-            Log.v(TAG, "  [${result.size}/${rawPlaylistSongs.size} " +
-                    "arc=${(setProgressFraction * 100).toInt()}%] " +
-                    "'${next.title}' @ ${nextBpm?.fmt() ?: "??"} BPM " +
-                    "(prev ${lastBpm.fmt()})")
         }
 
         _uiState.update { it.copy(smartQueue = result) }
         djSessionManager.updateSmartQueue(result)
-        Log.d(TAG, "performRebuild: Queue rebuilt with ${result.size} tracks. " +
-                "BPM arc: ${result.joinToString(" → ") {
-                    bpmCache[it.id]?.bpm?.fmt() ?: "??"
-                }}")
+        Log.d(TAG, "performRebuild: ${result.size} tracks. Arc: ${result.joinToString(" → ") {
+            if (bpmCache[it.id]?.analysisFailed == true) "FAIL"
+            else bpmCache[it.id]?.bpm?.fmt() ?: "??"
+        }}")
     }
 
-    /**
-     * Selects the opening track for the DJ set.
-     *
-     * Strategy: find a track near the 20th–40th percentile of the BPM distribution.
-     * This gives the set room to build toward a peak rather than opening too high or too low.
-     *
-     * Falls back to:
-     *   - Median BPM track if the target percentile zone is empty.
-     *   - First un-analysed track if no BPM data exists at all.
-     *   - First track in the playlist as an absolute last resort.
-     *
-     * @param songs    All tracks available (mutable, so we don't modify it here).
-     * @param bpmCache Current BPM analysis results.
-     * @return The best track to open the set with.
-     */
     private fun selectOpener(songs: List<AudioFile>, bpmCache: Map<Long, BpmInfo>): AudioFile {
-        val withBpm = songs.filter { bpmCache.containsKey(it.id) }
+        val withBpm = songs.filter { bpmCache.containsKey(it.id) && bpmCache[it.id]?.analysisFailed != true }
         if (withBpm.isEmpty()) return songs.first()
 
-        // Sort all analysed tracks by BPM ascending
-        val sorted = withBpm.sortedBy { bpmCache[it.id]!!.bpm }
-        val n       = sorted.size
-
-        // Target the lower-medium zone (20th to 40th percentile)
+        val sorted    = withBpm.sortedBy { bpmCache[it.id]!!.bpm }
+        val n         = sorted.size
         val lowerIdx  = (n * 0.20).toInt().coerceIn(0, n - 1)
         val upperIdx  = (n * 0.40).toInt().coerceIn(lowerIdx, n - 1)
         val targetIdx = (lowerIdx + upperIdx) / 2
 
-        val openerByPercentile = sorted.getOrNull(targetIdx)
-
-        // Prefer a track with actual BPM data in that zone; fall back to median
-        return openerByPercentile
-            ?: sorted.getOrNull(n / 2) // median
+        return sorted.getOrNull(targetIdx)
+            ?: sorted.getOrNull(n / 2)
             ?: songs.filterNot { bpmCache.containsKey(it.id) }.firstOrNull()
             ?: songs.first()
     }
 
     override fun onCleared() {
         super.onCleared()
-        Log.d(TAG, "onCleared — engine and session left running in background.")
+        Log.d(TAG, "onCleared — engine and session running in background")
     }
-
-    // ── Formatting helper ─────────────────────────────────────────────────────
 
     private fun Float.fmt() = String.format("%.1f", this)
 }

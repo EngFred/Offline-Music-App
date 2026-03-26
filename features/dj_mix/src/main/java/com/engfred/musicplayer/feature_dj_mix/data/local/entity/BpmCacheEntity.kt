@@ -24,10 +24,9 @@ data class BpmCacheEntity(
     val analyzedAt: Long,
     val firstBeatMs: Long = 0L,
     val amplitude: Float = 0f,
-    val waveformEnvelope: FloatArray = FloatArray(0)    // ── NEW ──
+    val waveformEnvelope: FloatArray = FloatArray(0),
+    val analysisFailed: Boolean = false
 ) {
-    // FloatArray breaks auto-generated equals/hashCode in data classes.
-    // Override so Room diffing, DAO caching, and Set/Map usage stay correct.
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is BpmCacheEntity) return false
@@ -36,7 +35,8 @@ data class BpmCacheEntity(
                 analyzedAt == other.analyzedAt &&
                 firstBeatMs == other.firstBeatMs &&
                 amplitude == other.amplitude &&
-                waveformEnvelope.contentEquals(other.waveformEnvelope)
+                waveformEnvelope.contentEquals(other.waveformEnvelope) &&
+                analysisFailed == other.analysisFailed
     }
 
     override fun hashCode(): Int {
@@ -46,6 +46,7 @@ data class BpmCacheEntity(
         result = 31 * result + firstBeatMs.hashCode()
         result = 31 * result + amplitude.hashCode()
         result = 31 * result + waveformEnvelope.contentHashCode()
+        result = 31 * result + analysisFailed.hashCode()
         return result
     }
 }
