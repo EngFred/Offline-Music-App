@@ -38,8 +38,12 @@ interface SettingsRepository {
     suspend fun updateDjLoopQueue(enabled: Boolean)
 
     /**
-     * NEW: Persists the toggle between "mix at halfway" (default) and
+     * Persists the toggle between "mix at halfway" (default) and
      * "mix after manual max duration".
      */
     suspend fun updateDjManualMaxDuration(enabled: Boolean)
+
+    // ── Mix of the Day ────────────────────────────────────────────────────────
+    suspend fun getLastMixOfTheDayTimestamp(): Long
+    suspend fun updateLastMixOfTheDayTimestamp(timestamp: Long)
 }

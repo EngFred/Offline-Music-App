@@ -18,6 +18,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.engfred.musicplayer.core.common.Resource
@@ -25,6 +26,7 @@ import com.engfred.musicplayer.core.data.SharedAudioDataSource
 import com.engfred.musicplayer.core.domain.ActivePlayerRegistry
 import com.engfred.musicplayer.core.domain.model.AppSettings
 import com.engfred.musicplayer.core.domain.model.AudioFile
+import com.engfred.musicplayer.core.domain.model.AutomaticPlaylistType
 import com.engfred.musicplayer.core.domain.repository.LibraryRepository
 import com.engfred.musicplayer.core.domain.repository.PlaybackController
 import com.engfred.musicplayer.core.domain.repository.PlaybackState
@@ -34,6 +36,7 @@ import com.engfred.musicplayer.core.ui.theme.AppThemeType
 import com.engfred.musicplayer.core.ui.theme.MusicPlayerAppTheme
 import com.engfred.musicplayer.core.util.MediaUtils
 import com.engfred.musicplayer.feature_dj_mix.data.bpm.GlobalBpmScanWorker
+import com.engfred.musicplayer.feature_dj_mix.data.bpm.MixOfTheDayWorker
 import com.engfred.musicplayer.feature_dj_mix.domain.DjSessionManager
 import com.engfred.musicplayer.feature_library.data.worker.NewAudioScanWorker
 import com.engfred.musicplayer.feature_settings.domain.usecases.GetAppSettingsUseCase
@@ -76,6 +79,9 @@ class MainActivity : ComponentActivity() {
 
     private var navigateToNowPlayingOnStart by mutableStateOf(false)
     private var navigateToDjMixOnStart by mutableStateOf(false)
+
+    private var navigateToMixOfTheDayOnStart by mutableStateOf(false)
+    private var mixOfTheDayPlaylistId by mutableLongStateOf(AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID)
 
     private val uiScope get() = lifecycleScope
 
@@ -151,13 +157,17 @@ class MainActivity : ComponentActivity() {
 
         handleIncomingIntent(intent)
 
+        if (intent?.getBooleanExtra("OPEN_MIX_OF_THE_DAY", false) == true) {
+            mixOfTheDayPlaylistId = intent.getLongExtra(
+                "MIX_PLAYLIST_ID",
+                AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID
+            )
+            navigateToMixOfTheDayOnStart = true
+        }
+
         setContent {
             val audioItems by sharedAudioDataSource.deviceAudioFiles.collectAsState(initial = emptyList())
 
-            // ── Trigger global BPM pre-scan as soon as the library is available ──────────
-            // Uses KEEP policy: if a scan is already in progress (e.g. from a previous
-            // launch) this is a no-op. Re-enqueueing after new songs are added is handled
-            // by NewAudioScanWorker chaining GlobalBpmScanWorker on its own.
             var globalScanTriggered by remember { mutableStateOf(false) }
             LaunchedEffect(audioItems) {
                 if (!globalScanTriggered && audioItems.isNotEmpty()) {
@@ -180,7 +190,6 @@ class MainActivity : ComponentActivity() {
 
                 val isDjMixActive by activePlayerRegistry.isDjMixActive.collectAsState()
 
-                // navigation to DJ screen – get playlistId from session if active
                 val navigateToDjMix: () -> Unit = {
                     if (isDjMixActive) {
                         val playlistId = djSessionManager.activePlaylistId
@@ -196,13 +205,20 @@ class MainActivity : ComponentActivity() {
                     } else {
                         Log.w(TAG, "navigateToDjMix called but DJ not active")
                     }
-                    Unit  // ensure lambda returns Unit
+                    Unit
                 }
 
                 LaunchedEffect(navigateToDjMixOnStart) {
                     if (navigateToDjMixOnStart) {
                         navigateToDjMix()
                         navigateToDjMixOnStart = false
+                    }
+                }
+
+                LaunchedEffect(navigateToMixOfTheDayOnStart) {
+                    if (navigateToMixOfTheDayOnStart) {
+                        navController.navigate(AppDestinations.DjMix.createRoute(mixOfTheDayPlaylistId))
+                        navigateToMixOfTheDayOnStart = false
                     }
                 }
 
@@ -332,6 +348,13 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra("OPEN_DJ_MIX", false)) {
             navigateToDjMixOnStart = true
         }
+        if (intent.getBooleanExtra("OPEN_MIX_OF_THE_DAY", false)) {
+            mixOfTheDayPlaylistId = intent.getLongExtra(
+                "MIX_PLAYLIST_ID",
+                AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID
+            )
+            navigateToMixOfTheDayOnStart = true
+        }
         uiScope.launch {
             checkIntentForNewMusic(intent)
         }
@@ -346,6 +369,12 @@ class MainActivity : ComponentActivity() {
             ExistingPeriodicWorkPolicy.KEEP,
             workRequest
         )
+        MixOfTheDayWorker.schedule(this)
+
+        // THE HACK: Force it to run right now for testing
+        Log.d(TAG, "Executing MixOfTheDayWorker force-start hack!")
+        val testRequest = OneTimeWorkRequestBuilder<MixOfTheDayWorker>().build()
+        WorkManager.getInstance(this).enqueue(testRequest)
     }
 
     private suspend fun checkIntentForNewMusic(intent: Intent?) {

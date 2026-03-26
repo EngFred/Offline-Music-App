@@ -1,6 +1,5 @@
 package com.engfred.musicplayer.feature_playlist.data.repository
 
-import android.net.Uri
 import android.util.Log
 import androidx.core.net.toUri
 import com.engfred.musicplayer.core.data.SharedAudioDataSource
@@ -15,6 +14,7 @@ import com.engfred.musicplayer.feature_playlist.data.local.entity.SongPlayEventE
 import com.engfred.musicplayer.feature_playlist.data.local.model.PlaylistWithSongs
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -28,72 +28,67 @@ class PlaylistRepositoryImpl @Inject constructor(
 
     private val TAG = "PlaylistRepositoryImpl"
 
-    private fun PlaylistWithSongs.toDomain(): Playlist {
-        return Playlist(
-            id = this.playlist.playlistId,
-            name = this.playlist.name,
-            createdAt = this.playlist.createdAt,
-            songs = this.songs.map { it.toDomain() },
-            isAutomatic = this.playlist.isAutomatic,
-            type = this.playlist.type,
-            customArtUri = this.playlist.customArtUri?.toUri()
-        )
-    }
+    // ── Domain mappers ────────────────────────────────────────────────────────
 
-    private fun PlaylistEntity.toDomain(): Playlist {
-        return Playlist(
-            id = this.playlistId,
-            name = this.name,
-            createdAt = this.createdAt,
-            isAutomatic = this.isAutomatic,
-            type = this.type,
-            customArtUri = this.customArtUri?.toUri()
-        )
-    }
+    private fun PlaylistWithSongs.toDomain(): Playlist = Playlist(
+        id = playlist.playlistId,
+        name = playlist.name,
+        createdAt = playlist.createdAt,
+        songs = songs.map { it.toDomain() },
+        isAutomatic = playlist.isAutomatic,
+        type = playlist.type,
+        customArtUri = playlist.customArtUri?.toUri()
+    )
 
-    private fun Playlist.toEntity(): PlaylistEntity {
-        return PlaylistEntity(
-            playlistId = this.id,
-            name = this.name,
-            createdAt = this.createdAt,
-            isAutomatic = this.isAutomatic,
-            type = this.type,
-            customArtUri = this.customArtUri?.toString()
-        )
-    }
+    private fun PlaylistEntity.toDomain(): Playlist = Playlist(
+        id = playlistId,
+        name = name,
+        createdAt = createdAt,
+        isAutomatic = isAutomatic,
+        type = type,
+        customArtUri = customArtUri?.toUri()
+    )
 
-    private fun PlaylistSongEntity.toDomain(): AudioFile {
-        return AudioFile(
-            id = this.audioFileId,
-            title = this.title,
-            artist = this.artist,
-            album = this.album,
-            duration = this.duration,
-            uri = this.uri,
-            albumArtUri = this.albumArtUri,
-            dateAdded = this.dateAdded,
-            artistId = null
-        )
-    }
+    private fun Playlist.toEntity(): PlaylistEntity = PlaylistEntity(
+        playlistId = id,
+        name = name,
+        createdAt = createdAt,
+        isAutomatic = isAutomatic,
+        type = type,
+        customArtUri = customArtUri?.toString()
+    )
 
-    private fun AudioFile.toPlaylistSongEntity(playlistId: Long): PlaylistSongEntity {
-        return PlaylistSongEntity(
+    private fun PlaylistSongEntity.toDomain(): AudioFile = AudioFile(
+        id = audioFileId,
+        title = title,
+        artist = artist,
+        album = album,
+        duration = duration,
+        uri = uri,
+        albumArtUri = albumArtUri,
+        dateAdded = dateAdded,
+        artistId = null
+    )
+
+    private fun AudioFile.toPlaylistSongEntity(playlistId: Long): PlaylistSongEntity =
+        PlaylistSongEntity(
             playlistId = playlistId,
-            audioFileId = this.id,
-            title = this.title,
-            artist = this.artist,
-            album = this.album,
-            duration = this.duration,
-            uri = this.uri,
-            albumArtUri = this.albumArtUri,
-            dateAdded = this.dateAdded
+            audioFileId = id,
+            title = title,
+            artist = artist,
+            album = album,
+            duration = duration,
+            uri = uri,
+            albumArtUri = albumArtUri,
+            dateAdded = dateAdded
         )
-    }
+
+    // ── Playlist reads ────────────────────────────────────────────────────────
 
     override fun getPlaylists(): Flow<List<Playlist>> {
-        val dbPlaylistsFlow = playlistDao.getPlaylistsWithSongs().map { list ->
-            list.map { it.toDomain() }
-        }
+        val dbPlaylistsFlow = playlistDao.getPlaylistsWithSongs()
+            .distinctUntilChanged()
+            .map { list -> list.map { it.toDomain() } }
 
         val recentlyAddedFlow = getRecentlyAddedSongs(limit = 20)
         val topPlayedFlow = getTopPlayedSongs(
@@ -110,10 +105,13 @@ class PlaylistRepositoryImpl @Inject constructor(
         ) { dbPlaylists, recentlyAddedSongs, topPlayedPairs, artistPlaylists ->
 
             val userPlaylists = dbPlaylists.filter { it.id > 0 }
+
+            // Automatic-playlist metadata rows keyed by their reserved negative ID.
             val metaPlaylists = dbPlaylists.filter { it.id < 0 }.associateBy { it.id }
 
             val automaticPlaylists = mutableListOf<Playlist>()
 
+            // ── Recently Added ─────────────────────────────────────────────
             if (recentlyAddedSongs.isNotEmpty()) {
                 val savedMeta = metaPlaylists[-1]
                 automaticPlaylists.add(
@@ -128,6 +126,7 @@ class PlaylistRepositoryImpl @Inject constructor(
                 )
             }
 
+            // ── Most Played ────────────────────────────────────────────────
             val savedMetaMostPlayed = metaPlaylists[-2]
             automaticPlaylists.add(
                 Playlist(
@@ -141,6 +140,7 @@ class PlaylistRepositoryImpl @Inject constructor(
                 )
             )
 
+            // ── Artist playlists ───────────────────────────────────────────
             val updatedArtistPlaylists = artistPlaylists.map { artistPlaylist ->
                 val savedMetaArtist = metaPlaylists[artistPlaylist.id]
                 if (savedMetaArtist != null) {
@@ -149,20 +149,33 @@ class PlaylistRepositoryImpl @Inject constructor(
                     artistPlaylist
                 }
             }
-
             automaticPlaylists.addAll(updatedArtistPlaylists)
+
+            // ── Mix of the Day ─────────────────────────────────────────────
+            // Songs are stored in Room (unlike other automatic playlists), so
+            // the full Playlist (including songs) arrives via the DB flow JOIN.
+            // Only surface it when it actually has tracks.
+            val mixPlaylist = metaPlaylists[AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID]
+            if (mixPlaylist != null && mixPlaylist.songs.isNotEmpty()) {
+                automaticPlaylists.add(0, mixPlaylist)
+            }
+
             automaticPlaylists + userPlaylists
         }
     }
 
     override fun getPlaylistById(playlistId: Long): Flow<Playlist?> {
-        val dbMetadataFlow = if (playlistId < 0) {
-            playlistDao.getPlaylistWithSongsById(playlistId).map { it?.toDomain() }
+        // Metadata flow for automatic playlists that store extra info in the DB.
+        val dbMetadataFlow: Flow<Playlist?> = if (playlistId < 0) {
+            playlistDao.getPlaylistWithSongsById(playlistId)
+                .distinctUntilChanged()
+                .map { it?.toDomain() }
         } else {
             flowOf(null)
         }
 
         return when {
+            // ── Recently Added ─────────────────────────────────────────────
             playlistId == -1L -> combine(
                 getRecentlyAddedSongs(limit = 20),
                 dbMetadataFlow
@@ -177,6 +190,7 @@ class PlaylistRepositoryImpl @Inject constructor(
                 ) else null
             }
 
+            // ── Most Played ────────────────────────────────────────────────
             playlistId == -2L -> combine(
                 getTopPlayedSongs(
                     sinceTimestamp = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000L),
@@ -195,60 +209,85 @@ class PlaylistRepositoryImpl @Inject constructor(
                 )
             }
 
+            // ── Mix of the Day ─────────────────────────────────────────────
+            // Songs live in Room, so a plain JOIN query is all we need.
+            // Wrap in distinctUntilChanged so recompositions only happen when
+            // the mix actually changes.
+            playlistId == AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID -> {
+                playlistDao.getPlaylistWithSongsById(playlistId)
+                    .distinctUntilChanged()
+                    .map { it?.toDomain() }
+            }
+
+            // ── Artist playlists ───────────────────────────────────────────
             playlistId < 0 -> {
                 val artistId = -playlistId
                 combine(
                     sharedAudioDataSource.deviceAudioFiles,
                     dbMetadataFlow
                 ) { allAudioFiles, meta ->
-                    val songs = allAudioFiles.filter { it.artistId == artistId }.sortedBy { it.title }
-                    if (songs.isEmpty()) {
-                        null
-                    } else {
-                        var artistName = songs.first().artist ?: "Unknown Artist"
-                        if (artistName == "<unknown>") { artistName = "Unknown Artist" }
-                        Playlist(
-                            id = playlistId,
-                            name = artistName,
-                            songs = songs,
-                            isAutomatic = true,
-                            type = AutomaticPlaylistType.ARTIST,
-                            customArtUri = meta?.customArtUri
-                        )
-                    }
+                    val songs = allAudioFiles
+                        .filter { it.artistId == artistId }
+                        .sortedBy { it.title }
+                    if (songs.isEmpty()) return@combine null
+
+                    val artistName = songs.first().artist
+                        ?.takeIf { it.isNotBlank() && it != "<unknown>" }
+                        ?: "Unknown Artist"
+
+                    Playlist(
+                        id = playlistId,
+                        name = artistName,
+                        songs = songs,
+                        isAutomatic = true,
+                        type = AutomaticPlaylistType.ARTIST,
+                        customArtUri = meta?.customArtUri
+                    )
                 }
             }
 
-            else -> playlistDao.getPlaylistWithSongsById(playlistId).map { playlistWithSongs ->
-                playlistWithSongs?.toDomain()
-            }
+            // ── User playlists ─────────────────────────────────────────────
+            else -> playlistDao.getPlaylistWithSongsById(playlistId)
+                .distinctUntilChanged()
+                .map { it?.toDomain() }
         }
     }
 
+    // ── Playlist writes ───────────────────────────────────────────────────────
+
     override suspend fun updatePlaylist(playlist: Playlist) {
         if (playlist.id > 0) {
-            // For User Playlists (ID > 0), use UPDATE.
-            // This preserves the ID and the songs linked to it.
+            // User playlists: UPDATE in-place to preserve linked songs.
             playlistDao.updatePlaylist(playlist.toEntity())
         } else {
-            // For Automatic Playlists (ID < 0), use INSERT/REPLACE.
-            // These don't store songs in DB, so it's safe to replace the metadata row.
+            // Automatic playlists: metadata-only row, safe to REPLACE.
             playlistDao.insertPlaylist(playlist.toEntity())
         }
     }
 
-    override suspend fun createPlaylist(playlist: Playlist): Long {
-        return playlistDao.insertPlaylist(playlist.toEntity())
-    }
+    override suspend fun createPlaylist(playlist: Playlist): Long =
+        playlistDao.insertPlaylist(playlist.toEntity())
 
-    override suspend fun deletePlaylist(playlistId: Long) {
+    override suspend fun deletePlaylist(playlistId: Long) =
         playlistDao.deletePlaylist(playlistId)
+
+    /**
+     * Atomically replaces the Mix of the Day playlist and its songs in a single
+     * Room transaction. This produces exactly ONE database invalidation, which
+     * means exactly ONE Flow emission to all observers — no empty-songs flicker.
+     */
+    override suspend fun replaceMixOfTheDay(playlist: Playlist, songs: List<AudioFile>) {
+        val playlistEntity = playlist.toEntity()
+        val songEntities = songs.map { it.toPlaylistSongEntity(playlist.id) }
+        // Delegates to the @Transaction fun in PlaylistDao — all three DB ops
+        // (delete songs, upsert playlist, insert songs) share one SQLite transaction.
+        playlistDao.replaceMixOfTheDay(playlistEntity, songEntities)
     }
 
-    override suspend fun addSongToPlaylist(playlistId: Long, audioFile: AudioFile) {
-        val playlistSongEntity = audioFile.toPlaylistSongEntity(playlistId)
-        playlistDao.insertPlaylistSong(playlistSongEntity)
-    }
+    // ── Song management ───────────────────────────────────────────────────────
+
+    override suspend fun addSongToPlaylist(playlistId: Long, audioFile: AudioFile) =
+        playlistDao.insertPlaylistSong(audioFile.toPlaylistSongEntity(playlistId))
 
     override suspend fun addSongsToPlaylist(playlistId: Long, audioFiles: List<AudioFile>): Int {
         if (audioFiles.isEmpty()) return 0
@@ -257,16 +296,13 @@ class PlaylistRepositoryImpl @Inject constructor(
         return results.count { it != -1L }
     }
 
-    override suspend fun removeSongFromPlaylist(playlistId: Long, audioFileId: Long) {
+    override suspend fun removeSongFromPlaylist(playlistId: Long, audioFileId: Long) =
         playlistDao.deletePlaylistSong(playlistId, audioFileId)
-    }
 
     override suspend fun removeSongFromAllPlaylists(audioFileId: Long) {
         val playlistIds = playlistDao.getPlaylistIdsContainingSong(audioFileId)
-        playlistIds.forEach { playlistId ->
-            removeSongFromPlaylist(playlistId, audioFileId)
-        }
-        Log.d(TAG, "Removed song ID: $audioFileId from all playlists (${playlistIds.size} playlists affected).")
+        playlistIds.forEach { removeSongFromPlaylist(it, audioFileId) }
+        Log.d(TAG, "Removed song $audioFileId from ${playlistIds.size} playlist(s).")
     }
 
     override suspend fun updateSongInAllPlaylists(updatedAudioFile: AudioFile) {
@@ -277,60 +313,54 @@ class PlaylistRepositoryImpl @Inject constructor(
                 artist = updatedAudioFile.artist ?: "Unknown Artist",
                 albumArtUri = updatedAudioFile.albumArtUri?.toString()
             )
-            Log.d(TAG, "Updated song metadata in all playlists with ID: ${updatedAudioFile.id}")
+            Log.d(TAG, "Updated song ${updatedAudioFile.id} metadata in all playlists.")
         } catch (ex: Exception) {
             Log.e(TAG, "Error updating song metadata in all playlists: ${ex.message}")
         }
     }
 
-    override fun getRecentlyAddedSongs(limit: Int): Flow<List<AudioFile>> {
-        return sharedAudioDataSource.deviceAudioFiles.map { allAudioFiles ->
-            allAudioFiles
-                .sortedByDescending { it.dateAdded }
-                .take(limit)
-        }
-    }
+    // ── Smart / automatic playlists ───────────────────────────────────────────
 
-    override fun getTopPlayedSongs(sinceTimestamp: Long, limit: Int): Flow<List<Pair<AudioFile, Int>>> {
-        return combine(
+    override fun getRecentlyAddedSongs(limit: Int): Flow<List<AudioFile>> =
+        sharedAudioDataSource.deviceAudioFiles.map { files ->
+            files.sortedByDescending { it.dateAdded }.take(limit)
+        }
+
+    override fun getTopPlayedSongs(sinceTimestamp: Long, limit: Int): Flow<List<Pair<AudioFile, Int>>> =
+        combine(
             playlistDao.getTopPlayedAudioFileIds(sinceTimestamp, limit),
             sharedAudioDataSource.deviceAudioFiles
         ) { topPlayedIds, allAudioFiles ->
             val audioFileMap = allAudioFiles.associateBy { it.id }
-            val filtered = topPlayedIds
-                .asSequence()
+            topPlayedIds
                 .filter { it.playCount >= 3 }
                 .take(limit)
-                .toList()
-            filtered.mapNotNull { topId ->
-                audioFileMap[topId.audioFileId]?.let { audioFile ->
-                    audioFile to topId.playCount
+                .mapNotNull { topId ->
+                    audioFileMap[topId.audioFileId]?.let { it to topId.playCount }
                 }
-            }
         }
-    }
 
     override suspend fun recordSongPlayEvent(audioFileId: Long) {
         try {
-            val playEvent = SongPlayEventEntity(
-                audioFileId = audioFileId,
-                timestamp = System.currentTimeMillis()
+            playlistDao.insertSongPlayEvent(
+                SongPlayEventEntity(
+                    audioFileId = audioFileId,
+                    timestamp = System.currentTimeMillis()
+                )
             )
-            playlistDao.insertSongPlayEvent(playEvent)
             Log.d(TAG, "Recorded play event for audioFileId: $audioFileId")
         } catch (e: Exception) {
-            Log.e(TAG, "Error recording song play event for audioFileId: $audioFileId", e)
+            Log.e(TAG, "Error recording play event for audioFileId: $audioFileId", e)
         }
     }
 
-    private fun getArtistPlaylists(): Flow<List<Playlist>> {
-        return sharedAudioDataSource.deviceAudioFiles.map { allAudioFiles ->
+    private fun getArtistPlaylists(): Flow<List<Playlist>> =
+        sharedAudioDataSource.deviceAudioFiles.map { allAudioFiles ->
             allAudioFiles.groupBy { it.artistId }.mapNotNull { (artistId, songs) ->
                 if (artistId == null || artistId <= 0) return@mapNotNull null
-                var artistName = songs.firstOrNull()?.artist ?: "Unknown Artist"
-                if (artistName == "<unknown>") {
-                    artistName = "Unknown Artist"
-                }
+                val artistName = songs.firstOrNull()?.artist
+                    ?.takeIf { it.isNotBlank() && it != "<unknown>" }
+                    ?: "Unknown Artist"
                 Playlist(
                     id = -artistId,
                     name = artistName,
@@ -340,5 +370,4 @@ class PlaylistRepositoryImpl @Inject constructor(
                 )
             }.sortedBy { it.name }
         }
-    }
 }

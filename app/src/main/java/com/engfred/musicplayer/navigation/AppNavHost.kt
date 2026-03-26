@@ -51,7 +51,6 @@ fun AppNavHost(
     onToggleStopAfterCurrent: () -> Unit,
     playbackPositionMs: Long,
     totalDurationMs: Long,
-    // NEW parameters:
     isDjMixActive: Boolean,
     onNavigateToDjMix: () -> Unit
 ) {
@@ -98,7 +97,10 @@ fun AppNavHost(
                 playbackPositionMs = playbackPositionMs,
                 totalDurationMs = totalDurationMs,
                 isDjMixActive = isDjMixActive,
-                onNavigateToDjMix = onNavigateToDjMix
+                onNavigateToDjMix = onNavigateToDjMix,
+                onOpenMixOfTheDay = { playlistId ->
+                    rootNavController.navigate(AppDestinations.DjMix.createRoute(playlistId))
+                }
             )
         }
 
@@ -120,7 +122,6 @@ fun AppNavHost(
             NowPlayingScreen(onNavigateUp = { rootNavController.navigateUp() })
         }
 
-        // ── Playlist Detail ── (CHANGED: added onDjMixClick) ────────────────
         composable(
             route = AppDestinations.PlaylistDetail.route,
             arguments = listOf(
@@ -140,14 +141,12 @@ fun AppNavHost(
                 onToggleStopAfterCurrent = onToggleStopAfterCurrent,
                 playbackPositionMs = playbackPositionMs,
                 totalDurationMs = totalDurationMs,
-                // NEW ↓
                 onDjMixClick = { playlistId ->
                     rootNavController.navigate(AppDestinations.DjMix.createRoute(playlistId))
                 }
             )
         }
 
-        // ── DJ Mix ── (NEW) ──────────────────────────────────────────────────
         composable(
             route = AppDestinations.DjMix.route,
             arguments = listOf(

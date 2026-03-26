@@ -71,10 +71,6 @@ import com.engfred.musicplayer.feature_settings.presentation.screens.SettingsScr
 import com.engfred.musicplayer.navigation.AppDestinations
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 
-/**
- * Main screen of the application, hosting the custom bottom navigation bar and
- * managing the primary feature screens.
- */
 @OptIn(ExperimentalPermissionsApi::class)
 @UnstableApi
 @Composable
@@ -99,9 +95,9 @@ fun MainScreen(
     onToggleStopAfterCurrent: () -> Unit,
     playbackPositionMs: Long,
     totalDurationMs: Long,
-    // NEW parameters:
     isDjMixActive: Boolean,
-    onNavigateToDjMix: () -> Unit
+    onNavigateToDjMix: () -> Unit,
+    onOpenMixOfTheDay: (Long) -> Unit
 ) {
     val bottomNavController = rememberNavController()
     val bottomNavItems = listOf(
@@ -116,7 +112,6 @@ fun MainScreen(
     var hasPermission by remember { mutableStateOf(permissionHandler.hasAudioPermission() && permissionHandler.hasWriteStoragePermission()) }
     val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
 
-    // Update permission state on resume
     DisposableEffect(Unit) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -138,12 +133,11 @@ fun MainScreen(
             val isOnPlaylistsScreen = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Playlists.baseRoute } == true
             val isOnSettingsScreen = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Settings.baseRoute } == true
 
-            // Dynamic title based on current bottom nav screen
             val mainTitle = when {
                 isOnLibraryScreen -> AppDestinations.BottomNavItem.Library.label
                 isOnPlaylistsScreen -> AppDestinations.BottomNavItem.Playlists.label
                 isOnSettingsScreen -> AppDestinations.BottomNavItem.Settings.label
-                else -> "Music" // Fallback for edge cases
+                else -> "Music"
             }
             val subtitle = if (audioItems.isNotEmpty() && isOnLibraryScreen) {
                 "${formatCount(audioItems.size)} ${pluralize(audioItems.size, "Audio files", "Audio files", showCount = false)}"
@@ -194,7 +188,6 @@ fun MainScreen(
                     .navigationBarsPadding()
                     .background(MaterialTheme.colorScheme.surface)
             ) {
-                // NEW: Show DJ bar when DJ mix is active, otherwise normal playback controls
                 if (isDjMixActive) {
                     DjMixBar(
                         onClick = onNavigateToDjMix,
@@ -226,7 +219,6 @@ fun MainScreen(
                     }
                 }
 
-                // Bottom navigation row
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -243,7 +235,6 @@ fun MainScreen(
                             item = item,
                             isSelected = selected,
                             onClick = {
-                                // Prevent navigation to non-Library screens if permission not granted
                                 if (hasPermission || item.baseRoute == AppDestinations.BottomNavItem.Library.baseRoute) {
                                     bottomNavController.navigate(item.baseRoute) {
                                         popUpTo(bottomNavController.graph.findStartDestination().id) {
@@ -253,7 +244,6 @@ fun MainScreen(
                                         restoreState = true
                                     }
                                 } else {
-                                    // UX: Inform user they need to grant permission first (in Library)
                                     Toast.makeText(
                                         context,
                                         "Grant storage permission in Library to access this feature.",
@@ -267,7 +257,6 @@ fun MainScreen(
             }
         }
     ) { innerPadding ->
-        // Apply the scaffold inner padding to the NavHost so each destination sits below the topBar and above the bottomBar.
         NavHost(
             navController = bottomNavController,
             startDestination = AppDestinations.BottomNavItem.Library.baseRoute,
@@ -278,11 +267,12 @@ fun MainScreen(
             composable(AppDestinations.BottomNavItem.Library.baseRoute) {
                 LibraryScreen(
                     onEditSong = onEditSong,
-                    onTrimAudio = onTrimAudio
-                ) // LibraryScreen will be laid out inside NavHost's padded area
+                    onTrimAudio = onTrimAudio,
+                    onOpenMixOfTheDay = onOpenMixOfTheDay
+                )
             }
             composable(AppDestinations.BottomNavItem.Playlists.baseRoute) {
-                PlaylistsScreen(onPlaylistClick = onPlaylistClick, onCreatePlaylist = onCreatePlaylist)  // Fixed
+                PlaylistsScreen(onPlaylistClick = onPlaylistClick, onCreatePlaylist = onCreatePlaylist)
             }
             composable(AppDestinations.BottomNavItem.Settings.baseRoute) {
                 SettingsScreen()
@@ -301,7 +291,6 @@ fun MainScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        // brief, non-technical explanation
                         "Note: On some phones the system may stop the app from starting again (battery or system settings). If that happens the app will close — just open it again manually.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -317,7 +306,6 @@ fun MainScreen(
                             delayMs = 300,
                             toastMessage = "Restarting music player...",
                             onBeforeRestart = {
-                                // release player / stop services before kill
                                 onReleasePlayer()
                             }
                         )
@@ -379,7 +367,6 @@ private fun CustomBottomNavItem(
     }
 }
 
-// DJ Mix Bar composable
 @Composable
 private fun DjMixBar(
     onClick: () -> Unit,

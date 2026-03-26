@@ -40,7 +40,8 @@ fun LibraryContent(
     selectedAudioFiles: Set<AudioFile>,
     isSelectionMode: Boolean,
     onToggleSelection: (AudioFile) -> Unit,
-    onLongPress: (AudioFile) -> Unit
+    onLongPress: (AudioFile) -> Unit,
+    onOpenMixOfTheDay: (Long) -> Unit
 ) {
     Box(
         modifier = modifier
@@ -85,6 +86,18 @@ fun LibraryContent(
                     state = lazyListState,
                     modifier = Modifier.fillMaxSize(),
                 ) {
+
+                    if (uiState.searchQuery.isEmpty()) {
+                        uiState.mixOfTheDayPlaylist?.let { mixPlaylist ->
+                            item {
+                                MixOfTheDayCard(
+                                    playlist = mixPlaylist,
+                                    onClick = { onOpenMixOfTheDay(mixPlaylist.id) }
+                                )
+                            }
+                        }
+                    }
+
                     val audios = uiState.filteredAudioFiles.ifEmpty { uiState.audioFiles }
                     items(audios, key = { it.id }) { audioFile ->
                         val isSelected = selectedAudioFiles.contains(audioFile)

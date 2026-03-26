@@ -3,6 +3,7 @@ package com.engfred.musicplayer.feature_library.presentation.viewmodel
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.model.Playlist
 import com.engfred.musicplayer.core.domain.model.FilterOption
+
 /**
  * Data class representing the complete UI state for the Library Screen.
  */
@@ -28,4 +29,5 @@ data class LibraryScreenState(
     val showBatchDeleteConfirmationDialog: Boolean = false,
 
     val showCreatePlaylistDialog: Boolean = false,
+    val mixOfTheDayPlaylist: Playlist? = null
 )

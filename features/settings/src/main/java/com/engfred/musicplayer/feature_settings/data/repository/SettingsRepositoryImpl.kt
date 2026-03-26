@@ -59,6 +59,8 @@ class SettingsRepositoryImpl @Inject constructor(
         private val DJ_MAX_TRACK_DUR_SEC   = intPreferencesKey("dj_max_track_dur_sec")
         private val DJ_LOOP_QUEUE          = booleanPreferencesKey("dj_loop_queue")
         private val DJ_MANUAL_MAX_DURATION = booleanPreferencesKey("dj_manual_max_duration")
+
+        private val LAST_MIX_OF_THE_DAY_TIMESTAMP = longPreferencesKey("last_mix_of_the_day_timestamp")
     }
 
     override fun getAppSettings(): Flow<AppSettings> {
@@ -241,5 +243,13 @@ class SettingsRepositoryImpl @Inject constructor(
      */
     override suspend fun updateDjManualMaxDuration(enabled: Boolean) {
         dataStore.edit { it[DJ_MANUAL_MAX_DURATION] = enabled }
+    }
+
+    override suspend fun getLastMixOfTheDayTimestamp(): Long {
+        return dataStore.data.first()[LAST_MIX_OF_THE_DAY_TIMESTAMP] ?: 0L
+    }
+
+    override suspend fun updateLastMixOfTheDayTimestamp(timestamp: Long) {
+        dataStore.edit { it[LAST_MIX_OF_THE_DAY_TIMESTAMP] = timestamp }
     }
 }
