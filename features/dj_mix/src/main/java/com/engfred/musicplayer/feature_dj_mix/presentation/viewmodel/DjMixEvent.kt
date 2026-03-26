@@ -5,15 +5,17 @@ import com.engfred.musicplayer.core.domain.model.AudioFile
 sealed interface DjMixEvent {
     data object PlayPause : DjMixEvent
     data object MixNow : DjMixEvent
-    data object SkipBack : DjMixEvent           // ── NEW (Feature 3) ──
+    data object SkipBack : DjMixEvent
 
-    // ── NEW (Feature 2) ──────────────────────────────────────────────────────
-    // Overrides the energy arc order. Once any of these fires, isQueueUserOrdered
-    // is set to true and rebuildSmartQueue() becomes a no-op until the session ends.
+    // ── Queue ordering ────────────────────────────────────────────────────────
+    // All three are no-ops while isAnalyzing == true (gated in ViewModel).
     data object ShuffleQueue : DjMixEvent
     data object SortByBpm : DjMixEvent
     data class MoveTrack(val fromIndex: Int, val toIndex: Int) : DjMixEvent
-    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Remove a track from the current session queue (session-only, not
+    // permanent — the underlying playlist is untouched).
+    data class RemoveTrack(val audioFile: AudioFile) : DjMixEvent
 
     data object AbortCrossfade : DjMixEvent
 

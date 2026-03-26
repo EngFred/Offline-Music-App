@@ -15,7 +15,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -49,65 +48,32 @@ fun ControlsSection(
     onToggleManualMaxDuration: (Boolean) -> Unit,
     onMaxDurationChanged: (Int) -> Unit,
     onToggleLoopQueue: (Boolean) -> Unit,
-    canSkipBack: Boolean,
-    onSkipBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Removed all background layers and borders. Controls float purely on the canvas.
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Massive pro Play/Pause button
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // Centered Play/Pause button
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+                .clickable(onClick = onPlayPause),
+            contentAlignment = Alignment.Center
         ) {
-            // Skip back
-            Box(
-                modifier = Modifier
-                    .size(52.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (canSkipBack) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                        else Color.White.copy(alpha = 0.05f)
-                    )
-                    .clickable(enabled = canSkipBack, onClick = onSkipBack),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.SkipPrevious,
-                    contentDescription = "Skip back",
-                    tint = if (canSkipBack) MaterialTheme.colorScheme.primary
-                    else Color.White.copy(alpha = 0.25f),
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-
-            // Play/Pause (keep existing 80dp box as-is)
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-                    .clickable(onClick = onPlayPause),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(40.dp)
-                )
-            }
-
-            // Balancing spacer (same size as skip-back)
-            Spacer(modifier = Modifier.size(52.dp))
+            Icon(
+                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                contentDescription = if (isPlaying) "Pause" else "Play",
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(40.dp)
+            )
         }
 
         Spacer(modifier = Modifier.height(48.dp))
 
-        // Clean, flat toggle list with minimal dividers
+        // Toggle list and sliders
         Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
             PremiumToggleRow(
                 title = "Auto-Mix Mode",
@@ -252,7 +218,6 @@ private fun SliderWithLabel(
                 inactiveTrackColor = Color.White.copy(alpha = 0.1f)
             )
         )
-        // New optional description rendered below the slider
         if (description != null) {
             Text(
                 text = description,

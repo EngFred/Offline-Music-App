@@ -2,6 +2,8 @@ package com.engfred.musicplayer.feature_dj_mix.di
 
 import android.content.Context
 import androidx.room.Room
+import com.engfred.musicplayer.core.domain.BpmScanScheduler
+import com.engfred.musicplayer.feature_dj_mix.data.bpm.BpmScanSchedulerImpl
 import com.engfred.musicplayer.feature_dj_mix.data.local.dao.BpmCacheDao
 import com.engfred.musicplayer.feature_dj_mix.data.local.db.DjMixDatabase
 import com.engfred.musicplayer.feature_dj_mix.data.repository.DjMixRepositoryImpl
@@ -37,6 +39,10 @@ abstract class DjMixModule {
     @Binds
     @Singleton
     abstract fun bindDjMixRepository(impl: DjMixRepositoryImpl): DjMixRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindBpmScanScheduler(impl: BpmScanSchedulerImpl): BpmScanScheduler
 
     companion object {
 

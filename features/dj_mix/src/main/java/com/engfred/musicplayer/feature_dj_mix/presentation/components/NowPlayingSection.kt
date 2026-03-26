@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -58,24 +59,25 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.feature_dj_mix.data.crossfade.MixStrategy
 import kotlin.math.max
 
 val MixStrategy.uiLabel: String
     get() = when (this) {
-        MixStrategy.TRANSPARENT    -> "TRANSPARENT BLEND"
-        MixStrategy.SMOOTH         -> "SMOOTH SYNC"
-        MixStrategy.POWER_MIX      -> "POWER MIX"
-        MixStrategy.HARMONIC       -> "HARMONIC DROP"
+        MixStrategy.TRANSPARENT     -> "TRANSPARENT BLEND"
+        MixStrategy.SMOOTH          -> "SMOOTH SYNC"
+        MixStrategy.POWER_MIX       -> "POWER MIX"
+        MixStrategy.HARMONIC        -> "HARMONIC DROP"
         MixStrategy.WIDE_TRANSITION -> "ENERGY VALLEY"
     }
 
 val MixStrategy.themeColor: Color
     get() = when (this) {
-        MixStrategy.TRANSPARENT    -> Color(0xFF0288D1)
-        MixStrategy.SMOOTH         -> Color(0xFF388E3C)
-        MixStrategy.POWER_MIX      -> Color(0xFFF57C00)
-        MixStrategy.HARMONIC       -> Color(0xFF8E24AA)
+        MixStrategy.TRANSPARENT     -> Color(0xFF0288D1)
+        MixStrategy.SMOOTH          -> Color(0xFF388E3C)
+        MixStrategy.POWER_MIX       -> Color(0xFFF57C00)
+        MixStrategy.HARMONIC        -> Color(0xFF8E24AA)
         MixStrategy.WIDE_TRANSITION -> Color(0xFFD32F2F)
     }
 
@@ -94,56 +96,58 @@ fun NowPlayingSection(
     waveform: List<Float> = emptyList(),
     isPlaying: Boolean,
     timeToNextMixMs: Long? = null,
-    onAbortCrossfade: () -> Unit // ── NEW ──
+    nextTrack: AudioFile? = null,
+    onAbortCrossfade: () -> Unit
 ) {
     val playbackProgress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
     val animatedPlayback by animateFloatAsState(
-        targetValue = playbackProgress,
-        animationSpec = tween(durationMillis = 300),
-        label = "playback_progress"
+        targetValue    = playbackProgress,
+        animationSpec  = tween(durationMillis = 300),
+        label          = "playback_progress"
     )
 
     // ── Vinyl rotation ────────────────────────────────────────────────────────
+    // FIX: snapTo is now called ONCE when playback starts (outside the while loop)
+    // so it only normalizes the angle on play, not every 4 seconds.
+    // LaunchedEffect(isPlaying) already cancels the previous coroutine when the
+    // key changes, so rapid play/pause flips are safe.
     val rotation = remember { Animatable(0f) }
     LaunchedEffect(isPlaying) {
         if (isPlaying) {
+            // Normalize once on start so rotation.value never grows unbounded
+            rotation.snapTo(rotation.value % 360f)
             while (true) {
-                val current = rotation.value % 360f
-                rotation.snapTo(current)
                 rotation.animateTo(
-                    targetValue = current + 360f,
+                    targetValue   = rotation.value + 360f,
                     animationSpec = tween(durationMillis = 4000, easing = LinearEasing)
                 )
             }
         }
+        // When paused the coroutine is simply cancelled — rotation freezes in place
     }
 
     // ── Mix countdown arc state ───────────────────────────────────────────────
-    // Track the value when the countdown first appears so we can compute arc fill
-    // fraction (0 = just entered prebuffer zone, 1 = mix is firing right now).
     var countdownMaxMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(timeToNextMixMs) {
         when {
-            timeToNextMixMs == null        -> countdownMaxMs = 0L
-            countdownMaxMs == 0L           -> countdownMaxMs = timeToNextMixMs
+            timeToNextMixMs == null          -> countdownMaxMs = 0L
+            countdownMaxMs == 0L             -> countdownMaxMs = timeToNextMixMs
             timeToNextMixMs > countdownMaxMs -> countdownMaxMs = timeToNextMixMs
         }
     }
 
-    // Fraction from 0 (just entered approach zone) → 1 (mix firing).
     val countdownFraction: Float = if (timeToNextMixMs != null && countdownMaxMs > 0L) {
         1f - (timeToNextMixMs.toFloat() / countdownMaxMs.toFloat())
     } else 0f
 
     val animatedCountdownFraction by animateFloatAsState(
-        targetValue = countdownFraction,
+        targetValue   = countdownFraction,
         animationSpec = tween(durationMillis = 350),
-        label = "countdown_arc"
+        label         = "countdown_arc"
     )
 
-    // Arc colour transitions from primary → warning red as time runs out (< 5 s).
-    val primaryColor   = MaterialTheme.colorScheme.primary
-    val urgentColor    = Color(0xFFEF5350)
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val urgentColor  = Color(0xFFEF5350)
     val arcColor: Color = when {
         timeToNextMixMs == null  -> primaryColor
         timeToNextMixMs <= 0L    -> urgentColor
@@ -151,7 +155,6 @@ fun NowPlayingSection(
         else                     -> primaryColor
     }
 
-    // Countdown display text: "MIX IN ~Xs" or "MIXING…"
     val countdownText: String? = when {
         timeToNextMixMs == null -> null
         timeToNextMixMs <= 0L   -> "MIXING\u2026"
@@ -160,49 +163,41 @@ fun NowPlayingSection(
 
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier          = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // ── Vinyl record with countdown arc overlay ───────────────────────
-            // Outer box is 80 dp to accommodate the arc ring (vinyl = 72 dp).
-            Box(
-                modifier = Modifier.size(80.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                // Countdown arc — drawn BEHIND the vinyl disk
+            Box(modifier = Modifier.size(80.dp), contentAlignment = Alignment.Center) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val strokeWidth = 3.5.dp.toPx()
                     val inset       = strokeWidth / 2f
                     val arcSize     = Size(size.width - inset * 2, size.height - inset * 2)
                     val topLeft     = Offset(inset, inset)
 
-                    // Background track ring (always visible once countdown starts)
                     if (countdownMaxMs > 0L || animatedCountdownFraction > 0f) {
                         drawArc(
-                            color       = arcColor.copy(alpha = 0.18f),
-                            startAngle  = -90f,
-                            sweepAngle  = 360f,
-                            useCenter   = false,
-                            topLeft     = topLeft,
-                            size        = arcSize,
-                            style       = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                            color      = arcColor.copy(alpha = 0.18f),
+                            startAngle = -90f,
+                            sweepAngle = 360f,
+                            useCenter  = false,
+                            topLeft    = topLeft,
+                            size       = arcSize,
+                            style      = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                         )
                     }
-                    // Foreground countdown arc — fills clockwise from 12 o'clock
                     if (animatedCountdownFraction > 0f) {
                         drawArc(
-                            color       = arcColor.copy(alpha = 0.92f),
-                            startAngle  = -90f,
-                            sweepAngle  = 360f * animatedCountdownFraction,
-                            useCenter   = false,
-                            topLeft     = topLeft,
-                            size        = arcSize,
-                            style       = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                            color      = arcColor.copy(alpha = 0.92f),
+                            startAngle = -90f,
+                            sweepAngle = 360f * animatedCountdownFraction,
+                            useCenter  = false,
+                            topLeft    = topLeft,
+                            size       = arcSize,
+                            style      = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                         )
                     }
                 }
 
-                // Vinyl disk (72 dp — sits inside the 80 dp outer box)
                 Box(
                     modifier = Modifier
                         .size(72.dp)
@@ -213,16 +208,15 @@ fun NowPlayingSection(
                 ) {
                     if (albumArtUri != null) {
                         AsyncImage(
-                            model          = albumArtUri,
+                            model              = albumArtUri,
                             contentDescription = "Album Art",
-                            contentScale   = ContentScale.Crop,
-                            modifier       = Modifier.fillMaxSize().clip(CircleShape)
+                            contentScale       = ContentScale.Crop,
+                            modifier           = Modifier.fillMaxSize().clip(CircleShape)
                         )
                         Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.10f)))
                     } else {
                         FallbackVinylArt()
                     }
-                    // Spindle hole
                     Box(
                         modifier = Modifier
                             .size(14.dp)
@@ -237,12 +231,12 @@ fun NowPlayingSection(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text     = trackTitle,
-                    style    = MaterialTheme.typography.titleLarge,
+                    text       = trackTitle,
+                    style      = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Black,
-                    color    = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    color      = MaterialTheme.colorScheme.onSurface,
+                    maxLines   = 1,
+                    overflow   = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
@@ -257,10 +251,10 @@ fun NowPlayingSection(
             bpm?.let {
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text  = it.toInt().toString(),
-                        style = MaterialTheme.typography.titleLarge,
+                        text       = it.toInt().toString(),
+                        style      = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.primary
+                        color      = MaterialTheme.colorScheme.primary
                     )
                     Text(
                         text          = "BPM",
@@ -276,16 +270,14 @@ fun NowPlayingSection(
         Spacer(modifier = Modifier.height(32.dp))
 
         // ── Waveform bars ─────────────────────────────────────────────────────
-        // Always renders: generateBeatWaveform() now returns a placeholder instead
-        // of emptyList(), so this block always has data to draw.
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp)
         ) {
-            val source    = waveform.ifEmpty { List(48) { 0.10f } }
-            val barCount  = 48
-            val chunkSize = (source.size / barCount).coerceAtLeast(1)
+            val source     = waveform.ifEmpty { List(48) { 0.10f } }
+            val barCount   = 48
+            val chunkSize  = (source.size / barCount).coerceAtLeast(1)
             val downsampled = source.chunked(chunkSize).map { chunk -> chunk.maxOrNull() ?: 0f }
 
             val barWidth    = size.width / downsampled.size
@@ -307,9 +299,8 @@ fun NowPlayingSection(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ── Timestamps ────────────────────────────────────────────────────────
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier              = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
@@ -336,9 +327,10 @@ fun NowPlayingSection(
             trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
         )
 
-        // ── Mix countdown badge ───────────────────────────────────────────────
-        // Slides in from below the progress bar when the engine enters the
-        // pre-buffer zone, ~10–15 s before the automatic mix fires.
+        // ── Countdown row: UP NEXT chip (left) + countdown badge (right) ──────
+        // The whole row slides in together when the engine enters the pre-buffer
+        // zone. Having both pieces on one row makes the relationship obvious —
+        // "this track is coming, and it's coming in ~Xs".
         AnimatedVisibility(
             visible = countdownText != null,
             enter   = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 2 },
@@ -347,25 +339,63 @@ fun NowPlayingSection(
             if (countdownText != null) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(
-                    modifier          = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End
+                    modifier              = Modifier.fillMaxWidth(),
+                    verticalAlignment     = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Pulsing dot indicator
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(arcColor)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text          = countdownText,
-                        style         = MaterialTheme.typography.labelSmall,
-                        fontWeight    = FontWeight.Black,
-                        letterSpacing = 1.sp,
-                        color         = arcColor
-                    )
+                    // ── UP NEXT chip ──────────────────────────────────────────
+                    // Shown only when the pre-buffer has resolved a next track.
+                    // Uses a very low-alpha pill so it reads as "info" not "action".
+                    if (nextTrack != null) {
+                        Row(
+                            modifier = Modifier
+                                .background(
+                                    color = primaryColor.copy(alpha = 0.10f),
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text          = "UP NEXT",
+                                style         = MaterialTheme.typography.labelSmall,
+                                fontWeight    = FontWeight.ExtraBold,
+                                letterSpacing = 0.5.sp,
+                                color         = primaryColor.copy(alpha = 0.65f)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text     = nextTrack.title,
+                                style    = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                                color    = Color.White.copy(alpha = 0.70f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 160.dp)
+                            )
+                        }
+                    } else {
+                        // Keep the right side pinned to the end even when there's no chip
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+
+                    // ── Countdown indicator ───────────────────────────────────
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(arcColor)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text          = countdownText,
+                            style         = MaterialTheme.typography.labelSmall,
+                            fontWeight    = FontWeight.Black,
+                            letterSpacing = 1.sp,
+                            color         = arcColor
+                        )
+                    }
                 }
             }
         }
@@ -405,13 +435,10 @@ fun NowPlayingSection(
                     color      = strategyColor,
                     trackColor = strategyColor.copy(alpha = 0.15f)
                 )
-                // ── Abort button ──────────────────────────────────────────────────
-                // Subtle — same hue as the strategy color but lower alpha so it
-                // doesn't compete visually with the strategy label.
                 TextButton(
-                    onClick      = onAbortCrossfade,
+                    onClick        = onAbortCrossfade,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    modifier     = Modifier.padding(start = 4.dp)
+                    modifier       = Modifier.padding(start = 4.dp)
                 ) {
                     Text(
                         text       = "✕",
@@ -427,13 +454,12 @@ fun NowPlayingSection(
 
 @Composable
 private fun FallbackVinylArt(modifier: Modifier = Modifier) {
-    val primaryColor    = MaterialTheme.colorScheme.primary
-    val onPrimaryColor  = MaterialTheme.colorScheme.onPrimary
+    val primaryColor   = MaterialTheme.colorScheme.primary
+    val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
 
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val maxRadius = size.width / 2
-
             drawCircle(color = Color(0xFF333333), radius = maxRadius)
             drawCircle(color = Color(0xFF141414), radius = maxRadius - 1.dp.toPx())
             drawCircle(

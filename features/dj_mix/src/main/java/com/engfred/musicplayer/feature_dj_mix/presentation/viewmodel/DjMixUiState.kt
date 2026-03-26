@@ -34,6 +34,10 @@ data class DjMixUiState(
     // ── Feature 3: Skip back ──────────────────────────────────────────────────
     val canSkipBack: Boolean = false,
 
-    // ── NEW: Track History Synchronization ───────────────────────────────────
-    val playedTrackIds: Set<Long> = emptySet()
+    // ── Track History Synchronization ────────────────────────────────────────
+    val playedTrackIds: Set<Long> = emptySet(),
+
+    // ── Next track preview: shown in the UP NEXT chip while countdown is visible
+    // Computed by selectNextTrack() — does NOT advance the queue.
+    val nextTrack: AudioFile? = null
 )

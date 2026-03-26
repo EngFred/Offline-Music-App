@@ -14,9 +14,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,10 +37,10 @@ fun SmartQueueItem(
     bpm: Float?,
     isCurrent: Boolean,
     onClick: () -> Unit,
+    onRemove: () -> Unit,
     modifier: Modifier = Modifier,
     isPlayed: Boolean = false,
-    analysisFailed: Boolean = false,
-    dragHandleModifier: Modifier = Modifier
+    analysisFailed: Boolean = false
 ) {
     val bgColor = if (isCurrent)
         MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent
@@ -64,23 +65,17 @@ fun SmartQueueItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
+                .padding(start = 24.dp, end = 8.dp, top = 16.dp, bottom = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(
-                imageVector        = Icons.Rounded.DragHandle,
-                contentDescription = "Drag to reorder",
-                tint               = Color.White.copy(alpha = 0.25f),
-                modifier           = Modifier.size(18.dp).then(dragHandleModifier)
-            )
 
-            // ── NEW: Conditional Position vs Checkmark ───────────────────────
+            // Position number or played check
             if (isPlayed && !isCurrent) {
                 Icon(
                     imageVector        = Icons.Rounded.CheckCircle,
                     contentDescription = "Played",
-                    tint               = Color.White.copy(alpha = 0.3f),
+                    tint               = Color.White.copy(alpha = 0.30f),
                     modifier           = Modifier.size(16.dp).width(24.dp)
                 )
             } else {
@@ -89,38 +84,40 @@ fun SmartQueueItem(
                     style      = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color      = if (isCurrent) MaterialTheme.colorScheme.primary
-                    else Color.White.copy(alpha = 0.3f),
+                    else Color.White.copy(alpha = 0.30f),
                     modifier   = Modifier.width(24.dp)
                 )
             }
 
+            // Title + artist
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text       = song.title,
                     style      = MaterialTheme.typography.titleMedium,
                     fontWeight = if (isCurrent) FontWeight.Black else FontWeight.SemiBold,
                     color      = when {
-                        isCurrent       -> MaterialTheme.colorScheme.primary
-                        analysisFailed  -> Color.White.copy(alpha = 0.45f)
-                        else            -> Color.White
+                        isCurrent      -> MaterialTheme.colorScheme.primary
+                        analysisFailed -> Color.White.copy(alpha = 0.45f)
+                        else           -> Color.White
                     },
-                    maxLines   = 1,
-                    overflow   = TextOverflow.Ellipsis
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text     = song.artist ?: "Unknown Artist",
                     style    = MaterialTheme.typography.bodyMedium,
-                    color    = Color.White.copy(alpha = 0.5f),
+                    color    = Color.White.copy(alpha = 0.50f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
+            // BPM / warning badge
             when {
                 analysisFailed -> Icon(
                     imageVector        = Icons.Rounded.WarningAmber,
                     contentDescription = "BPM analysis failed",
-                    tint               = Color(0xFFF57C00).copy(alpha = 0.7f),
+                    tint               = Color(0xFFF57C00).copy(alpha = 0.70f),
                     modifier           = Modifier.size(18.dp)
                 )
                 bpm != null && bpm > 0f -> Text(
@@ -128,13 +125,29 @@ fun SmartQueueItem(
                     style      = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Black,
                     color      = if (isCurrent) MaterialTheme.colorScheme.primary
-                    else Color.White.copy(alpha = 0.4f)
+                    else Color.White.copy(alpha = 0.40f)
                 )
                 else -> Text(
                     text  = "—",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = Color.White.copy(alpha = 0.2f)
+                    color = Color.White.copy(alpha = 0.20f)
                 )
+            }
+
+            if (!isCurrent) {
+                IconButton(
+                    onClick  = onRemove,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector        = Icons.Rounded.Close,
+                        contentDescription = "Remove from queue",
+                        tint               = Color.White.copy(alpha = 0.28f),
+                        modifier           = Modifier.size(15.dp)
+                    )
+                }
+            } else {
+                Spacer(modifier = Modifier.size(36.dp))
             }
         }
     }

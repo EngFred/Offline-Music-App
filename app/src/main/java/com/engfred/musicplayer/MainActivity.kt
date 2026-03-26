@@ -1,4 +1,3 @@
-// MainActivity.kt
 package com.engfred.musicplayer
 
 import android.Manifest
@@ -34,6 +33,7 @@ import com.engfred.musicplayer.core.domain.usecases.PermissionHandlerUseCase
 import com.engfred.musicplayer.core.ui.theme.AppThemeType
 import com.engfred.musicplayer.core.ui.theme.MusicPlayerAppTheme
 import com.engfred.musicplayer.core.util.MediaUtils
+import com.engfred.musicplayer.feature_dj_mix.data.bpm.GlobalBpmScanWorker
 import com.engfred.musicplayer.feature_dj_mix.domain.DjSessionManager
 import com.engfred.musicplayer.feature_library.data.worker.NewAudioScanWorker
 import com.engfred.musicplayer.feature_settings.domain.usecases.GetAppSettingsUseCase
@@ -153,6 +153,20 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val audioItems by sharedAudioDataSource.deviceAudioFiles.collectAsState(initial = emptyList())
+
+            // ── Trigger global BPM pre-scan as soon as the library is available ──────────
+            // Uses KEEP policy: if a scan is already in progress (e.g. from a previous
+            // launch) this is a no-op. Re-enqueueing after new songs are added is handled
+            // by NewAudioScanWorker chaining GlobalBpmScanWorker on its own.
+            var globalScanTriggered by remember { mutableStateOf(false) }
+            LaunchedEffect(audioItems) {
+                if (!globalScanTriggered && audioItems.isNotEmpty()) {
+                    globalScanTriggered = true
+                    GlobalBpmScanWorker.enqueue(this@MainActivity)
+                    Log.d(TAG, "Global BPM scan enqueued for ${audioItems.size} songs")
+                }
+            }
+
             val selectedTheme = initialAppSettings?.selectedTheme ?: AppThemeType.CLASSIC_BLUE
             MusicPlayerAppTheme(selectedTheme = selectedTheme) {
                 val navController = androidx.navigation.compose.rememberNavController()
