@@ -36,20 +36,6 @@ import kotlin.math.min
  * Periodic worker (24 h) that builds a BPM-aware Mix of the Day from the user's library
  * and persists it atomically to Room under the reserved ID
  * [AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID].
- *
- * ## Why atomic?
- * The previous implementation called deletePlaylist / createPlaylist / addSongsToPlaylist
- * as three separate DB operations. Room fires an invalidation signal after *each* write,
- * so observers received three emissions:
- *   1. Mix deleted  → mixOfTheDayPlaylist = null
- *   2. Metadata row inserted, songs = []  → guard drops the mix (songs.isEmpty())
- *   3. Songs inserted  → mix visible ✓
- *
- * If the ViewModel's Flow collector processed emission 2 before 3 arrived (race), the
- * UI was left with a null/missing card until the next recomposition trigger.
- *
- * [PlaylistRepository.replaceMixOfTheDay] delegates to a single @Transaction DAO method,
- * collapsing all three steps into one SQLite commit → one Room emission → one UI update.
  */
 @HiltWorker
 class MixOfTheDayWorker @AssistedInject constructor(
@@ -71,13 +57,6 @@ class MixOfTheDayWorker @AssistedInject constructor(
         private const val CHANNEL_ID = "new_music_channel"
         private const val NOTIFICATION_ID = 1002
 
-        /**
-         * Schedules the worker to fire once per day, with an initial delay calculated so
-         * the first run lands at approximately 08:00 local time.
-         *
-         * Uses [ExistingPeriodicWorkPolicy.KEEP] — if already scheduled (e.g. from a
-         * previous app launch) this is a no-op, preserving the existing schedule anchor.
-         */
         fun schedule(context: Context) {
             val now = System.currentTimeMillis()
             val nextEightAm = Calendar.getInstance().apply {
@@ -102,12 +81,9 @@ class MixOfTheDayWorker @AssistedInject constructor(
         }
     }
 
-    // ── Worker entry point ────────────────────────────────────────────────────
-
     override suspend fun doWork(): Result {
         Log.d(TAG, "doWork: starting Mix of the Day generation")
 
-        // Guard: storage permission must be granted before we touch the library.
         val storagePerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
             Manifest.permission.READ_MEDIA_AUDIO
         else
@@ -118,14 +94,12 @@ class MixOfTheDayWorker @AssistedInject constructor(
             return Result.failure()
         }
 
-        // getAllAudioFiles() respects the user's MP3-only filter automatically.
         val allFiles = libraryRepository.getAllAudioFiles().first()
         if (allFiles.isEmpty()) {
             Log.d(TAG, "No audio files found — skipping")
             return Result.success()
         }
 
-        // Build a BPM lookup from successfully analysed, non-failed entries only.
         val validBpmMap: Map<Long, Float> = bpmCacheDao.getAllBpmEntries().first()
             .filter { !it.analysisFailed && it.bpm > 0f }
             .associate { it.audioFileId to it.bpm }
@@ -138,18 +112,12 @@ class MixOfTheDayWorker @AssistedInject constructor(
             return Result.success()
         }
 
-        // Build the ordered mix track list.
         val mixTracks = buildMix(eligibleFiles, validBpmMap)
         if (mixTracks.isEmpty()) {
             Log.w(TAG, "buildMix returned empty — aborting")
             return Result.success()
         }
 
-        // ── Atomic DB write ───────────────────────────────────────────────────
-        // A single @Transaction covers delete + insert playlist + insert songs,
-        // so Room fires exactly ONE invalidation → exactly ONE Flow emission.
-        // All observers (LibraryViewModel, PlaylistViewModel, etc.) see the
-        // fully-populated mix or nothing — never the empty intermediate state.
         val mixPlaylist = Playlist(
             id = AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID,
             name = "Mix of the Day",
@@ -159,7 +127,6 @@ class MixOfTheDayWorker @AssistedInject constructor(
         )
         playlistRepository.replaceMixOfTheDay(mixPlaylist, mixTracks)
 
-        // Persist the generation timestamp for staleness checks elsewhere.
         settingsRepository.updateLastMixOfTheDayTimestamp(System.currentTimeMillis())
 
         Log.d(TAG, "Mix of the Day saved — ${mixTracks.size} tracks")
@@ -169,8 +136,6 @@ class MixOfTheDayWorker @AssistedInject constructor(
     }
 
     // ── Mix construction ──────────────────────────────────────────────────────
-    // Mirrors DjMixViewModel.performRebuild / selectOpener so the mix quality
-    // is consistent with what the user gets from the interactive DJ screen.
 
     private fun buildMix(
         eligible: List<AudioFile>,
@@ -180,17 +145,24 @@ class MixOfTheDayWorker @AssistedInject constructor(
         val pool = eligible.toMutableList()
         val result = mutableListOf<AudioFile>()
 
-        // Opener: 20th–40th BPM percentile — warm but not the highest energy.
+        // ── Daily seed: same day = same mix, different day = different mix ────────
+        // Use year + day-of-year so the mix refreshes at midnight, not at 08:00.
+        val today = Calendar.getInstance()
+        val daySeed = today.get(Calendar.YEAR) * 1000L + today.get(Calendar.DAY_OF_YEAR)
+        val rng = java.util.Random(daySeed)
+
+        // ── Opener: random track within the 20th–40th BPM percentile ─────────────
         val sorted = pool.sortedBy { bpmMap[it.id]!! }
         val n = sorted.size
         val lowerIdx = (n * 0.20).toInt().coerceIn(0, n - 1)
         val upperIdx = (n * 0.40).toInt().coerceIn(lowerIdx, n - 1)
-        val opener = sorted.getOrNull((lowerIdx + upperIdx) / 2) ?: pool.first()
+        val openerIdx = if (lowerIdx < upperIdx) lowerIdx + rng.nextInt(upperIdx - lowerIdx + 1)
+        else lowerIdx
+        val opener = sorted[openerIdx]
 
         result.add(opener)
         pool.remove(opener)
 
-        // Sliding window of the last 3 BPMs used to smooth arc transitions.
         val recentBpms = ArrayDeque<Float>(4)
         recentBpms.addLast(bpmMap[opener.id] ?: 120f)
 
@@ -198,13 +170,29 @@ class MixOfTheDayWorker @AssistedInject constructor(
             val setProgressFraction = result.size.toFloat() / cap.toFloat()
             val lastBpm = bpmMap[result.last().id] ?: 120f
 
-            val next = getSmartNextTrackUseCase(
-                currentBpm = lastBpm,
-                remainingQueue = pool,
-                bpmCache = bpmMap,
-                tolerance = 10f,
-                recentBpms = recentBpms.toList(),
-                setProgressFraction = setProgressFraction
+            // Score every remaining candidate
+            val scored = pool
+                .filter { bpmMap.containsKey(it.id) }
+                .map { track ->
+                    track to getSmartNextTrackUseCase(
+                        currentBpm          = lastBpm,
+                        remainingQueue      = listOf(track),
+                        bpmCache            = bpmMap,
+                        tolerance           = 10f,
+                        recentBpms          = recentBpms.toList(),
+                        setProgressFraction = setProgressFraction
+                    ).let { /* score proxy: just use the use-case result rank */ track }
+                }
+
+            // Pick via weighted random from the top-3 scored candidates
+            val next = selectWeightedTopN(
+                currentBpm          = lastBpm,
+                pool                = pool,
+                bpmMap              = bpmMap,
+                recentBpms          = recentBpms.toList(),
+                setProgressFraction = setProgressFraction,
+                rng                 = rng,
+                topN                = 3
             ) ?: pool.first()
 
             result.add(next)
@@ -220,11 +208,62 @@ class MixOfTheDayWorker @AssistedInject constructor(
         return result
     }
 
+    /**
+     * Scores all BPM-eligible candidates in [pool], takes the top [topN],
+     * then samples one proportionally to score (softmax-style).
+     *
+     * This keeps quality high (bad tracks rarely win) while ensuring every
+     * qualifying track eventually has a chance across days.
+     */
+    private fun selectWeightedTopN(
+        currentBpm: Float,
+        pool: MutableList<AudioFile>,
+        bpmMap: Map<Long, Float>,
+        recentBpms: List<Float>,
+        setProgressFraction: Float,
+        rng: java.util.Random,
+        topN: Int = 3
+    ): AudioFile? {
+        data class Scored(val track: AudioFile, val score: Float)
+
+        val candidates = pool
+            .filter { bpmMap.containsKey(it.id) }
+            .map { track ->
+                // Re-use GetSmartNextTrackUseCase on a singleton list to get its score.
+                // We invoke it as a single-candidate queue so the returned track IS
+                // the candidate — we just need the implicit score ordering.
+                // For direct scoring we replicate the scoring inline here:
+                val bpm = bpmMap[track.id]!!
+                val harmonic = getSmartNextTrackUseCase.isHarmonicallyCompatible(currentBpm, bpm)
+                val delta = getSmartNextTrackUseCase.minimumHarmonicDelta(currentBpm, bpm)
+                val proximity = (100f - delta * 4.5f).coerceAtLeast(-30f)
+                val harmonicBonus = if (harmonic) 60f else 0f
+                val stagnantCount = recentBpms.count { kotlin.math.abs(it - bpm) <= 2f }
+                val stagnation = if (stagnantCount >= (recentBpms.size / 2f).coerceAtLeast(1f)) 18f else 0f
+                Scored(track, harmonicBonus + proximity - stagnation)
+            }
+            .sortedByDescending { it.score }
+            .take(topN)
+
+        if (candidates.isEmpty()) return null
+        if (candidates.size == 1) return candidates[0].track
+
+        // Shift scores so minimum = 1 (all weights positive), then sample
+        val minScore = candidates.minOf { it.score }
+        val weights = candidates.map { (it.score - minScore + 1f) }
+        val total = weights.sum()
+        var pick = rng.nextFloat() * total
+        for ((i, w) in weights.withIndex()) {
+            pick -= w
+            if (pick <= 0f) return candidates[i].track
+        }
+        return candidates.last().track
+    }
+
     // ── Notification ──────────────────────────────────────────────────────────
 
     @SuppressLint("MissingPermission")
     private fun showNotification(trackCount: Int) {
-        // Skip if notification permission is missing (Android 13+).
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
@@ -236,7 +275,7 @@ class MixOfTheDayWorker @AssistedInject constructor(
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra("OPEN_MIX_OF_THE_DAY", true)
                 putExtra("MIX_PLAYLIST_ID", AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID)
-            } ?: return   // Can't build a tap-target without the launch intent.
+            } ?: return
 
         val pendingIntent = PendingIntent.getActivity(
             context,
