@@ -18,7 +18,6 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.engfred.musicplayer.core.common.Resource
@@ -370,11 +369,6 @@ class MainActivity : ComponentActivity() {
             workRequest
         )
         MixOfTheDayWorker.schedule(this)
-
-        // THE HACK: Force it to run right now for testing
-        Log.d(TAG, "Executing MixOfTheDayWorker force-start hack!")
-        val testRequest = OneTimeWorkRequestBuilder<MixOfTheDayWorker>().build()
-        WorkManager.getInstance(this).enqueue(testRequest)
     }
 
     private suspend fun checkIntentForNewMusic(intent: Intent?) {
