@@ -45,5 +45,9 @@ data class DjMixUiState(
     val waveform: List<Float> = emptyList(),
     val settings: DjMixSettings = DjMixSettings(),
     val isLoading: Boolean = true,
-    val error: String? = null
+    val error: String? = null,
+    // ── NEW ──────────────────────────────────────────────────────────────────
+    // Mirrors CrossfadeEngineState.timeToNextMixMs for the UI layer.
+    // Non-null while approaching an automatic mix trigger.
+    val timeToNextMixMs: Long? = null
 )

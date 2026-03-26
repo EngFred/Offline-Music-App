@@ -43,12 +43,12 @@ abstract class DjMixModule {
         @Provides
         @Singleton
         fun provideDjMixDatabase(@ApplicationContext context: Context): DjMixDatabase =
-            Room.databaseBuilder(
-                context,
-                DjMixDatabase::class.java,
-                "dj_mix_db"
-            )
-                .addMigrations(DjMixDatabase.MIGRATION_1_2, DjMixDatabase.MIGRATION_2_3)
+            Room.databaseBuilder(context, DjMixDatabase::class.java, "dj_mix_db")
+                .addMigrations(
+                    DjMixDatabase.MIGRATION_1_2,
+                    DjMixDatabase.MIGRATION_2_3,
+                    DjMixDatabase.MIGRATION_3_4
+                )
                 .build()
 
         @Provides

@@ -54,7 +54,8 @@ data class CrossfadeEngineState(
     val crossfadeProgressFraction: Float = 0f,
     val waveform: List<Float> = emptyList(),
     val currentMixStrategy: MixStrategy = MixStrategy.SMOOTH,
-    val error: String? = null
+    val error: String? = null,
+    val timeToNextMixMs: Long? = null
 )
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -339,6 +340,9 @@ class CrossfadeEngine @Inject constructor(
     @Volatile private var isReleased                     = false
     private var isInitialized                            = false
 
+
+    @Volatile private var currentWaveformEnvelope: FloatArray = FloatArray(0)   // ── NEW ──
+
     val isActive: Boolean get() = isInitialized && !isReleased
 
     /** Per-bar smoothed amplitudes for the beat-grid waveform. */
@@ -418,6 +422,7 @@ class CrossfadeEngine @Inject constructor(
         lastPrebufferRequestedId = null
         isPrebufferingInProgress = false
         waveformSmoothed.fill(0f)
+        currentWaveformEnvelope  = FloatArray(0)
 
         engineScope.launch {
             withContext(Dispatchers.Main) {
@@ -449,12 +454,19 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
-    fun updateCurrentBpmInfo(bpm: Float, firstBeatMs: Long, amplitude: Float = 0f) {
-        currentTrackBpm         = bpm
-        currentTrackFirstBeatMs = firstBeatMs
-        currentTrackAmplitude   = amplitude
-        currentTrackBaseVolume  = if (amplitude > 0f) (0.15f / amplitude).coerceIn(0.2f, 1.0f) else 1.0f
-        Log.d(TAG, "updateCurrentBpmInfo: BPM=$bpm firstBeat=${firstBeatMs}ms Vol=$currentTrackBaseVolume")
+    fun updateCurrentBpmInfo(
+        bpm: Float,
+        firstBeatMs: Long,
+        amplitude: Float = 0f,
+        waveformEnvelope: FloatArray = FloatArray(0)   // ── NEW ──
+    ) {
+        currentTrackBpm            = bpm
+        currentTrackFirstBeatMs    = firstBeatMs
+        currentTrackAmplitude      = amplitude
+        currentWaveformEnvelope    = waveformEnvelope  // ── NEW ──
+        currentTrackBaseVolume     = if (amplitude > 0f) (0.15f / amplitude).coerceIn(0.2f, 1.0f) else 1.0f
+        Log.d(TAG, "updateCurrentBpmInfo: BPM=$bpm firstBeat=${firstBeatMs}ms " +
+                "Vol=$currentTrackBaseVolume envelope=${waveformEnvelope.size}bars")
     }
 
     fun triggerMixNow() {
@@ -959,10 +971,24 @@ class CrossfadeEngine @Inject constructor(
                     }
                 }
 
+                // ── Compute countdown value ───────────────────────────────────────────────
+                // Visible in the prebuffer zone (approaching mix) but not once crossfading starts.
+                // "Time to next mix" = remaining time minus the trigger window (i.e., the moment
+                // the crossfade volume ramp actually begins). Coerced to 0 inside the trigger zone
+                // so the UI can show "MIXING..." rather than a negative number.
+                val timeToNextMixMs: Long? = when {
+                    _state.value.isCrossfading    -> null      // already crossfading — no countdown needed
+                    !playing || duration <= 0L    -> null      // nothing useful to show
+                    inTriggerZone                 -> 0L        // mix is firing right now
+                    inPrebufferZone               -> (remaining - triggerWindowMs).coerceAtLeast(0L)
+                    else                          -> null
+                }
+
                 _state.update {
                     it.copy(
                         currentPositionMs = position,
-                        currentDurationMs = duration
+                        currentDurationMs = duration,
+                        timeToNextMixMs   = timeToNextMixMs
                     )
                 }
 
@@ -999,36 +1025,92 @@ class CrossfadeEngine @Inject constructor(
 
     // ── Beat-grid waveform generation ─────────────────────────────────────────
 
+    /**
+     * Generates [WAVEFORM_BARS] normalised bar heights for the beat-grid visualiser.
+     *
+     * Shape hierarchy (priority order):
+     *   1. REAL ENVELOPE  — track-specific RMS amplitude shape derived from PCM in
+     *                       [BpmAnalyzer]. Bar heights reflect the actual audio content.
+     *   2. SYNTHETIC SHAPE — the original sine-wave static base used when analysis has
+     *                       not finished yet. Still looks natural; just not track-specific.
+     *   3. PLACEHOLDER    — a low-amplitude undulating line returned when neither BPM nor
+     *                       envelope is available (first ~1s of a fresh session). Ensures
+     *                       the canvas never appears broken or completely empty.
+     *
+     * In all cases, beat-pulse animation (kick/snare envelope derived from BPM + phase)
+     * is multiplied on top of the static shape, so the bars pulse to the beat as long
+     * as BPM data is present.
+     */
     private fun generateBeatWaveform(
         positionMs: Long,
         bpm: Float,
         firstBeatMs: Long,
         amplitude: Float
     ): List<Float> {
-        if (bpm <= 0f) return emptyList()
+        val hasRealEnvelope = currentWaveformEnvelope.isNotEmpty()
 
-        val beatLengthMs  = 60_000.0 / bpm
-        val elapsed       = (positionMs - firstBeatMs).toDouble().coerceAtLeast(0.0)
-        val phaseInBeat   = (elapsed % beatLengthMs) / beatLengthMs
+        // ── Case 3: nothing available yet — return a non-empty placeholder ────────
+        // This prevents the "blank waveform" on first launch. Low amplitude and
+        // slowly undulating so it reads as "waiting" rather than "playing".
+        if (bpm <= 0f && !hasRealEnvelope) {
+            return generatePlaceholderWaveform()
+        }
 
-        val kickEnvelope  = maxOf(0.0, 1.0 - phaseInBeat * 2.5).toFloat()
-        val snarePhase    = if (phaseInBeat > 0.5) phaseInBeat - 0.5 else 1.0
-        val snareEnvelope = (maxOf(0.0, 1.0 - snarePhase * 3.0) * 0.65).toFloat()
-        val beatEnvelope  = maxOf(kickEnvelope, snareEnvelope)
+        // ── Beat-pulse envelope (kick + snare phase) ───────────────────────────────
+        val beatEnvelope: Float = if (bpm > 0f) {
+            val beatLengthMs  = 60_000.0 / bpm
+            val elapsed       = (positionMs - firstBeatMs).toDouble().coerceAtLeast(0.0)
+            val phaseInBeat   = (elapsed % beatLengthMs) / beatLengthMs
+            val kick          = maxOf(0.0, 1.0 - phaseInBeat * 2.5).toFloat()
+            val snarePhase    = if (phaseInBeat > 0.5) phaseInBeat - 0.5 else 1.0
+            val snare         = (maxOf(0.0, 1.0 - snarePhase * 3.0) * 0.65).toFloat()
+            maxOf(kick, snare)
+        } else {
+            0.45f // no BPM yet but we have a real envelope — show it at half-pulse
+        }
 
         val scaledAmp = (amplitude * 4.5f).coerceIn(0.18f, 0.95f)
 
         for (i in 0 until WAVEFORM_BARS) {
-            val staticBase   = (Math.sin(i * 2.3999632 + 1.0) * 0.22 + 0.78).toFloat()
-            val freqNorm     = i.toFloat() / WAVEFORM_BARS
-            val kickResponse = 1f - freqNorm * 0.65f
-            val steadyContrib = freqNorm * 0.35f
-            val dynamic      = beatEnvelope * kickResponse + steadyContrib
-            val rawValue     = (scaledAmp * staticBase * dynamic).coerceIn(0f, 1f)
+
+            // ── Static shape: real envelope preferred over synthetic ───────────────
+            val staticBase: Float = if (hasRealEnvelope) {
+                // Resample: map WAVEFORM_BARS indices → envelope indices
+                val envIdx = (i.toFloat() / WAVEFORM_BARS * currentWaveformEnvelope.size)
+                    .toInt().coerceIn(0, currentWaveformEnvelope.size - 1)
+                // Clamp to [0.05, 1.0] so very quiet sections never disappear entirely
+                currentWaveformEnvelope[envIdx].coerceIn(0.05f, 1.0f)
+            } else {
+                // Synthetic fallback — same as original code
+                (Math.sin(i * 2.3999632 + 1.0) * 0.22 + 0.78).toFloat()
+            }
+
+            val freqNorm      = i.toFloat() / WAVEFORM_BARS
+            val kickResponse  = 1f - freqNorm * 0.65f   // bass bars pulse harder on kicks
+            val steadyContrib = freqNorm * 0.35f         // highs stay present between beats
+            val dynamic       = beatEnvelope * kickResponse + steadyContrib
+            val rawValue      = (scaledAmp * staticBase * dynamic).coerceIn(0f, 1f)
+
+            // Smooth with exponential moving average to avoid jittery bars
             waveformSmoothed[i] = waveformSmoothed[i] * 0.65f + rawValue * 0.35f
         }
 
         return waveformSmoothed.toList()
+    }
+
+    /**
+     * Returns a low-amplitude undulating line used as a placeholder before BPM analysis
+     * and first-frame waveform data are available.
+     *
+     * Applied exponential smoothing so the bars ease in gently rather than popping up.
+     */
+    private fun generatePlaceholderWaveform(): List<Float> {
+        return List(WAVEFORM_BARS) { i ->
+            // Gentle sine curve centred around 10 % height with ±4 % variation
+            val target = 0.10f + (Math.sin(i * 1.618 + 0.5) * 0.04f).toFloat()
+            waveformSmoothed[i] = waveformSmoothed[i] * 0.80f + target * 0.20f
+            waveformSmoothed[i]
+        }
     }
 
     // ── Formatting helpers (local, no import needed) ───────────────────────────

@@ -179,18 +179,19 @@ fun DjMixScreen(
                     item {
                         val bpmInfo = uiState.bpmCache[track.id]
                         NowPlayingSection(
-                            trackTitle = track.title,
-                            trackArtist = track.artist ?: "Unknown Artist",
-                            bpm = bpmInfo?.bpm,
-                            positionMs = uiState.currentPositionMs,
-                            durationMs = uiState.currentDurationMs,
-                            isCrossfading = uiState.isCrossfading,
-                            crossfadeProgress = uiState.crossfadeProgressFraction,
+                            trackTitle         = track.title,
+                            trackArtist        = track.artist ?: "Unknown Artist",
+                            bpm                = bpmInfo?.bpm,
+                            positionMs         = uiState.currentPositionMs,
+                            durationMs         = uiState.currentDurationMs,
+                            isCrossfading      = uiState.isCrossfading,
+                            crossfadeProgress  = uiState.crossfadeProgressFraction,
                             currentMixStrategy = uiState.currentMixStrategy,
-                            albumArtUri = track.albumArtUri,
-                            waveform = uiState.waveform,
-                            isPlaying = uiState.isPlaying,
-                            modifier = Modifier.padding(horizontal = 24.dp)
+                            albumArtUri        = track.albumArtUri,
+                            waveform           = uiState.waveform,
+                            isPlaying          = uiState.isPlaying,
+                            timeToNextMixMs    = uiState.timeToNextMixMs,   // ── NEW ──
+                            modifier           = Modifier.padding(horizontal = 24.dp)
                         )
                     }
                 }

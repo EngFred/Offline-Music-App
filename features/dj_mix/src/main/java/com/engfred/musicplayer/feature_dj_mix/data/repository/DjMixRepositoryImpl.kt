@@ -42,11 +42,13 @@ class DjMixRepositoryImpl @Inject constructor(
     override fun getBpmCacheFlow(): Flow<Map<Long, BpmInfo>> =
         bpmCacheDao.getAllBpmEntries().map { entries ->
             entries.associate { entity ->
-                entity.audioFileId to BpmInfo(
-                    bpm         = entity.bpm,
-                    firstBeatMs = entity.firstBeatMs,
-                    amplitude   = entity.amplitude  // FIX: was omitted before
-                )
+                entity.audioFileId to // In getBpmCacheFlow() and getBpmForAudios(), change the BpmInfo construction:
+                        BpmInfo(
+                            bpm             = entity.bpm,
+                            firstBeatMs     = entity.firstBeatMs,
+                            amplitude       = entity.amplitude,
+                            waveformEnvelope = entity.waveformEnvelope   // ── NEW ──
+                        )
             }
         }
 
@@ -56,11 +58,13 @@ class DjMixRepositoryImpl @Inject constructor(
      */
     override suspend fun getBpmForAudios(audioFileIds: List<Long>): Map<Long, BpmInfo> =
         bpmCacheDao.getBpmForAudios(audioFileIds).associate { entity ->
-            entity.audioFileId to BpmInfo(
-                bpm         = entity.bpm,
-                firstBeatMs = entity.firstBeatMs,
-                amplitude   = entity.amplitude  // FIX: was omitted before
-            )
+            entity.audioFileId to // In getBpmCacheFlow() and getBpmForAudios(), change the BpmInfo construction:
+                    BpmInfo(
+                        bpm             = entity.bpm,
+                        firstBeatMs     = entity.firstBeatMs,
+                        amplitude       = entity.amplitude,
+                        waveformEnvelope = entity.waveformEnvelope   // ── NEW ──
+                    )
         }
 
     override fun enqueueBpmAnalysis(playlistId: Long, songs: List<AudioFile>) {

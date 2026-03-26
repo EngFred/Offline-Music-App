@@ -45,7 +45,8 @@ class BpmAnalyzer @Inject constructor(
     data class BpmAnalysisResult(
         val bpm: Float,
         val firstBeatMs: Long,
-        val amplitude: Float
+        val amplitude: Float,
+        val waveformEnvelope: FloatArray = FloatArray(0)   // ── NEW ──
     )
 
     init {
@@ -63,6 +64,12 @@ class BpmAnalyzer @Inject constructor(
 
             // Computed before the intro skip so auto-gain reflects the whole song.
             val amplitude = calculateKWeightedAmplitude(monoBytes, sampleRate)
+
+            // ── NEW: compute real waveform envelope from the full decoded mono PCM ───
+            // Done BEFORE the intro skip so the envelope represents the whole track,
+            // not just the analysed portion. This gives the visualiser a shape that
+            // matches the actual audio content from start to finish.
+            val waveformEnvelope = computeWaveformEnvelope(monoBytes, sampleRate)
 
             // Intro skip
             val skipSamples = (ANALYSIS_SKIP_SECONDS * sampleRate).toInt()
@@ -98,7 +105,12 @@ class BpmAnalyzer @Inject constructor(
                     "confidence=${String.format("%.3f", confidence)} " +
                     "kRms=${String.format("%.4f", amplitude)}")
 
-            BpmAnalysisResult(bpm = bpm, firstBeatMs = firstBeatMs, amplitude = amplitude)
+            BpmAnalysisResult(
+                bpm              = bpm,
+                firstBeatMs      = firstBeatMs,
+                amplitude        = amplitude,
+                waveformEnvelope = waveformEnvelope   // ── NEW ──
+            )
 
         } catch (e: Exception) {
             Log.e(TAG, "BPM analysis failed for $uri", e)
@@ -288,4 +300,54 @@ class BpmAnalyzer @Inject constructor(
 
     private fun MediaFormat.getIntegerSafe(key: String, default: Int): Int =
         if (containsKey(key)) getInteger(key) else default
+
+
+    /**
+     * Computes a [numBars]-element normalised RMS amplitude envelope from mono PCM bytes.
+     *
+     * Each bar is the root-mean-square of [samplesPerBar] consecutive 16-bit samples,
+     * then the whole array is normalised so the loudest bar = 1.0. The result becomes
+     * the static shape of the CrossfadeEngine waveform visualiser — actual track content
+     * instead of a synthetic kick/snare pattern.
+     *
+     * [monoBytes] is expected to be the full decoded mono PCM (before intro skip) so
+     * the envelope covers the whole track, not just the analysed portion.
+     */
+    private fun computeWaveformEnvelope(
+        monoBytes: ByteArray,
+        sampleRate: Int,
+        numBars: Int = 128
+    ): FloatArray {
+        if (monoBytes.size < 2) return FloatArray(numBars) { 0.1f }
+
+        val numSamples   = monoBytes.size / 2
+        val samplesPerBar = (numSamples.toFloat() / numBars).toInt().coerceAtLeast(1)
+        val buf          = ByteBuffer.wrap(monoBytes).order(ByteOrder.LITTLE_ENDIAN)
+        val rawEnvelope  = FloatArray(numBars)
+        var maxRms       = 0f
+
+        for (bar in 0 until numBars) {
+            var sumSq = 0.0
+            var count = 0
+            // Read exactly samplesPerBar samples (or fewer if near the end of the buffer)
+            while (count < samplesPerBar && buf.hasRemaining()) {
+                val sample = buf.short.toFloat() / Short.MAX_VALUE
+                sumSq += sample * sample
+                count++
+            }
+            if (count > 0) {
+                val rms = sqrt(sumSq / count).toFloat()
+                rawEnvelope[bar] = rms
+                if (rms > maxRms) maxRms = rms
+            }
+        }
+
+        // Normalise so the loudest bar = 1.0. Ensures bars fill the visualiser height
+        // regardless of the track's mastered loudness level.
+        return if (maxRms > 0f) {
+            FloatArray(numBars) { i -> (rawEnvelope[i] / maxRms).coerceIn(0f, 1f) }
+        } else {
+            FloatArray(numBars) { 0.1f } // safety: silent track
+        }
+    }
 }

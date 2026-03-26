@@ -7,11 +7,35 @@ import kotlinx.coroutines.flow.Flow
  * Small value object that holds everything we now cache for a track.
  * This keeps the public API clean while giving us both BPM and the first-beat cue point.
  */
+/**
+ * Waveform envelope is a 128-element FloatArray of normalised (0.0–1.0) RMS values
+ * representing the track's amplitude shape. Empty when not yet analysed.
+ * The crossfade engine uses this as the static shape for visualiser bars, then
+ * multiplies beat-pulse animation on top so bars reflect the real track content.
+ */
 data class BpmInfo(
     val bpm: Float,
     val firstBeatMs: Long = 0L,
-    val amplitude: Float = 0f
-)
+    val amplitude: Float = 0f,
+    val waveformEnvelope: FloatArray = FloatArray(0)   // ── NEW ──
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is BpmInfo) return false
+        return bpm == other.bpm &&
+                firstBeatMs == other.firstBeatMs &&
+                amplitude == other.amplitude &&
+                waveformEnvelope.contentEquals(other.waveformEnvelope)
+    }
+
+    override fun hashCode(): Int {
+        var result = bpm.hashCode()
+        result = 31 * result + firstBeatMs.hashCode()
+        result = 31 * result + amplitude.hashCode()
+        result = 31 * result + waveformEnvelope.contentHashCode()
+        return result
+    }
+}
 
 /**
  * Contract for all DJ Mix data operations.

@@ -80,11 +80,12 @@ class BpmAnalysisWorker @AssistedInject constructor(
             if (result != null) {
                 bpmCacheDao.insertBpm(
                     BpmCacheEntity(
-                        audioFileId = audioFileId,
-                        bpm = result.bpm,
-                        analyzedAt = System.currentTimeMillis(),
-                        firstBeatMs = result.firstBeatMs,
-                        amplitude = result.amplitude
+                        audioFileId      = audioFileId,
+                        bpm              = result.bpm,
+                        analyzedAt       = System.currentTimeMillis(),
+                        firstBeatMs      = result.firstBeatMs,
+                        amplitude        = result.amplitude,
+                        waveformEnvelope = result.waveformEnvelope   // ── NEW ──
                     )
                 )
                 Log.d(TAG, "Cached BPM ${result.bpm} + firstBeatMs=${result.firstBeatMs}ms RMS=${result.amplitude} for audioFileId=$audioFileId")

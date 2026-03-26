@@ -234,7 +234,10 @@ class DjMixViewModel @Inject constructor(
                     val cachedBpmInfo = _uiState.value.bpmCache[currentTrackId]
                     if (freshBpmInfo != null && cachedBpmInfo == null) {
                         crossfadeEngine.updateCurrentBpmInfo(
-                            freshBpmInfo.bpm, freshBpmInfo.firstBeatMs, freshBpmInfo.amplitude
+                            bpm              = freshBpmInfo.bpm,
+                            firstBeatMs      = freshBpmInfo.firstBeatMs,
+                            amplitude        = freshBpmInfo.amplitude,
+                            waveformEnvelope = freshBpmInfo.waveformEnvelope   // ── NEW ──
                         )
                     }
                 }
@@ -274,7 +277,8 @@ class DjMixViewModel @Inject constructor(
                         crossfadeProgressFraction = engineState.crossfadeProgressFraction,
                         currentMixStrategy        = engineState.currentMixStrategy,
                         waveform                  = engineState.waveform,
-                        error                     = engineState.error
+                        error                     = engineState.error,
+                        timeToNextMixMs           = engineState.timeToNextMixMs   // ── NEW ──
                     )
                 }
             }
@@ -283,8 +287,14 @@ class DjMixViewModel @Inject constructor(
 
     private fun syncBeatGridForTrack(trackId: Long) {
         val bpmInfo = _uiState.value.bpmCache[trackId] ?: return
-        crossfadeEngine.updateCurrentBpmInfo(bpmInfo.bpm, bpmInfo.firstBeatMs, bpmInfo.amplitude)
-        Log.d(TAG, "Beat grid synced: trackId=$trackId BPM=${bpmInfo.bpm}")
+        crossfadeEngine.updateCurrentBpmInfo(
+            bpm              = bpmInfo.bpm,
+            firstBeatMs      = bpmInfo.firstBeatMs,
+            amplitude        = bpmInfo.amplitude,
+            waveformEnvelope = bpmInfo.waveformEnvelope   // ── NEW ──
+        )
+        Log.d(TAG, "Beat grid synced: trackId=$trackId BPM=${bpmInfo.bpm} " +
+                "envelope=${bpmInfo.waveformEnvelope.size}bars")
     }
 
     private fun rebuildSmartQueue(

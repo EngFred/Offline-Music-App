@@ -6,22 +6,46 @@ import androidx.room.PrimaryKey
 /**
  * Room entity that caches the BPM result for a single audio file.
  *
- * Intentionally lives inside :features:dj_mix — BPM is computed/cached data,
- * not a MediaStore property, so it must NOT be added to [AudioFile].
+ * [waveformEnvelope] is a downsampled RMS amplitude envelope computed from the
+ * raw PCM during BPM analysis. 128 normalised floats (0.0–1.0), each representing
+ * one time slice of the track. Stored via [FloatArrayTypeConverter]. Empty array
+ * = not yet analysed; the engine falls back to the synthetic pattern in that case.
  *
- * [audioFileId] matches [AudioFile.id] (MediaStore _ID).
- * [bpm] result from TarsosDSP onset-based analysis.
- * [analyzedAt] epoch-ms timestamp; lets us re-analyse stale entries in future.
- *
- * NEW (Step 1): [firstBeatMs] = timestamp in milliseconds of the very first detected onset.
- * This lets us cue the next track exactly on the first beat (true DJ-style drop).
+ * Version history:
+ *   1 — initial schema
+ *   2 — added firstBeatMs
+ *   3 — added amplitude
+ *   4 — added waveformEnvelope                                          ← NEW
  */
 @Entity(tableName = "bpm_cache")
 data class BpmCacheEntity(
     @PrimaryKey val audioFileId: Long,
     val bpm: Float,
     val analyzedAt: Long,
-    /** Timestamp (ms) of the first detected onset / beat. 0 = not yet analysed. */
     val firstBeatMs: Long = 0L,
-    val amplitude: Float = 0f
-)
+    val amplitude: Float = 0f,
+    val waveformEnvelope: FloatArray = FloatArray(0)    // ── NEW ──
+) {
+    // FloatArray breaks auto-generated equals/hashCode in data classes.
+    // Override so Room diffing, DAO caching, and Set/Map usage stay correct.
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is BpmCacheEntity) return false
+        return audioFileId == other.audioFileId &&
+                bpm == other.bpm &&
+                analyzedAt == other.analyzedAt &&
+                firstBeatMs == other.firstBeatMs &&
+                amplitude == other.amplitude &&
+                waveformEnvelope.contentEquals(other.waveformEnvelope)
+    }
+
+    override fun hashCode(): Int {
+        var result = audioFileId.hashCode()
+        result = 31 * result + bpm.hashCode()
+        result = 31 * result + analyzedAt.hashCode()
+        result = 31 * result + firstBeatMs.hashCode()
+        result = 31 * result + amplitude.hashCode()
+        result = 31 * result + waveformEnvelope.contentHashCode()
+        return result
+    }
+}
