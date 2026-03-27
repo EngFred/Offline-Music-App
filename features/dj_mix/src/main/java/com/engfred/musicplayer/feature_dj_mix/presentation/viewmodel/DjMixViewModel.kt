@@ -349,7 +349,8 @@ class DjMixViewModel @Inject constructor(
         djMixRepository.getBpmCacheFlow()
             .onEach { bpmCache ->
                 val doneCount    = songs.count { bpmCache.containsKey(it.id) }
-                val failedCount  = bpmCache.values.count { it.analysisFailed }
+                // Only count analysis failures for songs currently in this Mix
+                val failedCount  = songs.count { bpmCache[it.id]?.analysisFailed == true }
                 val progress     = if (songs.isEmpty()) 1f else doneCount.toFloat() / songs.size
                 val stillAnalysing = progress < 1f
 
