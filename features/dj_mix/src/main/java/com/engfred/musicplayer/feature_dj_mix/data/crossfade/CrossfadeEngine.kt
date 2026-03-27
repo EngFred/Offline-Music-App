@@ -125,7 +125,7 @@ class CrossfadeEngine @Inject constructor(
         private const val WAVEFORM_POLL_MS     = 16L
         private const val FADE_STEPS           = 60
         private const val CROSSFADE_GUARD_MS   = 200L
-        private const val BEAT_SNAP_WINDOW_MS  = POSITION_POLL_MS / 2
+        private const val BEAT_SNAP_WINDOW_MS  = 25L // Tightened down for real DJ snapping
         private const val PHRASE_BARS          = 8
         private const val BARS_PER_BEAT_MULTIPLE = 4
         private const val WAVEFORM_BARS        = 32
@@ -219,6 +219,7 @@ class CrossfadeEngine @Inject constructor(
 
     fun initialize() {
         if (isInitialized) return
+
         if (isReleased) {
             engineScope              = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             isReleased               = false; isPrimaryA = true; abortCrossfade = false
@@ -234,33 +235,29 @@ class CrossfadeEngine @Inject constructor(
             currentTrackBaseVolume = 1.0f; currentTrackAmplitude = 0f
         }
 
-        engineScope.launch {
-            withContext(Dispatchers.Main) {
-                // Create RubberBand and Waveform processors (graceful degradation if native lib missing)
-                try {
-                    processorA = RubberBandAudioProcessor()
-                    processorB = RubberBandAudioProcessor()
-                    waveformProcessorA = WaveformCaptureAudioProcessor()
-                    waveformProcessorB = WaveformCaptureAudioProcessor()
-                } catch (e: UnsatisfiedLinkError) {
-                    Log.e(TAG, "RubberBand native lib unavailable — tempo-sync disabled", e)
-                    processorA = null; processorB = null
-                    waveformProcessorA = WaveformCaptureAudioProcessor()
-                    waveformProcessorB = WaveformCaptureAudioProcessor()
-                }
-
-                val attrs = AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .build()
-
-                playerA = buildExoPlayer(context, processorA, waveformProcessorA, attrs, true,  isPlayerA = true)
-                playerB = buildExoPlayer(context, processorB, waveformProcessorB, attrs, false, isPlayerA = false)
-
-                isInitialized = true
-                Log.d(TAG, "initialize: ready (RubberBand=${processorA != null})")
-            }
+        // Initialize synchronously on the calling thread (Main) to avoid startup races
+        try {
+            processorA = RubberBandAudioProcessor()
+            processorB = RubberBandAudioProcessor()
+            waveformProcessorA = WaveformCaptureAudioProcessor()
+            waveformProcessorB = WaveformCaptureAudioProcessor()
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "RubberBand native lib unavailable — tempo-sync disabled", e)
+            processorA = null; processorB = null
+            waveformProcessorA = WaveformCaptureAudioProcessor()
+            waveformProcessorB = WaveformCaptureAudioProcessor()
         }
+
+        val attrs = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+
+        playerA = buildExoPlayer(context, processorA, waveformProcessorA, attrs, true,  isPlayerA = true)
+        playerB = buildExoPlayer(context, processorB, waveformProcessorB, attrs, false, isPlayerA = false)
+
+        isInitialized = true
+        Log.d(TAG, "initialize: ready (RubberBand=${processorA != null})")
     }
 
     @OptIn(UnstableApi::class)
