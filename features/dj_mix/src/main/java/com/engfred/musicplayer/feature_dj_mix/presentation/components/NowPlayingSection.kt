@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -308,10 +309,6 @@ fun NowPlayingSection(
             val barCount = 48
             val source = waveform.ifEmpty { List(barCount) { 0.10f } }
 
-            // Map source → barCount using index lerp instead of chunked().
-            // chunked() only works when source.size >= barCount; when the engine
-            // emits WAVEFORM_BARS=32 and barCount=48, chunked gives only 32 bars
-            // and the right-half flatlines. Index mapping always produces barCount bars.
             val downsampled = List(barCount) { i ->
                 val srcIdx = (i.toFloat() / barCount * source.size)
                     .toInt().coerceIn(0, source.size - 1)
@@ -369,34 +366,6 @@ fun NowPlayingSection(
                 color      = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
             )
         }
-
-        // ── DJ Cue Overrides ──────────────────────────────────────────────────
-//        Spacer(modifier = Modifier.height(8.dp))
-//        Row(
-//            modifier = Modifier.fillMaxWidth(),
-//            horizontalArrangement = Arrangement.Center,
-//            verticalAlignment = Alignment.CenterVertically
-//        ) {
-//            CueButton(
-//                text = "CUE IN",
-//                isActive = customCueInMs != null,
-//                onClick = onSetCueIn
-//            )
-//            Spacer(modifier = Modifier.width(12.dp))
-//            CueButton(
-//                text = "MIX OUT",
-//                isActive = customMixOutMs != null,
-//                onClick = onSetMixOut
-//            )
-//            Spacer(modifier = Modifier.width(12.dp))
-//            CueButton(
-//                text = "CLEAR",
-//                isActive = false,
-//                isDanger = true,
-//                onClick = onClearCues,
-//                enabled = customCueInMs != null || customMixOutMs != null
-//            )
-//        }
 
         // ── Next Track & Countdown Row ────────────────────────────────────────
         AnimatedVisibility(
@@ -551,8 +520,12 @@ private fun FallbackVinylArt(modifier: Modifier = Modifier) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val maxRadius = size.width / 2
+
+            // Outer vinyl base
             drawCircle(color = Color(0xFF333333), radius = maxRadius)
             drawCircle(color = Color(0xFF141414), radius = maxRadius - 1.dp.toPx())
+
+            // Reflection
             drawCircle(
                 brush = Brush.sweepGradient(
                     listOf(
@@ -563,6 +536,8 @@ private fun FallbackVinylArt(modifier: Modifier = Modifier) {
                 ),
                 radius = maxRadius
             )
+
+            // Grooves
             for (i in 3..9) {
                 drawCircle(
                     color  = Color.Black.copy(alpha = 0.80f),
@@ -570,8 +545,24 @@ private fun FallbackVinylArt(modifier: Modifier = Modifier) {
                     style  = Stroke(width = 1.dp.toPx())
                 )
             }
+
             val labelRadius = maxRadius * 0.45f
+
+            // Base Label
             drawCircle(color = primaryColor, radius = labelRadius)
+
+            // ── UI/UX FIX 1: Dual-tone label ──
+            // Adding a dark half-circle creates asymmetry, making rotation extremely visible
+            drawArc(
+                color      = Color.Black.copy(alpha = 0.15f),
+                startAngle = 0f,
+                sweepAngle = 180f,
+                useCenter  = true,
+                topLeft    = Offset(center.x - labelRadius, center.y - labelRadius),
+                size       = Size(labelRadius * 2, labelRadius * 2)
+            )
+
+            // Label Inner Details
             drawCircle(
                 color  = onPrimaryColor.copy(alpha = 0.30f),
                 radius = labelRadius * 0.85f,
@@ -579,11 +570,17 @@ private fun FallbackVinylArt(modifier: Modifier = Modifier) {
             )
             drawCircle(color = Color.Black.copy(alpha = 0.25f), radius = labelRadius * 0.50f)
         }
+
+        // ── UI/UX FIX 2: True offset for the Icon ──
+        // Using 'offset' physically moves the icon away from the dead center.
+        // When the parent Box rotates, the icon will orbit like a planet.
         Icon(
             imageVector        = Icons.Rounded.MusicNote,
             contentDescription = null,
             tint               = onPrimaryColor.copy(alpha = 0.90f),
-            modifier           = Modifier.size(32.dp).padding(bottom = 12.dp, end = 12.dp)
+            modifier           = Modifier
+                .offset(x = 18.dp, y = 18.dp) // Pushes it to the bottom right quadrant
+                .size(24.dp)
         )
     }
 }

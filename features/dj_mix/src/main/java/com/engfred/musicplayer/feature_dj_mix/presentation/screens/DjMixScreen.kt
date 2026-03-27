@@ -34,6 +34,7 @@ import com.engfred.musicplayer.feature_dj_mix.presentation.components.NowPlaying
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.SmartQueueItem
 import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.DjMixEvent
 import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.DjMixViewModel
+import kotlinx.coroutines.launch
 
 @UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,6 +67,8 @@ fun DjMixScreen(
     }
 
     val lazyListState = rememberLazyListState()
+    // ✅ NEW: Coroutine scope for scroll animations
+    val coroutineScope = rememberCoroutineScope()
 
     // Creates the deep, emotional background extraction feel using the current theme's primary color
     val backgroundBrush = Brush.verticalGradient(
@@ -116,10 +119,12 @@ fun DjMixScreen(
                 )
             )
         },
+        floatingActionButtonPosition = FabPosition.Center, // Centers all FABs at the bottom
         floatingActionButton = {
             if (uiState.currentTrack != null) {
+                // Currently Playing Controls
                 Row(
-                    modifier = Modifier.padding(bottom = 16.dp, end = 8.dp),
+                    modifier = Modifier.padding(bottom = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -154,6 +159,25 @@ fun DjMixScreen(
                             }
                         }
                     }
+                }
+            } else if (uiState.smartQueue.isNotEmpty()) {
+                // Initial "Start Mix" FAB when nothing is playing yet
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        viewModel.onEvent(DjMixEvent.PlayPause)
+                        // Scroll to the top when the mix starts
+                        coroutineScope.launch {
+                            lazyListState.animateScrollToItem(0)
+                        }
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor   = MaterialTheme.colorScheme.onPrimary,
+                    shape          = RoundedCornerShape(percent = 50),
+                    modifier       = Modifier.padding(bottom = 16.dp)
+                ) {
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = "Start Mix")
+                    Spacer(Modifier.width(8.dp))
+                    Text("START MIX", fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                 }
             }
         },
@@ -252,7 +276,13 @@ fun DjMixScreen(
                         analysisFailed     = uiState.bpmCache[song.id]?.analysisFailed == true,
                         isCurrent          = song.id == uiState.currentTrack?.id,
                         isPlayed           = song.id in uiState.playedTrackIds && song.id != uiState.currentTrack?.id,
-                        onClick            = { viewModel.onEvent(DjMixEvent.JumpToTrack(song)) },
+                        onClick            = {
+                            viewModel.onEvent(DjMixEvent.JumpToTrack(song))
+                            // Optional: Scroll to top when manually picking a song too!
+                            coroutineScope.launch {
+                                lazyListState.animateScrollToItem(0)
+                            }
+                        },
                         onRemove           = { viewModel.onEvent(DjMixEvent.RemoveTrack(song)) }
                     )
                 }
