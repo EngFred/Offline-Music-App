@@ -1,21 +1,5 @@
 /**
  * rubberband_processor.cpp — JNI bridge for RubberBand time-stretching.
- *
- * Exposed to: RubberBandAudioProcessor.kt
- *
- * Design:
- *   Each Kotlin RubberBandAudioProcessor instance owns one native RBHandle.
- *   The Kotlin side converts interleaved 16-bit PCM → float, calls nativeProcess,
- *   then drains available output via nativeRetrieve, converting back to 16-bit.
- *
- *   RubberBand options chosen for DJ use:
- *     OptionProcessRealTime      — streaming mode, no look-ahead buffer
- *     OptionPitchHighConsistency — preserves pitch during ratio changes
- *     OptionWindowShort          — minimises latency (~11 ms at 44100 Hz)
- *
- *   Thread safety: setTimeRatio must only be called between nativeProcess calls.
- *   The Kotlin side enforces this by applying a pending ratio at the START of
- *   queueInput (before the nativeProcess call), never during it.
  */
 
 #include <jni.h>
@@ -35,7 +19,6 @@ using namespace RubberBand;
 struct RBHandle {
     RubberBandStretcher* stretcher;
     int                  channels;
-    // De-interleaved buffers reused across calls to avoid per-call allocation.
     std::vector<std::vector<float>> inBufs;
     std::vector<std::vector<float>> outBufs;
     std::vector<float*>             inPtrs;
@@ -74,98 +57,116 @@ Java_com_engfred_musicplayer_feature_1dj_1mix_data_crossfade_RubberBandAudioProc
     return static_cast<jlong>(reinterpret_cast<intptr_t>(h));
 }
 
+/**
+ * ROOT CAUSE FIX 2: Pre-warm the stretcher internal buffers.
+ * Pushes 4096 frames of silence through the stretcher to fill FFT windows
+ * and minimize initial output latency.
+ */
+JNIEXPORT void JNICALL
+Java_com_engfred_musicplayer_feature_1dj_1mix_data_crossfade_RubberBandAudioProcessor_nativePrewarm(
+        JNIEnv* env, jobject, jlong handle) {
+    auto* h = toHandle(handle);
+    if (!h) return;
+
+    size_t prewarmFrames = 4096;
+    std::vector<float> silence(prewarmFrames, 0.0f);
+    std::vector<float*> silPtrs(h->channels, silence.data());
+
+    h->stretcher->process(silPtrs.data(), prewarmFrames, false);
+    LOGD("Native RubberBand Pre-warmed");
+}
+
 JNIEXPORT void JNICALL
 Java_com_engfred_musicplayer_feature_1dj_1mix_data_crossfade_RubberBandAudioProcessor_nativeSetTimeRatio(
         JNIEnv*, jobject, jlong handle, jdouble ratio) {
-auto* h = toHandle(handle);
-if (h) h->stretcher->setTimeRatio(ratio);
+    auto* h = toHandle(handle);
+    if (h) h->stretcher->setTimeRatio(ratio);
 }
 
 JNIEXPORT void JNICALL
 Java_com_engfred_musicplayer_feature_1dj_1mix_data_crossfade_RubberBandAudioProcessor_nativeProcess(
         JNIEnv* env, jobject, jlong handle, jfloatArray interleavedInput,
-jint frameCount, jboolean isFinal) {
+        jint frameCount, jboolean isFinal) {
 
-auto* h = toHandle(handle);
-if (!h || frameCount < 0) return;
+    auto* h = toHandle(handle);
+    if (!h || frameCount < 0) return;
 
-int ch = h->channels;
+    int ch = h->channels;
 
-if (frameCount > 0) {
-// Grow de-interleave buffers if needed.
-for (int c = 0; c < ch; ++c) {
-if (static_cast<int>(h->inBufs[c].size()) < frameCount) {
-h->inBufs[c].resize(frameCount);
-h->inPtrs[c] = h->inBufs[c].data();
-}
-}
+    if (frameCount > 0) {
+        for (int c = 0; c < ch; ++c) {
+            if (static_cast<int>(h->inBufs[c].size()) < frameCount) {
+                h->inBufs[c].resize(frameCount);
+                h->inPtrs[c] = h->inBufs[c].data();
+            }
+        }
 
-jfloat* src = env->GetFloatArrayElements(interleavedInput, nullptr);
-if (!src) return;
-for (int i = 0; i < frameCount; ++i)
-for (int c = 0; c < ch; ++c)
-h->inBufs[c][i] = src[i * ch + c];
-env->ReleaseFloatArrayElements(interleavedInput, src, JNI_ABORT);
-}
+        jfloat* src = env->GetFloatArrayElements(interleavedInput, nullptr);
+        if (!src) return;
+        for (int i = 0; i < frameCount; ++i)
+            for (int c = 0; c < ch; ++c)
+                h->inBufs[c][i] = src[i * ch + c];
+        env->ReleaseFloatArrayElements(interleavedInput, src, JNI_ABORT);
+    }
 
-h->stretcher->process(
-        h->inPtrs.data(),
-static_cast<size_t>(frameCount),
-        isFinal == JNI_TRUE);
+    h->stretcher->process(
+            h->inPtrs.data(),
+            static_cast<size_t>(frameCount),
+            isFinal == JNI_TRUE);
 }
 
 JNIEXPORT jint JNICALL
-        Java_com_engfred_musicplayer_feature_1dj_1mix_data_crossfade_RubberBandAudioProcessor_nativeAvailable(
+Java_com_engfred_musicplayer_feature_1dj_1mix_data_crossfade_RubberBandAudioProcessor_nativeAvailable(
         JNIEnv*, jobject, jlong handle) {
-auto* h = toHandle(handle);
-return h ? static_cast<jint>(h->stretcher->available()) : 0;
+    auto* h = toHandle(handle);
+    return h ? static_cast<jint>(h->stretcher->available()) : 0;
 }
 
 JNIEXPORT jfloatArray JNICALL
-        Java_com_engfred_musicplayer_feature_1dj_1mix_data_crossfade_RubberBandAudioProcessor_nativeRetrieve(
+Java_com_engfred_musicplayer_feature_1dj_1mix_data_crossfade_RubberBandAudioProcessor_nativeRetrieve(
         JNIEnv* env, jobject, jlong handle, jint frameCount) {
 
-auto* h = toHandle(handle);
-if (!h || frameCount <= 0) return nullptr;
+    auto* h = toHandle(handle);
+    if (!h || frameCount <= 0) return nullptr;
 
-int ch = h->channels;
-for (int c = 0; c < ch; ++c) {
-if (static_cast<int>(h->outBufs[c].size()) < frameCount) {
-h->outBufs[c].resize(frameCount);
-h->outPtrs[c] = h->outBufs[c].data();
-}
-}
+    int ch = h->channels;
+    for (int c = 0; c < ch; ++c) {
+        if (static_cast<int>(h->outBufs[c].size()) < frameCount) {
+            h->outBufs[c].resize(frameCount);
+            h->outPtrs[c] = h->outBufs[c].data();
+        }
+    }
 
-size_t got = h->stretcher->retrieve(
-        h->outPtrs.data(), static_cast<size_t>(frameCount));
-if (got == 0) return nullptr;
+    size_t got = h->stretcher->retrieve(
+            h->outPtrs.data(), static_cast<size_t>(frameCount));
+    if (got == 0) return nullptr;
 
-jfloatArray result = env->NewFloatArray(static_cast<jsize>(got * ch));
-if (!result) return nullptr;
+    jfloatArray result = env->NewFloatArray(static_cast<jsize>(got * ch));
+    if (!result) return nullptr;
 
-jfloat* dst = env->GetFloatArrayElements(result, nullptr);
-for (size_t i = 0; i < got; ++i)
-for (int c = 0; c < ch; ++c)
-dst[i * ch + c] = h->outPtrs[c][i];
-env->ReleaseFloatArrayElements(result, dst, 0);
-return result;
+    jfloat* dst = env->GetFloatArrayElements(result, nullptr);
+    for (size_t i = 0; i < got; ++i)
+        for (int c = 0; c < ch; ++c)
+            dst[i * ch + c] = h->outPtrs[c][i];
+    env->ReleaseFloatArrayElements(result, dst, 0);
+    return result;
 }
 
 JNIEXPORT void JNICALL
 Java_com_engfred_musicplayer_feature_1dj_1mix_data_crossfade_RubberBandAudioProcessor_nativeReset(
         JNIEnv*, jobject, jlong handle) {
-auto* h = toHandle(handle);
-if (h) { h->stretcher->reset(); LOGD("Reset"); }
+    auto* h = toHandle(handle);
+    if (h) { h->stretcher->reset(); LOGD("Reset"); }
 }
 
 JNIEXPORT void JNICALL
 Java_com_engfred_musicplayer_feature_1dj_1mix_data_crossfade_RubberBandAudioProcessor_nativeDelete(
         JNIEnv*, jobject, jlong handle) {
-auto* h = toHandle(handle);
-if (!h) return;
-delete h->stretcher;
-delete h;
-LOGD("Deleted");
+    auto* h = toHandle(handle);
+    if (!h) return;
+    delete h->stretcher;
+    delete h;
+    LOGD("Deleted");
 }
 
 } // extern "C"

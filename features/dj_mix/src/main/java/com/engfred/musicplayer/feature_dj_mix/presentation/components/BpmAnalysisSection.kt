@@ -58,7 +58,7 @@ fun BpmAnalysisSection(
                 text = "$analysedCount / $totalCount",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color.White.copy(alpha = 0.6f)
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
             )
         }
 
@@ -72,7 +72,7 @@ fun BpmAnalysisSection(
                 .clip(RoundedCornerShape(2.dp)),
             strokeCap = StrokeCap.Round,
             color = MaterialTheme.colorScheme.secondary,
-            trackColor = Color.White.copy(alpha = 0.1f)
+            trackColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f)
         )
 
         // ── non-alarming failure notice ─────────────────────────────────
@@ -95,7 +95,7 @@ fun BpmAnalysisSection(
                     text = "$failedCount ${if (failedCount == 1) "track" else "tracks"} couldn't be analyzed" +
                             " — transitions may be less precise for ${if (failedCount == 1) "it" else "them"}",
                     style     = MaterialTheme.typography.labelSmall,
-                    color     = Color.White.copy(alpha = 0.5f),
+                    color     = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
                     maxLines  = 2
                 )
             }

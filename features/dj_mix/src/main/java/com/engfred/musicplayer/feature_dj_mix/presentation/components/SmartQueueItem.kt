@@ -75,7 +75,7 @@ fun SmartQueueItem(
                 Icon(
                     imageVector        = Icons.Rounded.CheckCircle,
                     contentDescription = "Played",
-                    tint               = Color.White.copy(alpha = 0.30f),
+                    tint               = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f),
                     modifier           = Modifier.size(16.dp).width(24.dp)
                 )
             } else {
@@ -84,7 +84,7 @@ fun SmartQueueItem(
                     style      = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color      = if (isCurrent) MaterialTheme.colorScheme.primary
-                    else Color.White.copy(alpha = 0.30f),
+                    else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f),
                     modifier   = Modifier.width(24.dp)
                 )
             }
@@ -97,8 +97,8 @@ fun SmartQueueItem(
                     fontWeight = if (isCurrent) FontWeight.Black else FontWeight.SemiBold,
                     color      = when {
                         isCurrent      -> MaterialTheme.colorScheme.primary
-                        analysisFailed -> Color.White.copy(alpha = 0.45f)
-                        else           -> Color.White
+                        analysisFailed -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
+                        else           -> MaterialTheme.colorScheme.onBackground
                     },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -106,7 +106,7 @@ fun SmartQueueItem(
                 Text(
                     text     = song.artist ?: "Unknown Artist",
                     style    = MaterialTheme.typography.bodyMedium,
-                    color    = Color.White.copy(alpha = 0.50f),
+                    color    = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.50f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -125,12 +125,12 @@ fun SmartQueueItem(
                     style      = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Black,
                     color      = if (isCurrent) MaterialTheme.colorScheme.primary
-                    else Color.White.copy(alpha = 0.40f)
+                    else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.40f)
                 )
                 else -> Text(
                     text  = "—",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = Color.White.copy(alpha = 0.20f)
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.20f)
                 )
             }
 
@@ -142,7 +142,7 @@ fun SmartQueueItem(
                     Icon(
                         imageVector        = Icons.Rounded.Close,
                         contentDescription = "Remove from queue",
-                        tint               = Color.White.copy(alpha = 0.28f),
+                        tint               = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.28f),
                         modifier           = Modifier.size(15.dp)
                     )
                 }

@@ -76,4 +76,18 @@ class DjMixRepositoryImpl @Inject constructor(
             request
         )
     }
+
+    // ── Custom Cue Points ─────────────────────────────────────────────────────
+
+    override suspend fun updateCustomCueIn(audioFileId: Long, cueInMs: Long) {
+        bpmCacheDao.updateCustomCueIn(audioFileId, cueInMs)
+    }
+
+    override suspend fun updateCustomMixOut(audioFileId: Long, mixOutMs: Long) {
+        bpmCacheDao.updateCustomMixOut(audioFileId, mixOutMs)
+    }
+
+    override suspend fun clearCustomCues(audioFileId: Long) {
+        bpmCacheDao.clearCustomCues(audioFileId)
+    }
 }

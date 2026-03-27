@@ -272,8 +272,8 @@ class CrossfadeEngine @Inject constructor(
         isPlayerA: Boolean
     ): ExoPlayer {
         val processors: Array<AudioProcessor> = listOfNotNull(
-            waveformProcessor,    // tap raw PCM first
-            rubberBandProcessor   // then time-stretch
+            waveformProcessor,
+            rubberBandProcessor
         ).toTypedArray()
 
         val renderersFactory = object : DefaultRenderersFactory(ctx) {
@@ -292,11 +292,12 @@ class CrossfadeEngine @Inject constructor(
             .build()
             .apply {
                 setAudioAttributes(attrs, handleAudioBecomingNoisy)
-                skipSilenceEnabled = true
+                // FIX 1: Disable silence skipping. RubberBand needs to produce its own
+                // startup silence to keep the ExoPlayer clock synchronized.
+                skipSilenceEnabled = false
                 addListener(createPlayerListener(isPlayerA))
             }
     }
-
     private fun createPlayerListener(isPlayerA: Boolean) = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             val isPrimary = (isPlayerA && isPrimaryA) || (!isPlayerA && !isPrimaryA)

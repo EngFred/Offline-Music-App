@@ -11,6 +11,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,6 +45,9 @@ fun DjMixScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showSettingsSheet by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         viewModel.uiEvent.collect { event ->
             when (event) {
@@ -61,27 +67,32 @@ fun DjMixScreen(
 
     val lazyListState = rememberLazyListState()
 
+    // Creates the deep, emotional background extraction feel using the current theme's primary color
     val backgroundBrush = Brush.verticalGradient(
-        colors = listOf(Color(0xFF0A0A0D), Color(0xFF14141C), Color(0xFF0A0A0D))
+        colors = listOf(
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
+            MaterialTheme.colorScheme.background,
+            MaterialTheme.colorScheme.background
+        )
     )
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                         Text(
                             text          = "DJ STUDIO",
                             style         = MaterialTheme.typography.titleMedium,
                             fontWeight    = FontWeight.Black,
                             letterSpacing = 1.5.sp,
-                            color         = Color.White
+                            color         = MaterialTheme.colorScheme.onBackground
                         )
                         if (uiState.playlistName.isNotBlank()) {
                             Text(
                                 text          = uiState.playlistName.uppercase(),
                                 style         = MaterialTheme.typography.labelSmall,
-                                color         = Color.White.copy(alpha = 0.5f),
+                                color         = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
                                 maxLines      = 1,
                                 overflow      = TextOverflow.Ellipsis,
                                 letterSpacing = 1.sp
@@ -91,31 +102,57 @@ fun DjMixScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onBackground)
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showSettingsSheet = true }) {
+                        Icon(Icons.Rounded.Settings, "DJ Settings", tint = MaterialTheme.colorScheme.onBackground)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor         = Color.Transparent,
-                    scrolledContainerColor = Color(0xFF0A0A0D).copy(alpha = 0.95f)
+                    scrolledContainerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
                 )
             )
         },
         floatingActionButton = {
-            if (uiState.currentTrack != null && uiState.isPlaying) {
-                FloatingActionButton(
-                    onClick        = { viewModel.onEvent(DjMixEvent.MixNow) },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor   = MaterialTheme.colorScheme.onPrimary,
-                    shape          = RoundedCornerShape(percent = 50),
-                    modifier       = Modifier.padding(bottom = 16.dp, end = 8.dp)
+            if (uiState.currentTrack != null) {
+                Row(
+                    modifier = Modifier.padding(bottom = 16.dp, end = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier          = Modifier.padding(horizontal = 20.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Persistent Play/Pause FAB
+                    FloatingActionButton(
+                        onClick        = { viewModel.onEvent(DjMixEvent.PlayPause) },
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor   = MaterialTheme.colorScheme.onSurfaceVariant,
+                        shape          = RoundedCornerShape(percent = 50)
                     ) {
-                        Icon(Icons.Rounded.AutoAwesome, "Mix Now")
-                        Spacer(Modifier.width(8.dp))
-                        Text("MIX NOW", fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                        Icon(
+                            imageVector = if (uiState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription = "Play/Pause"
+                        )
+                    }
+
+                    // Mix Now FAB
+                    if (uiState.isPlaying) {
+                        FloatingActionButton(
+                            onClick        = { viewModel.onEvent(DjMixEvent.MixNow) },
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor   = MaterialTheme.colorScheme.onPrimary,
+                            shape          = RoundedCornerShape(percent = 50)
+                        ) {
+                            Row(
+                                modifier          = Modifier.padding(horizontal = 20.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Rounded.AutoAwesome, "Mix Now")
+                                Spacer(Modifier.width(8.dp))
+                                Text("MIX NOW", fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                            }
+                        }
                     }
                 }
             }
@@ -132,9 +169,9 @@ fun DjMixScreen(
                 modifier       = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     top    = paddingValues.calculateTopPadding() + 16.dp,
-                    bottom = 120.dp
+                    bottom = 120.dp // Padding for FABs
                 ),
-                verticalArrangement = Arrangement.spacedBy(36.dp)
+                verticalArrangement = Arrangement.spacedBy(32.dp)
             ) {
                 if (uiState.isAnalyzing || uiState.analysisProgress < 1f ||
                     uiState.analysisFailedCount > 0) {
@@ -166,30 +203,15 @@ fun DjMixScreen(
                             isPlaying         = uiState.isPlaying,
                             timeToNextMixMs   = uiState.timeToNextMixMs,
                             nextTrack         = uiState.nextTrack,
+                            customCueInMs     = bpmInfo?.customCueInMs,
+                            customMixOutMs    = bpmInfo?.customMixOutMs,
                             onAbortCrossfade  = { viewModel.onEvent(DjMixEvent.AbortCrossfade) },
+                            onSetCueIn        = { viewModel.onEvent(DjMixEvent.SetCustomCueIn) },
+                            onSetMixOut       = { viewModel.onEvent(DjMixEvent.SetCustomMixOut) },
+                            onClearCues       = { viewModel.onEvent(DjMixEvent.ClearCustomCues) },
                             modifier          = Modifier.padding(horizontal = 24.dp)
                         )
                     }
-                }
-
-                item(key = "controls") {
-                    ControlsSection(
-                        isPlaying            = uiState.isPlaying,
-                        crossfadeDurationSec = uiState.settings.crossfadeDurationSec,
-                        bpmTolerance         = uiState.settings.bpmTolerance,
-                        isRealMixMode        = uiState.settings.isRealMixMode,
-                        maxTrackDurationSec  = uiState.settings.maxTrackDurationSec,
-                        useManualMaxDuration = uiState.settings.useManualMaxDuration,
-                        loopQueue            = uiState.settings.loopQueue,
-                        onPlayPause          = { viewModel.onEvent(DjMixEvent.PlayPause) },
-                        onCrossfadeDurationChanged = { viewModel.onEvent(DjMixEvent.UpdateCrossfadeDuration(it)) },
-                        onBpmToleranceChanged      = { viewModel.onEvent(DjMixEvent.UpdateBpmTolerance(it)) },
-                        onToggleRealMixMode        = { viewModel.onEvent(DjMixEvent.ToggleRealMixMode(it)) },
-                        onToggleManualMaxDuration  = { viewModel.onEvent(DjMixEvent.ToggleManualMaxDuration(it)) },
-                        onMaxDurationChanged       = { viewModel.onEvent(DjMixEvent.UpdateMaxTrackDuration(it)) },
-                        onToggleLoopQueue          = { viewModel.onEvent(DjMixEvent.ToggleLoopQueue(it)) },
-                        modifier             = Modifier.padding(horizontal = 24.dp)
-                    )
                 }
 
                 item(key = "queue_header") {
@@ -212,7 +234,7 @@ fun DjMixScreen(
                         Text(
                             text       = "${uiState.smartQueue.size} TRACKS",
                             style      = MaterialTheme.typography.labelMedium,
-                            color      = Color.White.copy(alpha = 0.5f),
+                            color      = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -234,6 +256,47 @@ fun DjMixScreen(
                         onRemove           = { viewModel.onEvent(DjMixEvent.RemoveTrack(song)) }
                     )
                 }
+            }
+        }
+    }
+
+    // ── DJ Settings Bottom Sheet ──────────────────────────────────────────────
+    if (showSettingsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showSettingsSheet = false },
+            sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
+            ) {
+                Text(
+                    text = "DJ MIX SETTINGS",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.5.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 24.dp)
+                )
+
+                ControlsSection(
+                    crossfadeDurationSec = uiState.settings.crossfadeDurationSec,
+                    bpmTolerance         = uiState.settings.bpmTolerance,
+                    isRealMixMode        = uiState.settings.isRealMixMode,
+                    maxTrackDurationSec  = uiState.settings.maxTrackDurationSec,
+                    useManualMaxDuration = uiState.settings.useManualMaxDuration,
+                    loopQueue            = uiState.settings.loopQueue,
+                    onCrossfadeDurationChanged = { viewModel.onEvent(DjMixEvent.UpdateCrossfadeDuration(it)) },
+                    onBpmToleranceChanged      = { viewModel.onEvent(DjMixEvent.UpdateBpmTolerance(it)) },
+                    onToggleRealMixMode        = { viewModel.onEvent(DjMixEvent.ToggleRealMixMode(it)) },
+                    onToggleManualMaxDuration  = { viewModel.onEvent(DjMixEvent.ToggleManualMaxDuration(it)) },
+                    onMaxDurationChanged       = { viewModel.onEvent(DjMixEvent.UpdateMaxTrackDuration(it)) },
+                    onToggleLoopQueue          = { viewModel.onEvent(DjMixEvent.ToggleLoopQueue(it)) }
+                )
+                Spacer(modifier = Modifier.height(48.dp))
             }
         }
     }

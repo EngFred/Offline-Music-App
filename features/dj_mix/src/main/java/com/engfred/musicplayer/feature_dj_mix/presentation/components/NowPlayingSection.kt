@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -97,7 +98,12 @@ fun NowPlayingSection(
     isPlaying: Boolean,
     timeToNextMixMs: Long? = null,
     nextTrack: AudioFile? = null,
-    onAbortCrossfade: () -> Unit
+    customCueInMs: Long? = null,
+    customMixOutMs: Long? = null,
+    onAbortCrossfade: () -> Unit,
+    onSetCueIn: () -> Unit,
+    onSetMixOut: () -> Unit,
+    onClearCues: () -> Unit
 ) {
     val playbackProgress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
     val animatedPlayback by animateFloatAsState(
@@ -106,15 +112,10 @@ fun NowPlayingSection(
         label          = "playback_progress"
     )
 
-    // ── Vinyl rotation ────────────────────────────────────────────────────────
-    // FIX: snapTo is now called ONCE when playback starts (outside the while loop)
-    // so it only normalizes the angle on play, not every 4 seconds.
-    // LaunchedEffect(isPlaying) already cancels the previous coroutine when the
-    // key changes, so rapid play/pause flips are safe.
+    // Vinyl rotation
     val rotation = remember { Animatable(0f) }
     LaunchedEffect(isPlaying) {
         if (isPlaying) {
-            // Normalize once on start so rotation.value never grows unbounded
             rotation.snapTo(rotation.value % 360f)
             while (true) {
                 rotation.animateTo(
@@ -123,10 +124,8 @@ fun NowPlayingSection(
                 )
             }
         }
-        // When paused the coroutine is simply cancelled — rotation freezes in place
     }
 
-    // ── Mix countdown arc state ───────────────────────────────────────────────
     var countdownMaxMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(timeToNextMixMs) {
         when {
@@ -161,80 +160,82 @@ fun NowPlayingSection(
         else                    -> "MIX IN ~${max(1L, timeToNextMixMs / 1000L)}s"
     }
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier          = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // ── Vinyl record with countdown arc overlay ───────────────────────
-            Box(modifier = Modifier.size(80.dp), contentAlignment = Alignment.Center) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val strokeWidth = 3.5.dp.toPx()
-                    val inset       = strokeWidth / 2f
-                    val arcSize     = Size(size.width - inset * 2, size.height - inset * 2)
-                    val topLeft     = Offset(inset, inset)
+    Column(modifier = modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
 
-                    if (countdownMaxMs > 0L || animatedCountdownFraction > 0f) {
-                        drawArc(
-                            color      = arcColor.copy(alpha = 0.18f),
-                            startAngle = -90f,
-                            sweepAngle = 360f,
-                            useCenter  = false,
-                            topLeft    = topLeft,
-                            size       = arcSize,
-                            style      = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                        )
-                    }
-                    if (animatedCountdownFraction > 0f) {
-                        drawArc(
-                            color      = arcColor.copy(alpha = 0.92f),
-                            startAngle = -90f,
-                            sweepAngle = 360f * animatedCountdownFraction,
-                            useCenter  = false,
-                            topLeft    = topLeft,
-                            size       = arcSize,
-                            style      = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                        )
-                    }
+        // ── Hero Zone: Huge Vinyl ─────────────────────────────────────────────
+        Box(modifier = Modifier.size(188.dp), contentAlignment = Alignment.Center) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val strokeWidth = 5.dp.toPx()
+                val inset       = strokeWidth / 2f
+                val arcSize     = Size(size.width - inset * 2, size.height - inset * 2)
+                val topLeft     = Offset(inset, inset)
+
+                if (countdownMaxMs > 0L || animatedCountdownFraction > 0f) {
+                    drawArc(
+                        color      = arcColor.copy(alpha = 0.15f),
+                        startAngle = -90f,
+                        sweepAngle = 360f,
+                        useCenter  = false,
+                        topLeft    = topLeft,
+                        size       = arcSize,
+                        style      = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                    )
                 }
-
-                Box(
-                    modifier = Modifier
-                        .size(72.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .graphicsLayer { rotationZ = rotation.value },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (albumArtUri != null) {
-                        AsyncImage(
-                            model              = albumArtUri,
-                            contentDescription = "Album Art",
-                            contentScale       = ContentScale.Crop,
-                            modifier           = Modifier.fillMaxSize().clip(CircleShape)
-                        )
-                        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.10f)))
-                    } else {
-                        FallbackVinylArt()
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(14.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.background)
-                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f), CircleShape)
+                if (animatedCountdownFraction > 0f) {
+                    drawArc(
+                        color      = arcColor.copy(alpha = 1f),
+                        startAngle = -90f,
+                        sweepAngle = 360f * animatedCountdownFraction,
+                        useCenter  = false,
+                        topLeft    = topLeft,
+                        size       = arcSize,
+                        style      = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Box(
+                modifier = Modifier
+                    .size(174.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .graphicsLayer { rotationZ = rotation.value },
+                contentAlignment = Alignment.Center
+            ) {
+                if (albumArtUri != null) {
+                    AsyncImage(
+                        model              = albumArtUri,
+                        contentDescription = "Album Art",
+                        contentScale       = ContentScale.Crop,
+                        modifier           = Modifier.fillMaxSize().clip(CircleShape)
+                    )
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.15f)))
+                } else {
+                    FallbackVinylArt()
+                }
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.background)
+                        .border(2.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f), CircleShape)
+                )
+            }
+        }
 
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // ── Info Row: Title, Artist, Large BPM ────────────────────────────────
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text       = trackTitle,
-                    style      = MaterialTheme.typography.titleLarge,
+                    style      = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Black,
-                    color      = MaterialTheme.colorScheme.onSurface,
+                    color      = MaterialTheme.colorScheme.onBackground,
                     maxLines   = 1,
                     overflow   = TextOverflow.Ellipsis
                 )
@@ -242,7 +243,7 @@ fun NowPlayingSection(
                 Text(
                     text     = trackArtist,
                     style    = MaterialTheme.typography.bodyLarge,
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color    = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -252,28 +253,57 @@ fun NowPlayingSection(
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
                         text       = it.toInt().toString(),
-                        style      = MaterialTheme.typography.titleLarge,
+                        fontSize   = 34.sp,
                         fontWeight = FontWeight.Black,
-                        color      = MaterialTheme.colorScheme.primary
+                        color      = MaterialTheme.colorScheme.primary,
+                        letterSpacing = (-1).sp
                     )
                     Text(
                         text          = "BPM",
                         style         = MaterialTheme.typography.labelSmall,
                         fontWeight    = FontWeight.Bold,
-                        color         = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
-                        letterSpacing = 1.sp
+                        color         = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                        letterSpacing = 2.sp
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // ── Waveform bars ─────────────────────────────────────────────────────
+        // ── Strategy Badge (Always Visible) ───────────────────────────────────
+        val strategyColor = currentMixStrategy.themeColor
+        Surface(
+            color = strategyColor.copy(alpha = 0.15f),
+            shape = RoundedCornerShape(50),
+            modifier = Modifier.padding(bottom = 16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(strategyColor)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text          = currentMixStrategy.uiLabel,
+                    style         = MaterialTheme.typography.labelSmall,
+                    fontWeight    = FontWeight.Black,
+                    letterSpacing = 1.sp,
+                    color         = strategyColor
+                )
+            }
+        }
+
+        // ── Split Alpha Waveform ──────────────────────────────────────────────
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .height(64.dp)
         ) {
             val source     = waveform.ifEmpty { List(48) { 0.10f } }
             val barCount   = 48
@@ -282,23 +312,39 @@ fun NowPlayingSection(
 
             val barWidth    = size.width / downsampled.size
             val strokeWidth = (barWidth * 0.70f).coerceAtLeast(2f)
+            val playheadX   = size.width * animatedPlayback
 
             downsampled.forEachIndexed { index, amplitude ->
                 val barHeight = (amplitude * size.height * 1.5f).coerceIn(4f, size.height)
                 val x         = index * barWidth + (barWidth / 2)
                 val startY    = (size.height - barHeight) / 2
+
+                // Active portion is full primary color, upcoming is low opacity
+                val isPlayed = x <= playheadX
+                val barColor = if (isPlayed) primaryColor else primaryColor.copy(alpha = 0.20f)
+
                 drawLine(
-                    color       = primaryColor.copy(alpha = 0.80f),
+                    color       = barColor,
                     start       = Offset(x, startY),
                     end         = Offset(x, startY + barHeight),
                     strokeWidth = strokeWidth,
                     cap         = StrokeCap.Round
                 )
             }
+
+            // White Playhead Marker
+            drawLine(
+                color = Color.White,
+                start = Offset(playheadX, 0f),
+                end = Offset(playheadX, size.height),
+                strokeWidth = 2.dp.toPx(),
+                cap = StrokeCap.Round
+            )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
+        // ── Timers ────────────────────────────────────────────────────────────
         Row(
             modifier              = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -313,39 +359,52 @@ fun NowPlayingSection(
                 text       = formatMs(durationMs),
                 style      = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
-                color      = MaterialTheme.colorScheme.onSurfaceVariant
+                color      = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
             )
         }
 
+        // ── DJ Cue Overrides ──────────────────────────────────────────────────
         Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CueButton(
+                text = "CUE IN",
+                isActive = customCueInMs != null,
+                onClick = onSetCueIn
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            CueButton(
+                text = "MIX OUT",
+                isActive = customMixOutMs != null,
+                onClick = onSetMixOut
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            CueButton(
+                text = "CLEAR",
+                isActive = false,
+                isDanger = true,
+                onClick = onClearCues,
+                enabled = customCueInMs != null || customMixOutMs != null
+            )
+        }
 
-        LinearProgressIndicator(
-            progress   = { animatedPlayback },
-            modifier   = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-            strokeCap  = StrokeCap.Round,
-            color      = MaterialTheme.colorScheme.primary,
-            trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
-        )
-
-        // ── Countdown row: UP NEXT chip (left) + countdown badge (right) ──────
-        // The whole row slides in together when the engine enters the pre-buffer
-        // zone. Having both pieces on one row makes the relationship obvious —
-        // "this track is coming, and it's coming in ~Xs".
+        // ── Next Track & Countdown Row ────────────────────────────────────────
         AnimatedVisibility(
-            visible = countdownText != null,
+            visible = countdownText != null || nextTrack != null,
             enter   = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 2 },
             exit    = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it / 2 }
         ) {
-            if (countdownText != null) {
-                Spacer(modifier = Modifier.height(10.dp))
+            Column {
+                Spacer(modifier = Modifier.height(16.dp))
                 Row(
                     modifier              = Modifier.fillMaxWidth(),
                     verticalAlignment     = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // ── UP NEXT chip ──────────────────────────────────────────
-                    // Shown only when the pre-buffer has resolved a next track.
-                    // Uses a very low-alpha pill so it reads as "info" not "action".
+                    // UP NEXT Chip
                     if (nextTrack != null) {
                         Row(
                             modifier = Modifier
@@ -353,7 +412,7 @@ fun NowPlayingSection(
                                     color = primaryColor.copy(alpha = 0.10f),
                                     shape = RoundedCornerShape(4.dp)
                                 )
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
@@ -361,68 +420,53 @@ fun NowPlayingSection(
                                 style         = MaterialTheme.typography.labelSmall,
                                 fontWeight    = FontWeight.ExtraBold,
                                 letterSpacing = 0.5.sp,
-                                color         = primaryColor.copy(alpha = 0.65f)
+                                color         = primaryColor.copy(alpha = 0.8f)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text     = nextTrack.title,
                                 style    = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Medium,
-                                color    = Color.White.copy(alpha = 0.70f),
+                                color    = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.widthIn(max = 160.dp)
+                                modifier = Modifier.widthIn(max = 140.dp)
                             )
                         }
                     } else {
-                        // Keep the right side pinned to the end even when there's no chip
                         Spacer(modifier = Modifier.weight(1f))
                     }
 
-                    // ── Countdown indicator ───────────────────────────────────
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(arcColor)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text          = countdownText,
-                            style         = MaterialTheme.typography.labelSmall,
-                            fontWeight    = FontWeight.Black,
-                            letterSpacing = 1.sp,
-                            color         = arcColor
-                        )
+                    // Countdown Timer
+                    if (countdownText != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(arcColor)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text          = countdownText,
+                                style         = MaterialTheme.typography.labelSmall,
+                                fontWeight    = FontWeight.Black,
+                                letterSpacing = 1.sp,
+                                color         = arcColor
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // ── Active crossfade progress ─────────────────────────────────────────
+        // ── Active Crossfade Abort ────────────────────────────────────────────
         if (isCrossfading) {
-            Spacer(modifier = Modifier.height(24.dp))
-            val strategyColor = currentMixStrategy.themeColor
+            Spacer(modifier = Modifier.height(16.dp))
             Row(
                 modifier          = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector        = Icons.Rounded.AutoFixHigh,
-                    contentDescription = null,
-                    tint               = strategyColor,
-                    modifier           = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text          = currentMixStrategy.uiLabel,
-                    style         = MaterialTheme.typography.labelMedium,
-                    fontWeight    = FontWeight.Black,
-                    letterSpacing = 1.sp,
-                    color         = strategyColor,
-                    modifier      = Modifier.padding(end = 8.dp)
-                )
                 val animatedCrossfade by animateFloatAsState(
                     targetValue   = crossfadeProgress,
                     animationSpec = tween(100),
@@ -438,17 +482,57 @@ fun NowPlayingSection(
                 TextButton(
                     onClick        = onAbortCrossfade,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    modifier       = Modifier.padding(start = 4.dp)
+                    modifier       = Modifier.padding(start = 8.dp)
                 ) {
                     Text(
-                        text       = "✕",
+                        text       = "✕ ABORT",
                         style      = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color      = strategyColor.copy(alpha = 0.55f)
+                        color      = strategyColor.copy(alpha = 0.8f)
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CueButton(
+    text: String,
+    isActive: Boolean,
+    onClick: () -> Unit,
+    isDanger: Boolean = false,
+    enabled: Boolean = true
+) {
+    val color = when {
+        !enabled -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f)
+        isDanger -> MaterialTheme.colorScheme.error
+        isActive -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+    }
+
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+        modifier = Modifier
+            .border(
+                width = 1.dp,
+                color = color.copy(alpha = if (isActive) 0.5f else 0.2f),
+                shape = RoundedCornerShape(50)
+            )
+            .background(
+                color = if (isActive) color.copy(alpha = 0.1f) else Color.Transparent,
+                shape = RoundedCornerShape(50)
+            )
+            .height(28.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (isActive) FontWeight.Black else FontWeight.Bold,
+            color = color
+        )
     }
 }
 
@@ -492,7 +576,7 @@ private fun FallbackVinylArt(modifier: Modifier = Modifier) {
             imageVector        = Icons.Rounded.MusicNote,
             contentDescription = null,
             tint               = onPrimaryColor.copy(alpha = 0.90f),
-            modifier           = Modifier.size(22.dp).padding(bottom = 12.dp, end = 12.dp)
+            modifier           = Modifier.size(32.dp).padding(bottom = 12.dp, end = 12.dp)
         )
     }
 }
