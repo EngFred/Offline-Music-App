@@ -194,6 +194,7 @@ class CrossfadeEngine @Inject constructor(
     @Volatile private var currentTrackBaseVolume: Float    = 1.0f
     @Volatile private var currentTrackAmplitude: Float     = 0f
     @Volatile private var currentWaveformEnvelope: FloatArray = FloatArray(0)
+    @Volatile private var currentTrackMixOutMs: Long?      = null // ── NEW
 
     @Volatile private var prebufferedTrackId: Long?        = null
     @Volatile private var isPrebufferingInProgress         = false
@@ -233,6 +234,7 @@ class CrossfadeEngine @Inject constructor(
             _nextTrackRequest.resetReplayCache()
             currentTrackBpm = 0f; currentTrackFirstBeatMs = 0L
             currentTrackBaseVolume = 1.0f; currentTrackAmplitude = 0f
+            currentTrackMixOutMs = null
         }
 
         // Initialize synchronously on the calling thread (Main) to avoid startup races
@@ -337,13 +339,15 @@ class CrossfadeEngine @Inject constructor(
         bpm: Float,
         firstBeatMs: Long,
         amplitude: Float = 0f,
-        waveformEnvelope: FloatArray = FloatArray(0)
+        waveformEnvelope: FloatArray = FloatArray(0),
+        mixOutMs: Long? = null
     ) {
         currentTrackBpm           = bpm
         currentTrackFirstBeatMs   = firstBeatMs
         currentTrackAmplitude     = amplitude
         currentWaveformEnvelope   = waveformEnvelope
         currentTrackBaseVolume    = if (amplitude > 0f) (0.15f / amplitude).coerceIn(0.2f, 1.0f) else 1.0f
+        currentTrackMixOutMs      = mixOutMs
     }
 
     fun triggerMixNow() {
@@ -760,6 +764,9 @@ class CrossfadeEngine @Inject constructor(
                     position >= mixAt && remaining > crossfadeDurationMs
                 } else false
 
+                // ── NEW: Custom user override ──
+                val customMixOutTrigger = currentTrackMixOutMs != null && position >= currentTrackMixOutMs!!
+
                 if (inPrebufferZone && !_state.value.isCrossfading
                     && prebufferedTrackId == null && !isPrebufferingInProgress) {
                     val id = _state.value.currentTrack?.id
@@ -769,8 +776,13 @@ class CrossfadeEngine @Inject constructor(
                     }
                 }
 
-                val shouldTrigger = playing && !_state.value.isCrossfading && duration > 0L
-                        && (inTriggerZone || isMaxTime) && isOnBeat && (isAtPhrase || mustTrigger)
+                // ── UPDATED TRIGGER LOGIC ──
+                // It triggers IF it hits the user's custom point, OR if the standard AI conditions are met
+                val shouldTrigger = playing && !_state.value.isCrossfading && duration > 0L && (
+                        customMixOutTrigger ||
+                                ((inTriggerZone || isMaxTime) && isOnBeat && (isAtPhrase || mustTrigger))
+                        )
+
                 if (shouldTrigger) {
                     val id = _state.value.currentTrack?.id
                     if (id != null && id != lastRequestedTrackId) {
@@ -782,6 +794,8 @@ class CrossfadeEngine @Inject constructor(
                 val timeToNextMixMs: Long? = when {
                     _state.value.isCrossfading -> null
                     !playing || duration <= 0L -> null
+                    customMixOutTrigger        -> 0L
+                    currentTrackMixOutMs != null -> (currentTrackMixOutMs!! - position).coerceAtLeast(0L)
                     inTriggerZone              -> 0L
                     inPrebufferZone            -> (remaining - triggerWindow).coerceAtLeast(0L)
                     else                       -> null
@@ -792,7 +806,7 @@ class CrossfadeEngine @Inject constructor(
                         timeToNextMixMs = timeToNextMixMs)
                 }
 
-                delay(if (inTriggerZone || inPrebufferZone || isMaxTime) FAST_POLL_MS else POSITION_POLL_MS)
+                delay(if (inTriggerZone || inPrebufferZone || isMaxTime || customMixOutTrigger) FAST_POLL_MS else POSITION_POLL_MS)
             }
         }
     }

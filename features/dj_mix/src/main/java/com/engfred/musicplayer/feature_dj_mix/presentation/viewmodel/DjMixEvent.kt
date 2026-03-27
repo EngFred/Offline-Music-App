@@ -7,6 +7,11 @@ sealed interface DjMixEvent {
     data object MixNow : DjMixEvent
     data object SkipBack : DjMixEvent
 
+    // ── Custom Cue Point UI Actions ───────────────────────────────────────────
+    data object SetCustomCueIn : DjMixEvent
+    data object SetCustomMixOut : DjMixEvent
+    data object ClearCustomCues : DjMixEvent
+
     // ── Queue ordering ────────────────────────────────────────────────────────
     // All three are no-ops while isAnalyzing == true (gated in ViewModel).
     data object ShuffleQueue : DjMixEvent

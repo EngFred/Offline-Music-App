@@ -112,6 +112,34 @@ class DjMixViewModel @Inject constructor(
                 }
             }
 
+            // ── Custom Cue Point UI Actions ───────────────────────────────────
+
+            is DjMixEvent.SetCustomCueIn -> {
+                val currentTrackId = _uiState.value.currentTrack?.id ?: return
+                val positionMs = crossfadeEngine.state.value.currentPositionMs
+                viewModelScope.launch {
+                    djMixRepository.updateCustomCueIn(currentTrackId, positionMs)
+                }
+                Log.d(TAG, "Set Custom Cue In for track $currentTrackId at ${positionMs}ms")
+            }
+
+            is DjMixEvent.SetCustomMixOut -> {
+                val currentTrackId = _uiState.value.currentTrack?.id ?: return
+                val positionMs = crossfadeEngine.state.value.currentPositionMs
+                viewModelScope.launch {
+                    djMixRepository.updateCustomMixOut(currentTrackId, positionMs)
+                }
+                Log.d(TAG, "Set Custom Mix Out for track $currentTrackId at ${positionMs}ms")
+            }
+
+            is DjMixEvent.ClearCustomCues -> {
+                val currentTrackId = _uiState.value.currentTrack?.id ?: return
+                viewModelScope.launch {
+                    djMixRepository.clearCustomCues(currentTrackId)
+                }
+                Log.d(TAG, "Cleared Custom Cues for track $currentTrackId")
+            }
+
             // ── Queue ordering — all gated while BPM analysis is in progress ──
 
             DjMixEvent.ShuffleQueue -> {
@@ -158,10 +186,6 @@ class DjMixViewModel @Inject constructor(
                 updateNextTrackPreview()
             }
 
-            // ── Remove track from session queue (session-only, does not touch the
-            // underlying playlist). Also updates rawPlaylistSongs so a subsequent
-            // auto-rebuild can't re-insert the track. Sets isQueueUserOrdered so
-            // the arc rebuild won't override the removal.
             is DjMixEvent.RemoveTrack -> {
                 val id = event.audioFile.id
                 // Don't allow removing the currently playing track
@@ -245,11 +269,6 @@ class DjMixViewModel @Inject constructor(
 
     // ── Next track preview ────────────────────────────────────────────────────
 
-    /**
-     * Peeks at which track the engine would select next WITHOUT advancing the queue.
-     * Called whenever the current track or queue order changes so the UI can display
-     * the upcoming track title in the countdown chip.
-     */
     private fun updateNextTrackPreview() {
         val currentId = _uiState.value.currentTrack?.id
         if (currentId == null) {
@@ -338,13 +357,22 @@ class DjMixViewModel @Inject constructor(
                 if (currentTrackId != null) {
                     val freshBpmInfo  = bpmCache[currentTrackId]
                     val cachedBpmInfo = _uiState.value.bpmCache[currentTrackId]
-                    if (freshBpmInfo != null && cachedBpmInfo == null && !freshBpmInfo.analysisFailed) {
+
+                    // Detect if new analysis arrived OR if the user just updated the cue points
+                    val isNewlyAnalyzed = freshBpmInfo != null && cachedBpmInfo == null && !freshBpmInfo.analysisFailed
+                    val cuePointsChanged = freshBpmInfo != null && cachedBpmInfo != null &&
+                            (freshBpmInfo.customCueInMs != cachedBpmInfo.customCueInMs ||
+                                    freshBpmInfo.customMixOutMs != cachedBpmInfo.customMixOutMs)
+
+                    if (isNewlyAnalyzed || cuePointsChanged) {
                         crossfadeEngine.updateCurrentBpmInfo(
-                            bpm              = freshBpmInfo.bpm,
-                            firstBeatMs      = freshBpmInfo.firstBeatMs,
+                            bpm              = freshBpmInfo!!.bpm,
+                            firstBeatMs      = freshBpmInfo.customCueInMs ?: freshBpmInfo.firstBeatMs,
                             amplitude        = freshBpmInfo.amplitude,
-                            waveformEnvelope = freshBpmInfo.waveformEnvelope
+                            waveformEnvelope = freshBpmInfo.waveformEnvelope,
+                            mixOutMs         = freshBpmInfo.customMixOutMs
                         )
+                        if (cuePointsChanged) Log.d(TAG, "Beat grid dynamically updated due to Custom Cue change.")
                     }
                 }
 
@@ -400,13 +428,16 @@ class DjMixViewModel @Inject constructor(
     private fun syncBeatGridForTrack(trackId: Long) {
         val bpmInfo = _uiState.value.bpmCache[trackId] ?: return
         if (bpmInfo.analysisFailed) return
+
+        // Pass the custom overrides into the engine
         crossfadeEngine.updateCurrentBpmInfo(
             bpm              = bpmInfo.bpm,
-            firstBeatMs      = bpmInfo.firstBeatMs,
+            firstBeatMs      = bpmInfo.customCueInMs ?: bpmInfo.firstBeatMs,
             amplitude        = bpmInfo.amplitude,
-            waveformEnvelope = bpmInfo.waveformEnvelope
+            waveformEnvelope = bpmInfo.waveformEnvelope,
+            mixOutMs         = bpmInfo.customMixOutMs
         )
-        Log.d(TAG, "Beat grid synced: trackId=$trackId BPM=${bpmInfo.bpm}")
+        Log.d(TAG, "Beat grid synced: trackId=$trackId BPM=${bpmInfo.bpm} MixOut=${bpmInfo.customMixOutMs}")
     }
 
     private fun rebuildSmartQueue(
@@ -444,7 +475,6 @@ class DjMixViewModel @Inject constructor(
         if (openerBpm > 0f) recentBpms.addLast(openerBpm)
 
         while (remaining.isNotEmpty()) {
-            val setProgressFraction = result.size.toFloat() / rawPlaylistSongs.size.toFloat()
             val lastInfo = bpmCache[result.last().id]
             val lastBpm = if (lastInfo?.analysisFailed == true) 120f else lastInfo?.bpm ?: 120f
 
@@ -455,8 +485,8 @@ class DjMixViewModel @Inject constructor(
                     if (it.value.analysisFailed) 120f else it.value.bpm
                 },
                 tolerance           = tolerance,
-                recentBpms          = recentBpms.toList(),
-                setProgressFraction = setProgressFraction
+                recentBpms          = recentBpms.toList()
+                // Removed setProgressFraction to sync with updated use case
             ) ?: remaining.first()
 
             result.add(next)

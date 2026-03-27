@@ -18,7 +18,9 @@ data class BpmInfo(
     val firstBeatMs: Long = 0L,
     val amplitude: Float = 0f,
     val waveformEnvelope: FloatArray = FloatArray(0),
-    val analysisFailed: Boolean = false
+    val analysisFailed: Boolean = false,
+    val customCueInMs: Long? = null,
+    val customMixOutMs: Long? = null
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -27,7 +29,9 @@ data class BpmInfo(
                 firstBeatMs == other.firstBeatMs &&
                 amplitude == other.amplitude &&
                 waveformEnvelope.contentEquals(other.waveformEnvelope) &&
-                analysisFailed == other.analysisFailed
+                analysisFailed == other.analysisFailed &&
+                customCueInMs == other.customCueInMs &&
+                customMixOutMs == other.customMixOutMs
     }
 
     override fun hashCode(): Int {
@@ -36,6 +40,8 @@ data class BpmInfo(
         result = 31 * result + amplitude.hashCode()
         result = 31 * result + waveformEnvelope.contentHashCode()
         result = 31 * result + analysisFailed.hashCode()
+        result = 31 * result + (customCueInMs?.hashCode() ?: 0)
+        result = 31 * result + (customMixOutMs?.hashCode() ?: 0)
         return result
     }
 }
@@ -71,4 +77,8 @@ interface DjMixRepository {
      * @param songs Songs whose BPM is needed.
      */
     fun enqueueBpmAnalysis(playlistId: Long, songs: List<AudioFile>)
+
+    suspend fun updateCustomCueIn(audioFileId: Long, cueInMs: Long)
+    suspend fun updateCustomMixOut(audioFileId: Long, mixOutMs: Long)
+    suspend fun clearCustomCues(audioFileId: Long)
 }

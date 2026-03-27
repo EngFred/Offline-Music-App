@@ -12,7 +12,7 @@ import kotlin.math.abs
  * ════════════════════════════════════════════════════════════════════════════════
  *
  * Most "smart" playlist algorithms just sort by abs(bpmA - bpmB). That produces
- * technically correct but musically flat sets. A real DJ thinks in five dimensions:
+ * technically correct but musically flat sets. A real DJ thinks in dimensions:
  *
  * ── 1. HARMONIC BPM COMPATIBILITY ────────────────────────────────────────────
  *
@@ -20,21 +20,21 @@ import kotlin.math.abs
  * in half-time. The crowd hears an energy DROP, not a train wreck. These harmonic
  * relationships are "free" transitions that sound incredible:
  *
- *   Ratio 0.5×  : half-time drop   (e.g. 128 BPM → 64 BPM)  — energy valley
- *   Ratio 2.0×  : double-time surge (e.g. 70 BPM → 140 BPM)  — crowd goes wild
- *   Ratio 0.75× : 3:4 polyrhythm   (e.g. 128 BPM → 96 BPM)  — groove shift
- *   Ratio 1.5×  : 2:3 relationship  (e.g. 80 BPM → 120 BPM)  — classic build
- *   Ratio 0.667×: 2:3 the other way (e.g. 120 BPM → 80 BPM)  — breakdown
+ * Ratio 0.5×  : half-time drop   (e.g. 128 BPM → 64 BPM)  — energy valley
+ * Ratio 2.0×  : double-time surge (e.g. 70 BPM → 140 BPM)  — crowd goes wild
+ * Ratio 0.75× : 3:4 polyrhythm   (e.g. 128 BPM → 96 BPM)  — groove shift
+ * Ratio 1.5×  : 2:3 relationship  (e.g. 80 BPM → 120 BPM)  — classic build
+ * Ratio 0.667×: 2:3 the other way (e.g. 120 BPM → 80 BPM)  — breakdown
  *
  * Harmonic tracks receive a very large score bonus — they can outrank a "closer"
  * BPM track that would just make the set feel monotonous.
  *
  * ── 2. BPM PROXIMITY SCORING (non-harmonic) ──────────────────────────────────
  *
- *   0–3 BPM delta  → TRANSPARENT   : listeners won't hear the shift at all
- *   3–8 BPM delta  → SMOOTH        : tempo-sync hides it cleanly
- *   8–15 BPM delta → POWER MIX     : needs technique (bass kill, longer fade)
- *   > 15 BPM delta → HARD JUMP     : jarring unless it's harmonic
+ * 0–3 BPM delta  → TRANSPARENT   : listeners won't hear the shift at all
+ * 3–8 BPM delta  → SMOOTH        : tempo-sync hides it cleanly
+ * 8–15 BPM delta → POWER MIX     : needs technique (bass kill, longer fade)
+ * > 15 BPM delta → HARD JUMP     : jarring unless it's harmonic
  *
  * We map this to a score that decays linearly, with a minimum floor so nothing
  * is ever completely excluded (queue must not stall).
@@ -46,16 +46,7 @@ import kotlin.math.abs
  * played tracks, we apply a gentle penalty — nudging selection toward variety
  * within the compatible zone. This is subtle but makes long sets feel alive.
  *
- * ── 4. ENERGY ARC PREFERENCE ─────────────────────────────────────────────────
- *
- * Based on how far through the total playlist we are:
- *   First 30%  : BUILD    — prefer equal-or-slightly-higher BPM (climbing energy)
- *   30%–70%    : PEAK     — prefer tracks very close in BPM (tight, controlled peak)
- *   Last 30%   : COOLDOWN — prefer equal-or-slightly-lower BPM (graceful close)
- *
- * Each zone awards a bonus to tracks that match the desired energy direction.
- *
- * ── 5. GRACEFUL DEGRADATION ──────────────────────────────────────────────────
+ * ── 4. GRACEFUL DEGRADATION ──────────────────────────────────────────────────
  *
  * If no BPM data exists for any remaining track, fall back to natural playlist order.
  * The queue never stalls — even the worst-case "hard jump" track is returned rather
@@ -65,10 +56,9 @@ import kotlin.math.abs
  * SCORING FORMULA (per candidate track)
  * ════════════════════════════════════════════════════════════════════════════════
  *
- *   score = harmonicBonus             // +60 if harmonically compatible
- *           + proximityScore          // +100 → 0 → -30 based on effective BPM delta
- *           - stagnationPenalty       // -18 if BPM zone is "too repeated" recently
- *           + energyDirectionBonus    // +12 if candidate BPM aligns with arc phase
+ * score = harmonicBonus             // +60 if harmonically compatible
+ * + proximityScore          // +100 → 0 → -30 based on effective BPM delta
+ * - stagnationPenalty       // -18 if BPM zone is "too repeated" recently
  *
  * The candidate with the highest score is selected.
  */
@@ -133,9 +123,6 @@ class GetSmartNextTrackUseCase @Inject constructor() {
      */
     private val STAGNATION_HISTORY_DEPTH = 3
 
-    /** Score bonus when candidate BPM aligns with the desired set energy arc phase. */
-    private val ENERGY_DIRECTION_BONUS = 12f
-
     // ── Main operator ─────────────────────────────────────────────────────────
 
     /**
@@ -149,13 +136,10 @@ class GetSmartNextTrackUseCase @Inject constructor() {
      * @param remainingQueue      Tracks not yet played — must NOT include the current track.
      * @param bpmCache            Map of audioFileId → analysed BPM.
      * @param tolerance           Maximum BPM delta for a "standard" in-tolerance match.
-     *                            Harmonic matches are ALWAYS considered regardless of this value.
+     * Harmonic matches are ALWAYS considered regardless of this value.
      * @param recentBpms          BPMs of the last [STAGNATION_HISTORY_DEPTH] played tracks,
-     *                            oldest-first. Controls the anti-stagnation penalty.
-     *                            Defaults to empty (no history = no stagnation penalty).
-     * @param setProgressFraction 0f = beginning of the DJ session, 1f = end.
-     *                            Drives BUILD → PEAK → COOLDOWN energy arc preference.
-     *                            Defaults to 0.5 (peak zone — neutral choice).
+     * oldest-first. Controls the anti-stagnation penalty.
+     * Defaults to empty (no history = no stagnation penalty).
      * @return The highest-scoring [AudioFile], or null when [remainingQueue] is empty.
      */
     operator fun invoke(
@@ -163,8 +147,7 @@ class GetSmartNextTrackUseCase @Inject constructor() {
         remainingQueue: List<AudioFile>,
         bpmCache: Map<Long, Float>,
         tolerance: Float,
-        recentBpms: List<Float> = emptyList(),
-        setProgressFraction: Float = 0.5f
+        recentBpms: List<Float> = emptyList()
     ): AudioFile? {
         if (remainingQueue.isEmpty()) return null
 
@@ -173,13 +156,6 @@ class GetSmartNextTrackUseCase @Inject constructor() {
 
         // No BPM data for any remaining track → natural order (analysis hasn't finished)
         if (withBpm.isEmpty()) return remainingQueue.first()
-
-        // Determine energy arc phase from set progress
-        val energyPhase = when {
-            setProgressFraction < 0.30f -> EnergyPhase.BUILD
-            setProgressFraction < 0.70f -> EnergyPhase.PEAK
-            else                        -> EnergyPhase.COOLDOWN
-        }
 
         // Recent history window for anti-stagnation check
         val recentHistory = recentBpms.takeLast(STAGNATION_HISTORY_DEPTH)
@@ -190,8 +166,7 @@ class GetSmartNextTrackUseCase @Inject constructor() {
             val score = scoreCandidate(
                 currentBpm      = currentBpm,
                 candidateBpm    = candidateBpm,
-                recentHistory   = recentHistory,
-                energyPhase     = energyPhase
+                recentHistory   = recentHistory
             )
             track to score
         }
@@ -210,18 +185,16 @@ class GetSmartNextTrackUseCase @Inject constructor() {
      * Computes the composite DJ-quality score for one candidate track.
      *
      * Score components (see class-level kdoc for the full model):
-     *   + [HARMONIC_BONUS]          if candidate is harmonically compatible with current
-     *   + [PERFECT_MATCH_SCORE]..0  based on effective BPM delta (harmonic-collapsed)
-     *   - [STAGNATION_PENALTY]      if this BPM zone has been overplayed recently
-     *   ± [ENERGY_DIRECTION_BONUS]  if candidate BPM matches desired arc phase
+     * + [HARMONIC_BONUS]          if candidate is harmonically compatible with current
+     * + [PERFECT_MATCH_SCORE]..0  based on effective BPM delta (harmonic-collapsed)
+     * - [STAGNATION_PENALTY]      if this BPM zone has been overplayed recently
      *
      * @return Composite score — higher is better. Can be negative.
      */
     private fun scoreCandidate(
         currentBpm: Float,
         candidateBpm: Float,
-        recentHistory: List<Float>,
-        energyPhase: EnergyPhase
+        recentHistory: List<Float>
     ): Float {
         var score = 0f
 
@@ -253,25 +226,6 @@ class GetSmartNextTrackUseCase @Inject constructor() {
             }
         }
 
-        // ── Component 4: Energy arc direction preference ───────────────────────
-        // bpmShift = how much energy this track adds or removes vs the current track.
-        // We reward shifts that align with the current phase of the set's energy arc.
-        val bpmShift = candidateBpm - currentBpm
-        val directionBonus = when (energyPhase) {
-            // BUILD: gently upward. Reward 0–8 BPM higher, don't reward going backward.
-            EnergyPhase.BUILD ->
-                if (bpmShift in 0f..8f) ENERGY_DIRECTION_BONUS else 0f
-
-            // PEAK: stay tight. Reward staying within ±4 BPM — keep the energy locked in.
-            EnergyPhase.PEAK ->
-                if (abs(bpmShift) <= 4f) ENERGY_DIRECTION_BONUS else 0f
-
-            // COOLDOWN: gently downward. Reward 0–8 BPM lower, don't reward surging higher.
-            EnergyPhase.COOLDOWN ->
-                if (bpmShift in -8f..0f) ENERGY_DIRECTION_BONUS else 0f
-        }
-        score += directionBonus
-
         return score
     }
 
@@ -284,10 +238,10 @@ class GetSmartNextTrackUseCase @Inject constructor() {
      * within [HARMONIC_TOLERANCE_BPM].
      *
      * Examples:
-     *   isHarmonicallyCompatible(120f,  60f) = true   (half-time, ratio 0.5)
-     *   isHarmonicallyCompatible(128f,  64f) = true   (half-time, ratio 0.5)
-     *   isHarmonicallyCompatible(120f, 180f) = true   (ratio 1.5)
-     *   isHarmonicallyCompatible(130f,  87f) = false  (no clean relationship)
+     * isHarmonicallyCompatible(120f,  60f) = true   (half-time, ratio 0.5)
+     * isHarmonicallyCompatible(128f,  64f) = true   (half-time, ratio 0.5)
+     * isHarmonicallyCompatible(120f, 180f) = true   (ratio 1.5)
+     * isHarmonicallyCompatible(130f,  87f) = false  (no clean relationship)
      *
      * This function is also called from [CrossfadeEngine.computeMixDecision]
      * and [DjMixViewModel.performRebuild] via the instance — no duplication needed.
@@ -311,24 +265,5 @@ class GetSmartNextTrackUseCase @Inject constructor() {
     fun minimumHarmonicDelta(currentBpm: Float, candidateBpm: Float): Float {
         if (currentBpm <= 0f || candidateBpm <= 0f) return abs(currentBpm - candidateBpm)
         return HARMONIC_RATIOS.minOf { ratio -> abs(currentBpm * ratio - candidateBpm) }
-    }
-
-    // ── Internal types ────────────────────────────────────────────────────────
-
-    /**
-     * The three phases of a DJ set's energy arc.
-     *
-     * A classic set structure: start medium-energy, build to a peak, then cool down.
-     * These phases drive [scoreCandidate]'s energy direction bonus.
-     */
-    private enum class EnergyPhase {
-        /** First ~30% of the set. Gradually increase energy — prefer slightly higher BPMs. */
-        BUILD,
-
-        /** Middle ~40% of the set. Peak energy zone — keep BPM tight and controlled. */
-        PEAK,
-
-        /** Last ~30% of the set. Wind the crowd down — prefer same-or-slightly-lower BPMs. */
-        COOLDOWN
     }
 }

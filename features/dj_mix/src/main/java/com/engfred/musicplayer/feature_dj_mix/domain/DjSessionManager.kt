@@ -160,6 +160,7 @@ class DjSessionManager @Inject constructor(
 
     fun getTrackTransitionInfo(audioFile: AudioFile): Triple<Long, Float, Float> {
         val info = _bpmCache.value[audioFile.id]
-        return Triple(info?.firstBeatMs ?: 0L, info?.bpm ?: 0f, info?.amplitude ?: 0f)
+        val cueInMs = info?.customCueInMs ?: info?.firstBeatMs ?: 0L
+        return Triple(cueInMs, info?.bpm ?: 0f, info?.amplitude ?: 0f)
     }
 }

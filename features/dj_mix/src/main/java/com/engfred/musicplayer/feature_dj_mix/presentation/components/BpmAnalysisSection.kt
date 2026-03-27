@@ -33,7 +33,7 @@ fun BpmAnalysisSection(
     analysedCount: Int,
     totalCount: Int,
     modifier: Modifier = Modifier,
-    failedCount: Int = 0   // ── NEW ──
+    failedCount: Int = 0
 ) {
     val animatedProgress by animateFloatAsState(
         targetValue = progress,
@@ -75,7 +75,7 @@ fun BpmAnalysisSection(
             trackColor = Color.White.copy(alpha = 0.1f)
         )
 
-        // ── NEW: non-alarming failure notice ─────────────────────────────────
+        // ── non-alarming failure notice ─────────────────────────────────
         // Only visible once analysis is complete (progress == 1f) and there are
         // failures. Shown after the progress bar so it doesn't compete with the
         // "still working" state. Phrased to set expectations without alarming.

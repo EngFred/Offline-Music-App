@@ -12,10 +12,12 @@ import androidx.room.PrimaryKey
  * = not yet analysed; the engine falls back to the synthetic pattern in that case.
  *
  * Version history:
- *   1 — initial schema
- *   2 — added firstBeatMs
- *   3 — added amplitude
- *   4 — added waveformEnvelope                                          ← NEW
+ * 1 — initial schema
+ * 2 — added firstBeatMs
+ * 3 — added amplitude
+ * 4 — added waveformEnvelope
+ * 5 — added analysisFailed
+ * 6 — added customCueInMs and customMixOutMs                          ← NEW
  */
 @Entity(tableName = "bpm_cache")
 data class BpmCacheEntity(
@@ -25,7 +27,11 @@ data class BpmCacheEntity(
     val firstBeatMs: Long = 0L,
     val amplitude: Float = 0f,
     val waveformEnvelope: FloatArray = FloatArray(0),
-    val analysisFailed: Boolean = false
+    val analysisFailed: Boolean = false,
+
+    // ── User Overrides ──
+    val customCueInMs: Long? = null,
+    val customMixOutMs: Long? = null
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -36,7 +42,9 @@ data class BpmCacheEntity(
                 firstBeatMs == other.firstBeatMs &&
                 amplitude == other.amplitude &&
                 waveformEnvelope.contentEquals(other.waveformEnvelope) &&
-                analysisFailed == other.analysisFailed
+                analysisFailed == other.analysisFailed &&
+                customCueInMs == other.customCueInMs &&
+                customMixOutMs == other.customMixOutMs
     }
 
     override fun hashCode(): Int {
@@ -47,6 +55,8 @@ data class BpmCacheEntity(
         result = 31 * result + amplitude.hashCode()
         result = 31 * result + waveformEnvelope.contentHashCode()
         result = 31 * result + analysisFailed.hashCode()
+        result = 31 * result + (customCueInMs?.hashCode() ?: 0)
+        result = 31 * result + (customMixOutMs?.hashCode() ?: 0)
         return result
     }
 }
