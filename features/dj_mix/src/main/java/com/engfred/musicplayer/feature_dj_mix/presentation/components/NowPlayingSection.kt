@@ -305,30 +305,37 @@ fun NowPlayingSection(
                 .fillMaxWidth()
                 .height(64.dp)
         ) {
-            val source     = waveform.ifEmpty { List(48) { 0.10f } }
-            val barCount   = 48
-            val chunkSize  = (source.size / barCount).coerceAtLeast(1)
-            val downsampled = source.chunked(chunkSize).map { chunk -> chunk.maxOrNull() ?: 0f }
+            val barCount = 48
+            val source = waveform.ifEmpty { List(barCount) { 0.10f } }
 
-            val barWidth    = size.width / downsampled.size
+            // Map source → barCount using index lerp instead of chunked().
+            // chunked() only works when source.size >= barCount; when the engine
+            // emits WAVEFORM_BARS=32 and barCount=48, chunked gives only 32 bars
+            // and the right-half flatlines. Index mapping always produces barCount bars.
+            val downsampled = List(barCount) { i ->
+                val srcIdx = (i.toFloat() / barCount * source.size)
+                    .toInt().coerceIn(0, source.size - 1)
+                source[srcIdx]
+            }
+
+            val barWidth = size.width / downsampled.size
             val strokeWidth = (barWidth * 0.70f).coerceAtLeast(2f)
-            val playheadX   = size.width * animatedPlayback
+            val playheadX = size.width * animatedPlayback
 
             downsampled.forEachIndexed { index, amplitude ->
                 val barHeight = (amplitude * size.height * 1.5f).coerceIn(4f, size.height)
-                val x         = index * barWidth + (barWidth / 2)
-                val startY    = (size.height - barHeight) / 2
+                val x = index * barWidth + (barWidth / 2)
+                val startY = (size.height - barHeight) / 2
 
-                // Active portion is full primary color, upcoming is low opacity
                 val isPlayed = x <= playheadX
                 val barColor = if (isPlayed) primaryColor else primaryColor.copy(alpha = 0.20f)
 
                 drawLine(
-                    color       = barColor,
-                    start       = Offset(x, startY),
-                    end         = Offset(x, startY + barHeight),
+                    color = barColor,
+                    start = Offset(x, startY),
+                    end = Offset(x, startY + barHeight),
                     strokeWidth = strokeWidth,
-                    cap         = StrokeCap.Round
+                    cap = StrokeCap.Round
                 )
             }
 
@@ -364,32 +371,32 @@ fun NowPlayingSection(
         }
 
         // ── DJ Cue Overrides ──────────────────────────────────────────────────
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            CueButton(
-                text = "CUE IN",
-                isActive = customCueInMs != null,
-                onClick = onSetCueIn
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            CueButton(
-                text = "MIX OUT",
-                isActive = customMixOutMs != null,
-                onClick = onSetMixOut
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            CueButton(
-                text = "CLEAR",
-                isActive = false,
-                isDanger = true,
-                onClick = onClearCues,
-                enabled = customCueInMs != null || customMixOutMs != null
-            )
-        }
+//        Spacer(modifier = Modifier.height(8.dp))
+//        Row(
+//            modifier = Modifier.fillMaxWidth(),
+//            horizontalArrangement = Arrangement.Center,
+//            verticalAlignment = Alignment.CenterVertically
+//        ) {
+//            CueButton(
+//                text = "CUE IN",
+//                isActive = customCueInMs != null,
+//                onClick = onSetCueIn
+//            )
+//            Spacer(modifier = Modifier.width(12.dp))
+//            CueButton(
+//                text = "MIX OUT",
+//                isActive = customMixOutMs != null,
+//                onClick = onSetMixOut
+//            )
+//            Spacer(modifier = Modifier.width(12.dp))
+//            CueButton(
+//                text = "CLEAR",
+//                isActive = false,
+//                isDanger = true,
+//                onClick = onClearCues,
+//                enabled = customCueInMs != null || customMixOutMs != null
+//            )
+//        }
 
         // ── Next Track & Countdown Row ────────────────────────────────────────
         AnimatedVisibility(
