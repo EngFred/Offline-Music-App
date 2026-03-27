@@ -167,22 +167,7 @@ class MixOfTheDayWorker @AssistedInject constructor(
         recentBpms.addLast(bpmMap[opener.id] ?: 120f)
 
         while (result.size < cap && pool.isNotEmpty()) {
-            val setProgressFraction = result.size.toFloat() / cap.toFloat()
             val lastBpm = bpmMap[result.last().id] ?: 120f
-
-            // Score every remaining candidate
-            val scored = pool
-                .filter { bpmMap.containsKey(it.id) }
-                .map { track ->
-                    track to getSmartNextTrackUseCase(
-                        currentBpm          = lastBpm,
-                        remainingQueue      = listOf(track),
-                        bpmCache            = bpmMap,
-                        tolerance           = 10f,
-                        recentBpms          = recentBpms.toList(),
-                        setProgressFraction = setProgressFraction
-                    ).let { /* score proxy: just use the use-case result rank */ track }
-                }
 
             // Pick via weighted random from the top-3 scored candidates
             val next = selectWeightedTopN(
@@ -190,7 +175,6 @@ class MixOfTheDayWorker @AssistedInject constructor(
                 pool                = pool,
                 bpmMap              = bpmMap,
                 recentBpms          = recentBpms.toList(),
-                setProgressFraction = setProgressFraction,
                 rng                 = rng,
                 topN                = 3
             ) ?: pool.first()
@@ -220,7 +204,6 @@ class MixOfTheDayWorker @AssistedInject constructor(
         pool: MutableList<AudioFile>,
         bpmMap: Map<Long, Float>,
         recentBpms: List<Float>,
-        setProgressFraction: Float,
         rng: java.util.Random,
         topN: Int = 3
     ): AudioFile? {
@@ -229,9 +212,6 @@ class MixOfTheDayWorker @AssistedInject constructor(
         val candidates = pool
             .filter { bpmMap.containsKey(it.id) }
             .map { track ->
-                // Re-use GetSmartNextTrackUseCase on a singleton list to get its score.
-                // We invoke it as a single-candidate queue so the returned track IS
-                // the candidate — we just need the implicit score ordering.
                 // For direct scoring we replicate the scoring inline here:
                 val bpm = bpmMap[track.id]!!
                 val harmonic = getSmartNextTrackUseCase.isHarmonicallyCompatible(currentBpm, bpm)

@@ -76,7 +76,7 @@ enum class MixStrategy {
  * drives every parameter in [CrossfadeEngine.executeCrossfade].
  *
  * @param stretchRatio  RubberBand time-stretch ratio = incomingBpm/outgoingBpm (1.0 = no stretch).
- *                      < 1.0 speeds up incoming track; > 1.0 slows it down.
+ * < 1.0 speeds up incoming track; > 1.0 slows it down.
  */
 data class MixDecision(
     val outgoingBpm: Float,
@@ -99,16 +99,16 @@ data class MixDecision(
  *
  * Key capabilities:
  * - **5-strategy mix engine** ([computeMixDecision]): classifies every BPM pair into
- *   TRANSPARENT / SMOOTH / POWER_MIX / HARMONIC / WIDE_TRANSITION and derives crossfade
- *   duration, tempo-sync flag, and bass-kill timing automatically.
+ * TRANSPARENT / SMOOTH / POWER_MIX / HARMONIC / WIDE_TRANSITION and derives crossfade
+ * duration, tempo-sync flag, and bass-kill timing automatically.
  * - **RubberBand tempo sync**: music-quality time-stretching via [RubberBandAudioProcessor]
- *   (replaces ExoPlayer's Sonic which is speech-optimised and distorts music above ~1.08×).
- *   Each player owns its own processor instance; ratio changes are applied live.
+ * (replaces ExoPlayer's Sonic which is speech-optimised and distorts music above ~1.08×).
+ * Each player owns its own processor instance; ratio changes are applied live.
  * - **Correct bass-kill EQ**: queries [android.media.audiofx.Equalizer.getBandFreqRange] to
- *   find the actual bass band rather than blindly assuming band 0 (OEM HALs vary widely).
+ * find the actual bass band rather than blindly assuming band 0 (OEM HALs vary widely).
  * - **Pre-buffer**: silently loads the next track before the crossfade fires.
  * - **Beat-grid waveform**: 60 fps synthetic visualiser from BPM + RMS envelope; no
- *   RECORD_AUDIO permission required.
+ * RECORD_AUDIO permission required.
  */
 @UnstableApi
 @Singleton
@@ -126,8 +126,6 @@ class CrossfadeEngine @Inject constructor(
         private const val FADE_STEPS           = 60
         private const val CROSSFADE_GUARD_MS   = 200L
         private const val BEAT_SNAP_WINDOW_MS  = POSITION_POLL_MS / 2
-        private const val TEMPO_EASE_STEPS     = 40
-        private const val TEMPO_EASE_DURATION_MS = 4_000L
         private const val PHRASE_BARS          = 8
         private const val BARS_PER_BEAT_MULTIPLE = 4
         private const val WAVEFORM_BARS        = 32
@@ -161,12 +159,15 @@ class CrossfadeEngine @Inject constructor(
     private var playerB: ExoPlayer? = null
     private var processorA: RubberBandAudioProcessor? = null
     private var processorB: RubberBandAudioProcessor? = null
+    private var waveformProcessorA: WaveformCaptureAudioProcessor? = null
+    private var waveformProcessorB: WaveformCaptureAudioProcessor? = null
     @Volatile private var isPrimaryA = true
 
     private fun primaryPlayer()     = if (isPrimaryA) playerA    else playerB
     private fun secondaryPlayer()   = if (isPrimaryA) playerB    else playerA
     private fun primaryProcessor()  = if (isPrimaryA) processorA else processorB
     private fun secondaryProcessor()= if (isPrimaryA) processorB else processorA
+    private fun primaryWaveformProcessor() = if (isPrimaryA) waveformProcessorA else waveformProcessorB
 
     // ── State & settings ─────────────────────────────────────────────────────
     private val _state = MutableStateFlow(CrossfadeEngineState())
@@ -185,7 +186,6 @@ class CrossfadeEngine @Inject constructor(
 
     private var positionMonitorJob: Job? = null
     private var crossfadeJob: Job?       = null
-    private var tempoEaseJob: Job?       = null
     private var waveformJob: Job?        = null
     private var prebufferJob: Job?       = null
 
@@ -226,6 +226,7 @@ class CrossfadeEngine @Inject constructor(
             pendingNextTrack         = null; prebufferedTrackId = null
             isPrebufferingInProgress = false
             playerA = null; playerB = null; processorA = null; processorB = null
+            waveformProcessorA = null; waveformProcessorB = null
             _state.value             = CrossfadeEngineState()
             waveformSmoothed.fill(0f)
             _nextTrackRequest.resetReplayCache()
@@ -235,13 +236,17 @@ class CrossfadeEngine @Inject constructor(
 
         engineScope.launch {
             withContext(Dispatchers.Main) {
-                // Create RubberBand processors (graceful degradation if native lib missing)
+                // Create RubberBand and Waveform processors (graceful degradation if native lib missing)
                 try {
                     processorA = RubberBandAudioProcessor()
                     processorB = RubberBandAudioProcessor()
+                    waveformProcessorA = WaveformCaptureAudioProcessor()
+                    waveformProcessorB = WaveformCaptureAudioProcessor()
                 } catch (e: UnsatisfiedLinkError) {
                     Log.e(TAG, "RubberBand native lib unavailable — tempo-sync disabled", e)
                     processorA = null; processorB = null
+                    waveformProcessorA = WaveformCaptureAudioProcessor()
+                    waveformProcessorB = WaveformCaptureAudioProcessor()
                 }
 
                 val attrs = AudioAttributes.Builder()
@@ -249,8 +254,8 @@ class CrossfadeEngine @Inject constructor(
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                     .build()
 
-                playerA = buildExoPlayer(context, processorA, attrs, true,  isPlayerA = true)
-                playerB = buildExoPlayer(context, processorB, attrs, false, isPlayerA = false)
+                playerA = buildExoPlayer(context, processorA, waveformProcessorA, attrs, true,  isPlayerA = true)
+                playerB = buildExoPlayer(context, processorB, waveformProcessorB, attrs, false, isPlayerA = false)
 
                 isInitialized = true
                 Log.d(TAG, "initialize: ready (RubberBand=${processorA != null})")
@@ -261,13 +266,16 @@ class CrossfadeEngine @Inject constructor(
     @OptIn(UnstableApi::class)
     private fun buildExoPlayer(
         ctx: Context,
-        processor: RubberBandAudioProcessor?,
+        rubberBandProcessor: RubberBandAudioProcessor?,
+        waveformProcessor: WaveformCaptureAudioProcessor?,
         attrs: AudioAttributes,
         handleAudioBecomingNoisy: Boolean,
         isPlayerA: Boolean
     ): ExoPlayer {
-        val processors: Array<AudioProcessor> =
-            if (processor != null) arrayOf(processor) else emptyArray()
+        val processors: Array<AudioProcessor> = listOfNotNull(
+            waveformProcessor,    // tap raw PCM first
+            rubberBandProcessor   // then time-stretch
+        ).toTypedArray()
 
         val renderersFactory = object : DefaultRenderersFactory(ctx) {
             override fun buildAudioSink(
@@ -393,7 +401,7 @@ class CrossfadeEngine @Inject constructor(
     fun release() {
         if (isReleased) return
         isReleased = true
-        positionMonitorJob?.cancel(); crossfadeJob?.cancel(); tempoEaseJob?.cancel()
+        positionMonitorJob?.cancel(); crossfadeJob?.cancel()
         waveformJob?.cancel(); prebufferJob?.cancel()
 
         CoroutineScope(Dispatchers.Main.immediate).launch {
@@ -405,6 +413,8 @@ class CrossfadeEngine @Inject constructor(
             } finally {
                 processorA?.reset(); processorA = null
                 processorB?.reset(); processorB = null
+                waveformProcessorA?.reset(); waveformProcessorA = null
+                waveformProcessorB?.reset(); waveformProcessorB = null
                 isInitialized = false
                 _state.update { it.copy(waveform = emptyList()) }
             }
@@ -487,7 +497,7 @@ class CrossfadeEngine @Inject constructor(
             append("\n         ↳ ")
             when (strategy) {
                 MixStrategy.TRANSPARENT     -> append("Silky smooth — nothing to hide.")
-                MixStrategy.SMOOTH          -> append("Standard club technique — RubberBand stretch + ease-back.")
+                MixStrategy.SMOOTH          -> append("Standard club technique — RubberBand stretch.")
                 MixStrategy.POWER_MIX       -> append("Early bass kill gives incoming track space to breathe.")
                 MixStrategy.HARMONIC        -> append("Half/double-time — harmonic lock does the work.")
                 MixStrategy.WIDE_TRANSITION -> append("Energy valley technique — the BPM jump IS the moment.")
@@ -519,7 +529,7 @@ class CrossfadeEngine @Inject constructor(
      * 2. Prepare secondary player (or resume pre-buffered).
      * 3. Apply RubberBand stretch to secondary processor (SMOOTH / POWER_MIX only).
      * 4. Equal-power sin/cos volume ramp; apply bass-kill EQ at strategy threshold.
-     * 5. Swap players; launch [easeTempoBackToNormal] if stretch was applied.
+     * 5. Swap players; Snap tempo ratio to 1.0 if stretch was applied.
      * 6. Execute any [pendingNextTrack] queued during the crossfade.
      */
     private suspend fun executeCrossfade(
@@ -539,7 +549,6 @@ class CrossfadeEngine @Inject constructor(
             it.copy(isCrossfading = true, crossfadeProgressFraction = 0f,
                 currentMixStrategy = decision.strategy)
         }
-        tempoEaseJob?.cancel()
 
         var bassKillEq: android.media.audiofx.Equalizer? = null
 
@@ -652,12 +661,11 @@ class CrossfadeEngine @Inject constructor(
             }
             Log.d(TAG, "executeCrossfade: COMPLETE strategy=${decision.strategy.name}")
 
-            // ── Post-crossfade tempo ease-back ────────────────────────────────
-            // Gradually returns the new primary's RubberBand stretch back to 1.0
-            // so the pitch/tempo doesn't snap abruptly.
+            // ── Post-crossfade tempo snap ─────────────────────────────────────
+            // Snap immediately — crossfade just ended, the transition masked it
             if (decision.shouldTempoSync && decision.stretchRatio != 1.0) {
-                val appliedRatio = decision.stretchRatio
-                tempoEaseJob = engineScope.launch { easeTempoBackToNormal(appliedRatio) }
+                primaryProcessor()?.resetRatio()
+                Log.d(TAG, "Tempo snap-back to 1.0 (ratio was ${decision.stretchRatio.fmt3()})")
             }
 
             // ── Execute pending track ─────────────────────────────────────────
@@ -704,24 +712,6 @@ class CrossfadeEngine @Inject constructor(
         return if (bestBand >= 0 && lowestUpperMhz <= BASS_UPPER_LIMIT_MHZ) bestBand.toShort()
         else if (bestBand >= 0) bestBand.toShort() // fallback: lowest band available
         else 0.toShort()
-    }
-
-    // ── Tempo ease-back ───────────────────────────────────────────────────────
-
-    /**
-     * Interpolates the new primary player's RubberBand stretch from [fromRatio] → 1.0
-     * over [TEMPO_EASE_DURATION_MS] ms. Only called for SMOOTH / POWER_MIX transitions.
-     */
-    private suspend fun easeTempoBackToNormal(fromRatio: Double) {
-        val stepDelayMs = TEMPO_EASE_DURATION_MS / TEMPO_EASE_STEPS
-        for (step in 1..TEMPO_EASE_STEPS) {
-            if (!engineScope.isActive) break
-            val ratio = fromRatio + (1.0 - fromRatio) * step.toDouble() / TEMPO_EASE_STEPS
-            primaryProcessor()?.setTimeRatio(ratio)
-            delay(stepDelayMs)
-        }
-        primaryProcessor()?.resetRatio()
-        Log.d(TAG, "Tempo ease-back complete (${fromRatio.fmt3()} → 1.0)")
     }
 
     // ── Position monitoring ───────────────────────────────────────────────────
@@ -837,38 +827,23 @@ class CrossfadeEngine @Inject constructor(
      * so bars pulse to the beat without RECORD_AUDIO permission.
      */
     private fun generateBeatWaveform(positionMs: Long): List<Float> {
-        val bpm       = currentTrackBpm
-        val firstBeat = currentTrackFirstBeatMs
-        val amplitude = currentTrackAmplitude
-        val hasEnvelope = currentWaveformEnvelope.isNotEmpty()
+        // Read real bands from the audio processor — this is actual music energy
+        val realBands = primaryWaveformProcessor()?.getBands()
 
-        if (bpm <= 0f && !hasEnvelope) return generatePlaceholderWaveform()
-
-        val beatEnvelope: Float = if (bpm > 0f) {
-            val beatMs    = 60_000.0 / bpm
-            val elapsed   = (positionMs - firstBeat).toDouble().coerceAtLeast(0.0)
-            val phase     = (elapsed % beatMs) / beatMs
-            val kick      = maxOf(0.0, 1.0 - phase * 2.5).toFloat()
-            val snare     = (maxOf(0.0, 1.0 - (if (phase > 0.5) phase - 0.5 else 1.0) * 3.0) * 0.65).toFloat()
-            maxOf(kick, snare)
-        } else 0.45f
-
-        val scaledAmp = (amplitude * 4.5f).coerceIn(0.18f, 0.95f)
-
-        for (i in 0 until WAVEFORM_BARS) {
-            val staticBase = if (hasEnvelope) {
-                val idx = (i.toFloat() / WAVEFORM_BARS * currentWaveformEnvelope.size)
-                    .toInt().coerceIn(0, currentWaveformEnvelope.size - 1)
-                currentWaveformEnvelope[idx].coerceIn(0.05f, 1.0f)
-            } else {
-                (Math.sin(i * 2.3999632 + 1.0) * 0.22 + 0.78).toFloat()
+        return if (realBands != null && realBands.any { it > 0.01f }) {
+            // Real data path: direct from PCM analysis
+            // Upsample from BAND_COUNT to WAVEFORM_BARS with smoothing
+            List(WAVEFORM_BARS) { i ->
+                val srcIdx = (i.toFloat() / WAVEFORM_BARS * realBands.size)
+                    .toInt().coerceIn(0, realBands.size - 1)
+                val raw = realBands[srcIdx]
+                waveformSmoothed[i] = waveformSmoothed[i] * 0.55f + raw * 0.45f
+                waveformSmoothed[i]
             }
-            val freqNorm  = i.toFloat() / WAVEFORM_BARS
-            val dynamic   = beatEnvelope * (1f - freqNorm * 0.65f) + freqNorm * 0.35f
-            val raw       = (scaledAmp * staticBase * dynamic).coerceIn(0f, 1f)
-            waveformSmoothed[i] = waveformSmoothed[i] * 0.65f + raw * 0.35f
+        } else {
+            // Fallback only during the brief moment before ExoPlayer configures the processor
+            generatePlaceholderWaveform()
         }
-        return waveformSmoothed.toList()
     }
 
     private fun generatePlaceholderWaveform(): List<Float> {

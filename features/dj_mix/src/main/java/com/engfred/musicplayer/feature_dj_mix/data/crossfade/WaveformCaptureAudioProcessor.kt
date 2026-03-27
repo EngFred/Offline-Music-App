@@ -18,17 +18,17 @@ import kotlin.math.sqrt
  *
  * Architecture:
  * - Sits BEFORE RubberBandAudioProcessor in the chain so we measure
- *   pre-stretch audio (natural spectral content, not time-stretched).
+ * pre-stretch audio (natural spectral content, not time-stretched).
  * - Accumulates PCM frames into a 256-sample window, then computes
- *   per-band RMS across [BAND_COUNT] logarithmically-spaced frequency bins.
+ * per-band RMS across [BAND_COUNT] logarithmically-spaced frequency bins.
  * - Results are written atomically via [AtomicReference] — safe to read
- *   from any thread (waveform loop on Default dispatcher).
+ * from any thread (waveform loop on Default dispatcher).
  *
  * Band layout (logarithmic, 44100 Hz assumed):
- *   Band  0–3 : sub-bass  (20–80 Hz)
- *   Band  4–9 : bass      (80–300 Hz)
- *   Band 10–19: mids      (300–3000 Hz)
- *   Band 20–31: highs     (3000–20000 Hz)
+ * Band  0–3 : sub-bass  (20–80 Hz)
+ * Band  4–9 : bass      (80–300 Hz)
+ * Band 10–19: mids      (300–3000 Hz)
+ * Band 20–31: highs     (3000–20000 Hz)
  */
 @OptIn(UnstableApi::class)
 class WaveformCaptureAudioProcessor : AudioProcessor {
@@ -58,6 +58,9 @@ class WaveformCaptureAudioProcessor : AudioProcessor {
     // Pre-computed band boundaries in sample-index space (for the FFT bins)
     private lateinit var bandBoundaries: IntArray
 
+    // ExoPlayer Pipeline Output Buffer
+    private var outputBuffer: ByteBuffer = AudioProcessor.EMPTY_BUFFER
+
     // ── AudioProcessor interface ──────────────────────────────────────────────
 
     override fun configure(inputFormat: AudioFormat): AudioFormat {
@@ -76,6 +79,8 @@ class WaveformCaptureAudioProcessor : AudioProcessor {
     override fun queueInput(inputBuffer: ByteBuffer) {
         if (!isConfigured || !inputBuffer.hasRemaining()) return
 
+        val bytes = inputBuffer.remaining()
+
         // Read PCM_16BIT samples, mix to mono on the fly, accumulate
         val view = inputBuffer.duplicate().order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
         while (view.hasRemaining()) {
@@ -91,22 +96,41 @@ class WaveformCaptureAudioProcessor : AudioProcessor {
                 accumulatorPos = 0
             }
         }
-        // Don't consume the original buffer — it passes through unchanged
-        // (inputBuffer position is NOT advanced; ExoPlayer reads it next)
-        // Actually we need to advance it so ExoPlayer knows we consumed it.
-        // We duplicated above, so advance the original:
-        inputBuffer.position(inputBuffer.limit())
+
+        // Prepare the output buffer for the next processor in the chain
+        if (outputBuffer.capacity() < bytes) {
+            outputBuffer = ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder())
+        } else {
+            outputBuffer.clear()
+        }
+
+        // Copy input to output, which intrinsically advances the inputBuffer position,
+        // signaling to ExoPlayer that we have successfully consumed it.
+        outputBuffer.put(inputBuffer)
+        outputBuffer.flip()
     }
 
     override fun queueEndOfStream() { /* pass-through, nothing to flush */ }
-    override fun getOutput(): ByteBuffer = AudioProcessor.EMPTY_BUFFER
+
+    override fun getOutput(): ByteBuffer {
+        val output = outputBuffer
+        outputBuffer = AudioProcessor.EMPTY_BUFFER
+        return output
+    }
+
     override fun isEnded() = false
-    override fun flush() { accumulatorPos = 0 }
+
+    override fun flush() {
+        accumulatorPos = 0
+        outputBuffer = AudioProcessor.EMPTY_BUFFER
+    }
+
     override fun reset() {
         isConfigured = false
         accumulatorPos = 0
         smoothed.fill(0f)
         _bands.set(FloatArray(BAND_COUNT))
+        outputBuffer = AudioProcessor.EMPTY_BUFFER
     }
 
     // ── DSP ───────────────────────────────────────────────────────────────────

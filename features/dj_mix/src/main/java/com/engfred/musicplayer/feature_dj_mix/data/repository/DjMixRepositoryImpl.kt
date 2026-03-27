@@ -17,7 +17,6 @@ import javax.inject.Singleton
 /**
  * Concrete implementation of [DjMixRepository].
  *
- * ── BUG FIX ──────────────────────────────────────────────────────────────────
  * Both [getBpmCacheFlow] and [getBpmForAudios] were building [BpmInfo] objects
  * without mapping the [amplitude] column from the database entity. This meant
  * every track was presented to the CrossfadeEngine with amplitude = 0f, causing
@@ -37,7 +36,7 @@ class DjMixRepositoryImpl @Inject constructor(
      * Emits a new value every time any BPM cache row is inserted or replaced
      * (i.e., as BpmAnalysisWorker processes each file in the playlist).
      *
-     * FIX: amplitude is now correctly mapped from the entity.
+     * amplitude is now correctly mapped from the entity.
      */
     override fun getBpmCacheFlow(): Flow<Map<Long, BpmInfo>> =
         bpmCacheDao.getAllBpmEntries().map { entries ->
@@ -55,7 +54,7 @@ class DjMixRepositoryImpl @Inject constructor(
 
     /**
      * One-shot lookup for a set of file IDs.
-     * FIX: amplitude is now correctly mapped from the entity.
+     * amplitude is now correctly mapped from the entity.
      */
     override suspend fun getBpmForAudios(audioFileIds: List<Long>): Map<Long, BpmInfo> =
         bpmCacheDao.getBpmForAudios(audioFileIds).associate { entity ->
