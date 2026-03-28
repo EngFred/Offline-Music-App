@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,6 +20,8 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.automirrored.rounded.Sort
@@ -43,6 +46,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -54,10 +58,12 @@ import com.engfred.musicplayer.core.domain.model.PlaylistLayoutType
 import com.engfred.musicplayer.core.domain.model.PlaylistSortOption
 import com.engfred.musicplayer.core.ui.components.ErrorIndicator
 import com.engfred.musicplayer.core.ui.components.InfoIndicator
-import com.engfred.musicplayer.core.ui.components.LoadingIndicator
 import com.engfred.musicplayer.feature_playlist.presentation.components.list.AutomaticPlaylistItem
 import com.engfred.musicplayer.feature_playlist.presentation.components.list.PlaylistGridItem
 import com.engfred.musicplayer.feature_playlist.presentation.components.list.PlaylistListItem
+import com.engfred.musicplayer.feature_playlist.presentation.components.list.ShimmerAutomaticPlaylistItem
+import com.engfred.musicplayer.feature_playlist.presentation.components.list.ShimmerPlaylistGridItem
+import com.engfred.musicplayer.feature_playlist.presentation.components.list.ShimmerPlaylistListItem
 import com.engfred.musicplayer.feature_playlist.presentation.viewmodel.list.PlaylistEvent
 import com.engfred.musicplayer.feature_playlist.presentation.viewmodel.list.PlaylistViewModel
 import kotlin.math.max
@@ -111,11 +117,80 @@ fun PlaylistsScreen(
         // Handle different UI states
         when {
             uiState.isLoading -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    LoadingIndicator()
+                    // 1. Shimmer Automatic Playlists (Row)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = contentHorizontalPadding)
+                    ) {
+                        val automaticItemWidth = if (isLandscape) 200.dp else 160.dp
+                        // Show 3 placeholders for the automatic playlists
+                        repeat(3) {
+                            ShimmerAutomaticPlaylistItem(
+                                modifier = Modifier.width(automaticItemWidth)
+                            )
+                        }
+                    }
+
+                    // 2. Shimmer "My Playlists" Header
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = contentHorizontalPadding, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Title placeholder
+                        Box(
+                            modifier = Modifier
+                                .width(140.dp)
+                                .height(28.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        )
+                        // Sort Icon placeholder
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        )
+                    }
+
+                    // 3. Shimmer User Playlists (Matches Grid or List state)
+                    if (uiState.currentLayout == PlaylistLayoutType.LIST) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            repeat(8) { index ->
+                                ShimmerPlaylistListItem(
+                                    modifier = Modifier.padding(start = contentHorizontalPadding, end = 10.dp),
+                                    showDivider = index < 7
+                                )
+                            }
+                        }
+                    } else {
+                        // GRID layout placeholder
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            repeat(4) { // 4 rows of grids
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(0.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    repeat(gridColumns) {
+                                        ShimmerPlaylistGridItem(
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

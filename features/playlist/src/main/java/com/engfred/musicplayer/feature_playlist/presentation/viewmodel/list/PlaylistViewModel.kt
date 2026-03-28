@@ -87,8 +87,10 @@ class PlaylistViewModel @Inject constructor(
             settingsRepository.getAppSettings()
         ) { allPlaylists, settings ->
 
-            // 1. Separate Lists
-            val automatic = allPlaylists.filter { it.isAutomatic }
+            // 1. Separate Lists (and exclude Mix of the Day from automatic list)
+            val automatic = allPlaylists.filter {
+                it.isAutomatic && !it.name.equals("Mix of the Day", ignoreCase = true)
+            }
             val userAll = allPlaylists.filter { !it.isAutomatic }
 
             // 2. Identify Favorites (Always keeps separate or at top)

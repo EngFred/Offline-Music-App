@@ -24,6 +24,7 @@ import com.engfred.musicplayer.core.ui.components.AudioFileItem
 import com.engfred.musicplayer.core.ui.components.ErrorIndicator
 import com.engfred.musicplayer.core.ui.components.InfoIndicator
 import com.engfred.musicplayer.core.ui.components.LoadingIndicator
+import com.engfred.musicplayer.core.ui.components.ShimmerAudioFileItem
 import com.engfred.musicplayer.feature_library.presentation.viewmodel.LibraryScreenState
 
 @Composable
@@ -66,7 +67,19 @@ fun LibraryContent(
     ) {
         when {
             uiState.isLoading -> {
-                LoadingIndicator()
+                Column(modifier = Modifier.fillMaxSize()) {
+//                    if (uiState.searchQuery.isEmpty()) {
+//                        ShimmerMixOfTheDayCard()
+//                    }
+                    // Generate 10 skeleton items to fill the screen
+                    repeat(10) {
+                        ShimmerAudioFileItem()
+                        HorizontalDivider(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        )
+                    }
+                }
             }
             uiState.error != null -> {
                 ErrorIndicator(
