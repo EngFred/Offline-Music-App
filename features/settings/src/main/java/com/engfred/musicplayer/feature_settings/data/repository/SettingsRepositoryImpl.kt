@@ -72,7 +72,7 @@ class SettingsRepositoryImpl @Inject constructor(
             }
             .map { preferences ->
                 val selectedTheme = AppThemeType.valueOf(
-                    preferences[SELECTED_THEME] ?: AppThemeType.CLASSIC_BLUE.name
+                    preferences[SELECTED_THEME] ?: AppThemeType.NEON_DARK.name
                 )
                 val selectedPlayerLayout = PlayerLayout.valueOf(
                     preferences[SELECTED_PLAYER_LAYOUT] ?: PlayerLayout.ETHEREAL_FLOW.name

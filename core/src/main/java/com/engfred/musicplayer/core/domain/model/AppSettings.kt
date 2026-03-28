@@ -11,7 +11,7 @@ import com.engfred.musicplayer.core.ui.theme.AppThemeType
  * backwards-compatible — DataStore returns the default for any key not yet written.
  */
 data class AppSettings(
-    val selectedTheme: AppThemeType = AppThemeType.CLASSIC_LIGHT,
+    val selectedTheme: AppThemeType = AppThemeType.NEON_DARK,
     val selectedPlayerLayout: PlayerLayout,
     val playlistLayoutType: PlaylistLayoutType,
     val playlistSortOption: PlaylistSortOption = PlaylistSortOption.DATE_CREATED_ASC,

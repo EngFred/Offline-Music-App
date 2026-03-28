@@ -803,7 +803,14 @@ class CrossfadeEngine @Inject constructor(
                 val srcIdx = (i.toFloat() / WAVEFORM_BARS * realBands.size)
                     .toInt().coerceIn(0, realBands.size - 1)
                 val raw = realBands[srcIdx]
-                waveformSmoothed[i] = waveformSmoothed[i] * 0.55f + raw * 0.45f
+
+                // High-frequency bands (right side) naturally have 5-10x less energy
+                // than bass bands. Apply a log-based gain curve so all bars dance visually.
+                // i=0 (bass) gets gain=1.0, i=WAVEFORM_BARS-1 (treble) gets gain~3.5
+                val gainCurve = 1f + (i.toFloat() / WAVEFORM_BARS) * 2.5f
+                val boosted = (raw * gainCurve).coerceIn(0f, 1f)
+
+                waveformSmoothed[i] = waveformSmoothed[i] * 0.15f + boosted * 0.85f
                 waveformSmoothed[i]
             }
         } else {

@@ -176,7 +176,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            val selectedTheme = initialAppSettings?.selectedTheme ?: AppThemeType.CLASSIC_BLUE
+            val selectedTheme = initialAppSettings?.selectedTheme ?: AppThemeType.NEON_DARK
             MusicPlayerAppTheme(selectedTheme = selectedTheme) {
                 val navController = androidx.navigation.compose.rememberNavController()
 

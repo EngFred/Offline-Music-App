@@ -28,5 +28,5 @@ data class DjMixSettings(
     val loopQueue: Boolean            = true,
     val useManualMaxDuration: Boolean = false,
     val autoSamplerEnabled: Boolean   = true,
-    val sampleVolume: Float           = 0.75f
+    val sampleVolume: Float           = 1.0f
 )
