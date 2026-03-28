@@ -18,6 +18,7 @@ import androidx.media3.common.util.UnstableApi
 import com.engfred.musicplayer.core.domain.ActivePlayerRegistry
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.feature_dj_mix.data.crossfade.CrossfadeEngine
+import com.engfred.musicplayer.feature_dj_mix.data.sampler.SamplerEngine
 import com.engfred.musicplayer.feature_dj_mix.domain.DjSessionManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -36,8 +37,8 @@ import javax.inject.Inject
  *
  * When the position monitor determines that remaining time < crossfadeDurationMs × 3,
  * it emits on [CrossfadeEngine.prebufferRequest]. This service:
- *   1. Selects the next track from DjSessionManager (same algorithm, NOT marked as played)
- *   2. Calls crossfadeEngine.prebufferTrack() to silently load it into the secondary ExoPlayer
+ * 1. Selects the next track from DjSessionManager (same algorithm, NOT marked as played)
+ * 2. Calls crossfadeEngine.prebufferTrack() to silently load it into the secondary ExoPlayer
  *
  * When the actual crossfade fires shortly after, the secondary player is already in
  * STATE_READY and seeked to firstBeatMs. [executeCrossfade] skips the 2-second buffer
@@ -62,6 +63,7 @@ class DjMixService : Service() {
     @Inject lateinit var crossfadeEngine: CrossfadeEngine
     @Inject lateinit var djSessionManager: DjSessionManager
     @Inject lateinit var activePlayerRegistry: ActivePlayerRegistry
+    @Inject lateinit var samplerEngine: SamplerEngine
 
     private lateinit var mediaSession: MediaSessionCompat
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -88,9 +90,10 @@ class DjMixService : Service() {
         setupMediaSession()
         observeEngineState()
         observeNextTrackRequests()
-        observePrebufferRequests()   // ← NEW: wire pre-buffer loop
+        observePrebufferRequests()
         observeEngineSettings()
         observeStopSignal()
+        samplerEngine.initialize()
     }
 
     // ── Media session ─────────────────────────────────────────────────────────
@@ -193,6 +196,8 @@ class DjMixService : Service() {
                 crossfadeEngine.isRealMixMode       = settings.isRealMixMode
                 crossfadeEngine.maxTrackDurationMs  = settings.maxTrackDurationSec * 1000L
                 crossfadeEngine.useHalfwayMix       = !settings.useManualMaxDuration
+                samplerEngine.isAutoSamplerEnabled  = settings.autoSamplerEnabled
+                samplerEngine.sampleVolume          = settings.sampleVolume
             }
         }
     }
@@ -319,6 +324,7 @@ class DjMixService : Service() {
         if (!engineReleased) {
             engineReleased = true
             crossfadeEngine.release()
+            samplerEngine.release()
         }
         djSessionManager.endSession()
         activePlayerRegistry.onDjMixStopped()
@@ -332,6 +338,7 @@ class DjMixService : Service() {
         if (!engineReleased) {
             engineReleased = true
             crossfadeEngine.release()
+            samplerEngine.release()
             djSessionManager.endSession()
             activePlayerRegistry.onDjMixStopped()
         }

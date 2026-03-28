@@ -46,4 +46,7 @@ interface SettingsRepository {
     // ── Mix of the Day ────────────────────────────────────────────────────────
     suspend fun getLastMixOfTheDayTimestamp(): Long
     suspend fun updateLastMixOfTheDayTimestamp(timestamp: Long)
+
+    suspend fun updateDjAutoSampler(enabled: Boolean)
+    suspend fun updateDjSampleVolume(volume: Float)
 }

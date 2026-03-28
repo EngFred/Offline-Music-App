@@ -59,6 +59,8 @@ class SettingsRepositoryImpl @Inject constructor(
         private val DJ_MAX_TRACK_DUR_SEC   = intPreferencesKey("dj_max_track_dur_sec")
         private val DJ_LOOP_QUEUE          = booleanPreferencesKey("dj_loop_queue")
         private val DJ_MANUAL_MAX_DURATION = booleanPreferencesKey("dj_manual_max_duration")
+        private val DJ_AUTO_SAMPLER        = booleanPreferencesKey("dj_auto_sampler")
+        private val DJ_SAMPLE_VOLUME       = floatPreferencesKey("dj_sample_volume")
 
         private val LAST_MIX_OF_THE_DAY_TIMESTAMP = longPreferencesKey("last_mix_of_the_day_timestamp")
     }
@@ -107,7 +109,9 @@ class SettingsRepositoryImpl @Inject constructor(
                     isRealMixMode        = preferences[DJ_REAL_MIX_MODE] ?: false,
                     maxTrackDurationSec  = preferences[DJ_MAX_TRACK_DUR_SEC] ?: 120,
                     loopQueue            = preferences[DJ_LOOP_QUEUE] ?: true,
-                    useManualMaxDuration = preferences[DJ_MANUAL_MAX_DURATION] ?: false
+                    useManualMaxDuration = preferences[DJ_MANUAL_MAX_DURATION] ?: false,
+                    autoSamplerEnabled   = preferences[DJ_AUTO_SAMPLER] ?: true,
+                    sampleVolume         = preferences[DJ_SAMPLE_VOLUME] ?: 0.75f
                 )
             }
     }
@@ -243,6 +247,14 @@ class SettingsRepositoryImpl @Inject constructor(
      */
     override suspend fun updateDjManualMaxDuration(enabled: Boolean) {
         dataStore.edit { it[DJ_MANUAL_MAX_DURATION] = enabled }
+    }
+
+    override suspend fun updateDjAutoSampler(enabled: Boolean) {
+        dataStore.edit { it[DJ_AUTO_SAMPLER] = enabled }
+    }
+
+    override suspend fun updateDjSampleVolume(volume: Float) {
+        dataStore.edit { it[DJ_SAMPLE_VOLUME] = volume }
     }
 
     override suspend fun getLastMixOfTheDayTimestamp(): Long {

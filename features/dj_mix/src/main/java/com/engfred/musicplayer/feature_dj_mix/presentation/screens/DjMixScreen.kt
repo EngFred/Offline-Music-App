@@ -324,7 +324,11 @@ fun DjMixScreen(
                     onToggleRealMixMode        = { viewModel.onEvent(DjMixEvent.ToggleRealMixMode(it)) },
                     onToggleManualMaxDuration  = { viewModel.onEvent(DjMixEvent.ToggleManualMaxDuration(it)) },
                     onMaxDurationChanged       = { viewModel.onEvent(DjMixEvent.UpdateMaxTrackDuration(it)) },
-                    onToggleLoopQueue          = { viewModel.onEvent(DjMixEvent.ToggleLoopQueue(it)) }
+                    onToggleLoopQueue          = { viewModel.onEvent(DjMixEvent.ToggleLoopQueue(it)) },
+                    autoSamplerEnabled         = uiState.settings.autoSamplerEnabled,
+                    sampleVolume               = uiState.settings.sampleVolume,
+                    onToggleAutoSampler        = { viewModel.onEvent(DjMixEvent.ToggleAutoSampler(it)) },
+                    onSampleVolumeChanged      = { viewModel.onEvent(DjMixEvent.UpdateSampleVolume(it)) },
                 )
                 Spacer(modifier = Modifier.height(48.dp))
             }

@@ -37,7 +37,6 @@ data class DjMixUiState(
     // ── Track History Synchronization ────────────────────────────────────────
     val playedTrackIds: Set<Long> = emptySet(),
 
-    // ── Next track preview: shown in the UP NEXT chip while countdown is visible
-    // Computed by selectNextTrack() — does NOT advance the queue.
+    // ── Next track preview ────────────────────────────────────────────────────
     val nextTrack: AudioFile? = null
 )

@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 
 @Composable
 fun ControlsSection(
@@ -27,18 +28,24 @@ fun ControlsSection(
     maxTrackDurationSec: Int,
     useManualMaxDuration: Boolean,
     loopQueue: Boolean,
+    autoSamplerEnabled: Boolean,
+    sampleVolume: Float,
     onCrossfadeDurationChanged: (Int) -> Unit,
     onBpmToleranceChanged: (Float) -> Unit,
     onToggleRealMixMode: (Boolean) -> Unit,
     onToggleManualMaxDuration: (Boolean) -> Unit,
     onMaxDurationChanged: (Int) -> Unit,
     onToggleLoopQueue: (Boolean) -> Unit,
+    onToggleAutoSampler: (Boolean) -> Unit,
+    onSampleVolumeChanged: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
+
+        // ── Auto-Mix Mode ─────────────────────────────────────────────────────
         PremiumToggleRow(
             title = "Auto-Mix Mode",
             subtitle = "Starts the next track before this one ends",
@@ -49,7 +56,10 @@ fun ControlsSection(
         if (isRealMixMode) {
             PremiumToggleRow(
                 title = "Manual Mix Point",
-                subtitle = if (useManualMaxDuration) "You choose when to trigger the mix" else "Mixes at the halfway point",
+                subtitle = if (useManualMaxDuration)
+                    "You choose when to trigger the mix"
+                else
+                    "Mixes at the halfway point (adjusted for song start offset)",
                 isChecked = useManualMaxDuration,
                 onCheckedChange = onToggleManualMaxDuration
             )
@@ -68,6 +78,7 @@ fun ControlsSection(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
 
+        // ── Loop ──────────────────────────────────────────────────────────────
         PremiumToggleRow(
             title = "Loop Session",
             subtitle = "When the last track ends, loop back to the start",
@@ -77,9 +88,10 @@ fun ControlsSection(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
 
+        // ── Blend / BPM ───────────────────────────────────────────────────────
         SliderWithLabel(
             label = "Blend Length",
-            valueLabel = "${crossfadeDurationSec} SEC",
+            valueLabel = "$crossfadeDurationSec SEC",
             value = crossfadeDurationSec.toFloat(),
             valueRange = 2f..12f,
             steps = 9,
@@ -100,6 +112,31 @@ fun ControlsSection(
             },
             onValueChange = onBpmToleranceChanged
         )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+
+        // ── Sampler ───────────────────────────────────────────────────────────
+        PremiumToggleRow(
+            title = "Mix Sound Effects",
+            subtitle = if (autoSamplerEnabled)
+                "AI drops air horns, sweeps & hits at the perfect moment"
+            else
+                "Transitions play silently — no effects",
+            isChecked = autoSamplerEnabled,
+            onCheckedChange = onToggleAutoSampler
+        )
+
+        if (autoSamplerEnabled) {
+            SliderWithLabel(
+                label = "Effects Volume",
+                valueLabel = "${(sampleVolume * 100).roundToInt()}%",
+                value = sampleVolume,
+                valueRange = 0f..1f,
+                steps = 19,           // 5% increments
+                description = "How loud the transition effects are relative to the music",
+                onValueChange = onSampleVolumeChanged
+            )
+        }
     }
 }
 
@@ -117,13 +154,13 @@ private fun PremiumToggleRow(
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
             Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
+                text      = title,
+                style     = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color     = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                text = subtitle,
+                text  = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
@@ -132,8 +169,8 @@ private fun PremiumToggleRow(
             checked = isChecked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                checkedThumbColor   = MaterialTheme.colorScheme.onPrimary,
+                checkedTrackColor   = MaterialTheme.colorScheme.primary,
                 uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
             )
@@ -157,17 +194,17 @@ private fun SliderWithLabel(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = label.uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
+                text          = label.uppercase(),
+                style         = MaterialTheme.typography.labelSmall,
+                fontWeight    = FontWeight.Bold,
                 letterSpacing = 1.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                color         = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
             Text(
-                text = valueLabel,
-                style = MaterialTheme.typography.labelMedium,
+                text       = valueLabel,
+                style      = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Black,
-                color = MaterialTheme.colorScheme.primary
+                color      = MaterialTheme.colorScheme.primary
             )
         }
         Slider(
@@ -176,16 +213,16 @@ private fun SliderWithLabel(
             valueRange = valueRange,
             steps = steps,
             colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
+                thumbColor        = MaterialTheme.colorScheme.primary,
+                activeTrackColor  = MaterialTheme.colorScheme.primary,
                 inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
             )
         )
         if (description != null) {
             Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                text     = description,
+                style    = MaterialTheme.typography.bodySmall,
+                color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                 modifier = Modifier.padding(top = 2.dp)
             )
         }

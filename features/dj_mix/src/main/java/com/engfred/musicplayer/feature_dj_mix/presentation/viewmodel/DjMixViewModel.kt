@@ -10,6 +10,7 @@ import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.repository.PlaylistRepository
 import com.engfred.musicplayer.core.domain.repository.SettingsRepository
 import com.engfred.musicplayer.feature_dj_mix.data.crossfade.CrossfadeEngine
+import com.engfred.musicplayer.feature_dj_mix.data.sampler.SamplerEngine
 import com.engfred.musicplayer.feature_dj_mix.domain.DjSessionManager
 import com.engfred.musicplayer.feature_dj_mix.domain.model.DjMixSettings
 import com.engfred.musicplayer.feature_dj_mix.domain.repository.BpmInfo
@@ -48,7 +49,8 @@ class DjMixViewModel @Inject constructor(
     private val getSmartNextTrackUseCase: GetSmartNextTrackUseCase,
     private val djSessionManager: DjSessionManager,
     private val activePlayerRegistry: ActivePlayerRegistry,
-    val crossfadeEngine: CrossfadeEngine
+    val crossfadeEngine: CrossfadeEngine,
+    private val samplerEngine: SamplerEngine
 ) : ViewModel() {
 
     private val playlistId: Long =
@@ -264,6 +266,22 @@ class DjMixViewModel @Inject constructor(
             }
 
             DjMixEvent.AbortCrossfade -> crossfadeEngine.abortCurrentCrossfade()
+
+            is DjMixEvent.ToggleAutoSampler -> {
+                val s = _uiState.value.settings.copy(autoSamplerEnabled = event.enabled)
+                samplerEngine.isAutoSamplerEnabled = event.enabled
+                _uiState.update { it.copy(settings = s) }
+                djSessionManager.updateSettings(s)
+                viewModelScope.launch { settingsRepository.updateDjAutoSampler(event.enabled) }
+            }
+
+            is DjMixEvent.UpdateSampleVolume -> {
+                val s = _uiState.value.settings.copy(sampleVolume = event.volume)
+                samplerEngine.sampleVolume = event.volume
+                _uiState.update { it.copy(settings = s) }
+                djSessionManager.updateSettings(s)
+                viewModelScope.launch { settingsRepository.updateDjSampleVolume(event.volume) }
+            }
         }
     }
 
@@ -304,12 +322,16 @@ class DjMixViewModel @Inject constructor(
                     isRealMixMode        = appSettings.isRealMixMode,
                     maxTrackDurationSec  = appSettings.maxTrackDurationSec,
                     loopQueue            = appSettings.loopQueue,
-                    useManualMaxDuration = appSettings.useManualMaxDuration
+                    useManualMaxDuration = appSettings.useManualMaxDuration,
+                    autoSamplerEnabled   = appSettings.autoSamplerEnabled,
+                    sampleVolume         = appSettings.sampleVolume
                 )
                 crossfadeEngine.crossfadeDurationMs = newSettings.crossfadeDurationSec * 1000L
                 crossfadeEngine.isRealMixMode       = newSettings.isRealMixMode
                 crossfadeEngine.maxTrackDurationMs  = newSettings.maxTrackDurationSec * 1000L
                 crossfadeEngine.useHalfwayMix       = !newSettings.useManualMaxDuration
+                samplerEngine.isAutoSamplerEnabled  = newSettings.autoSamplerEnabled
+                samplerEngine.sampleVolume          = newSettings.sampleVolume
 
                 val toleranceChanged = currentSettings.bpmTolerance != newSettings.bpmTolerance
                 _uiState.update { it.copy(settings = newSettings) }
