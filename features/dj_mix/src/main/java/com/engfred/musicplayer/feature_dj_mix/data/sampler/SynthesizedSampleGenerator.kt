@@ -21,11 +21,12 @@ import kotlin.math.*
  * downloaded CC0 OGG assets.
  *
  * Samples produced:
- *  - RISER_SWEEP    — exponential sine sweep 300 Hz → 1 200 Hz over 2 s
- *  - WHITE_NOISE_UP — white noise with rising amplitude envelope (1.5 s)
+ *  - RISER_SWEEP      — exponential sine sweep 300 Hz → 1 200 Hz over 2 s
+ *  - REWIND_SWEEP     — downward vinyl-brake sweep 1 400 Hz → 180 Hz, 1.2 s, with pitch flutter
+ *  - WHITE_NOISE_UP   — white noise with rising amplitude envelope (1.5 s)
  *  - WHITE_NOISE_DOWN — white noise with falling amplitude envelope (1.5 s)
- *  - IMPACT_HIT     — 80 Hz sine burst with fast exponential decay (0.5 s)
- *  - STUTTER_HIT    — gated noise stutter with decaying envelope (0.5 s)
+ *  - IMPACT_HIT       — 80 Hz sine burst with fast exponential decay (0.5 s)
+ *  - STUTTER_HIT      — gated noise stutter with decaying envelope (0.5 s)
  */
 @Singleton
 class SynthesizedSampleGenerator @Inject constructor(
@@ -67,11 +68,12 @@ class SynthesizedSampleGenerator @Inject constructor(
     // ── PCM dispatch ──────────────────────────────────────────────────────────
 
     private fun generatePcm(sampleId: SampleId): ShortArray = when (sampleId) {
-        SampleId.RISER_SWEEP     -> generateRiserSweep()
-        SampleId.WHITE_NOISE_UP  -> generateWhiteNoise(fadingIn = true,  durationMs = 1500)
-        SampleId.WHITE_NOISE_DOWN-> generateWhiteNoise(fadingIn = false, durationMs = 1500)
-        SampleId.IMPACT_HIT      -> generateImpactHit()
-        SampleId.STUTTER_HIT     -> generateStutterHit()
+        SampleId.RISER_SWEEP      -> generateRiserSweep()
+        SampleId.REWIND_SWEEP     -> generateRewindSweep()
+        SampleId.WHITE_NOISE_UP   -> generateWhiteNoise(fadingIn = true,  durationMs = 1500)
+        SampleId.WHITE_NOISE_DOWN -> generateWhiteNoise(fadingIn = false, durationMs = 1500)
+        SampleId.IMPACT_HIT       -> generateImpactHit()
+        SampleId.STUTTER_HIT      -> generateStutterHit()
         else -> ShortArray(0).also { Log.w(TAG, "No PCM generator for ${sampleId.name}") }
     }
 
@@ -101,7 +103,61 @@ class SynthesizedSampleGenerator @Inject constructor(
                 i < fadeInEnd    -> i.toDouble() / fadeInEnd
                 i > fadeOutStart -> (totalSamples - i).toDouble() / (totalSamples - fadeOutStart)
                 else             -> 1.0
-            } * 0.65 // peak at 65% to leave headroom
+            } * 0.65
+
+            samples[i] = (sin(phase) * gain * Short.MAX_VALUE).toInt()
+                .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+        }
+        return samples
+    }
+
+    /**
+     * Downward vinyl-brake sweep: 1 400 Hz → 180 Hz over 1.2 seconds.
+     *
+     * Design choices that make this feel authentic:
+     *  - Starts HIGH (1 400 Hz) so the ear hears a dramatic "falling" sensation.
+     *  - Ends LOW (180 Hz) — not at 0 Hz — so the last resonance has some thud.
+     *  - Pitch flutter (18 Hz modulation, ±4%) mimics the wow-and-flutter of a
+     *    real vinyl platter slowing under brake pressure.
+     *  - 20 ms attack / 80 ms release avoids any digital click at start and end.
+     *  - Peak amplitude 70% to leave headroom when layered with music.
+     *
+     * Used exclusively for [MixStrategy.HARMONIC] — the tempo shift IS the moment;
+     * a "time is reversing" sweep primes the crowd for the incoming half/double-time.
+     */
+    private fun generateRewindSweep(): ShortArray {
+        val totalSamples  = (SAMPLE_RATE * 1.2).toInt()
+        val samples       = ShortArray(totalSamples)
+        val startHz       = 1_400.0
+        val endHz         = 180.0
+        val sweepRatio    = endHz / startHz                       // < 1 → downward
+        val fadeInEnd     = (SAMPLE_RATE * 0.020).toInt()         // 20 ms attack
+        val fadeOutStart  = totalSamples - (SAMPLE_RATE * 0.08).toInt() // 80 ms release
+
+        // Vinyl wow-and-flutter: slow amplitude / pitch oscillation
+        val flutterRateHz  = 18.0   // platter deceleration wobble frequency
+        val flutterDepth   = 0.04   // ±4% pitch deviation
+        val amplitudeSag   = 0.06   // amplitude droops slightly as the platter slows
+
+        var phase = 0.0
+
+        for (i in 0 until totalSamples) {
+            val progress = i.toDouble() / totalSamples
+            val baseFreq = startHz * sweepRatio.pow(progress)
+
+            // Flutter: pitch oscillation that gradually slows as platter decelerates
+            val flutterPhase = 2.0 * PI * flutterRateHz * (1.0 - progress * 0.6) * i / SAMPLE_RATE
+            val pitchFactor  = 1.0 + flutterDepth * sin(flutterPhase)
+
+            phase += 2.0 * PI * (baseFreq * pitchFactor) / SAMPLE_RATE
+
+            // Amplitude envelope: fade-in, sustain with a slight sag, then fade-out
+            val sagFactor = 1.0 - amplitudeSag * sin(PI * progress)
+            val gain = when {
+                i < fadeInEnd    -> (i.toDouble() / fadeInEnd)
+                i > fadeOutStart -> ((totalSamples - i).toDouble() / (totalSamples - fadeOutStart))
+                else             -> 1.0
+            } * sagFactor * 0.70
 
             samples[i] = (sin(phase) * gain * Short.MAX_VALUE).toInt()
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
@@ -118,7 +174,7 @@ class SynthesizedSampleGenerator @Inject constructor(
     private fun generateWhiteNoise(fadingIn: Boolean, durationMs: Int): ShortArray {
         val totalSamples = SAMPLE_RATE * durationMs / 1000
         val samples      = ShortArray(totalSamples)
-        val rng          = Random(42L) // fixed seed → reproducible output
+        val rng          = Random(42L)
 
         for (i in 0 until totalSamples) {
             val progress  = i.toDouble() / totalSamples
@@ -138,7 +194,7 @@ class SynthesizedSampleGenerator @Inject constructor(
         val totalSamples = (SAMPLE_RATE * 0.5).toInt()
         val samples      = ShortArray(totalSamples)
         val freq         = 80.0
-        val decayRate    = 9.0 // higher = shorter tail
+        val decayRate    = 9.0
 
         for (i in 0 until totalSamples) {
             val t          = i.toDouble() / SAMPLE_RATE
@@ -160,15 +216,14 @@ class SynthesizedSampleGenerator @Inject constructor(
         val rng          = Random(42L)
 
         for (i in 0 until totalSamples) {
-            val t          = i.toDouble() / SAMPLE_RATE
-            val gateOpen   = (t * gateHz).toInt() % 2 == 0
+            val t        = i.toDouble() / SAMPLE_RATE
+            val gateOpen = (t * gateHz).toInt() % 2 == 0
             if (gateOpen) {
-                val noise     = rng.nextGaussian().coerceIn(-1.0, 1.0)
-                val envelope  = (1.0 - i.toDouble() / totalSamples).pow(1.5)
-                samples[i]    = (noise * envelope * 0.55 * Short.MAX_VALUE).toInt()
+                val noise    = rng.nextGaussian().coerceIn(-1.0, 1.0)
+                val envelope = (1.0 - i.toDouble() / totalSamples).pow(1.5)
+                samples[i]   = (noise * envelope * 0.55 * Short.MAX_VALUE).toInt()
                     .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
             }
-            // Gate-closed samples stay 0 (already initialised to 0)
         }
         return samples
     }
@@ -180,28 +235,25 @@ class SynthesizedSampleGenerator @Inject constructor(
      * Uses [ByteOrder.LITTLE_ENDIAN] throughout, as the WAV spec requires.
      */
     private fun writeWav(file: File, pcm: ShortArray) {
-        val dataBytes = pcm.size * 2 // 16-bit = 2 bytes per sample
+        val dataBytes = pcm.size * 2
         val byteRate  = SAMPLE_RATE * CHANNELS * (BIT_DEPTH / 8)
 
         val buffer = ByteBuffer.allocate(WAV_HEADER + dataBytes)
             .order(ByteOrder.LITTLE_ENDIAN)
 
-        // ── RIFF chunk descriptor ─────────────────────────────────────────────
         buffer.put("RIFF".toByteArray(Charsets.US_ASCII))
-        buffer.putInt(36 + dataBytes)          // overall file size − 8
+        buffer.putInt(36 + dataBytes)
         buffer.put("WAVE".toByteArray(Charsets.US_ASCII))
 
-        // ── fmt sub-chunk (16 bytes) ──────────────────────────────────────────
         buffer.put("fmt ".toByteArray(Charsets.US_ASCII))
-        buffer.putInt(16)                       // sub-chunk size
-        buffer.putShort(1)                      // PCM = 1
+        buffer.putInt(16)
+        buffer.putShort(1)
         buffer.putShort(CHANNELS.toShort())
         buffer.putInt(SAMPLE_RATE)
         buffer.putInt(byteRate)
-        buffer.putShort((CHANNELS * BIT_DEPTH / 8).toShort()) // block align
+        buffer.putShort((CHANNELS * BIT_DEPTH / 8).toShort())
         buffer.putShort(BIT_DEPTH.toShort())
 
-        // ── data sub-chunk ────────────────────────────────────────────────────
         buffer.put("data".toByteArray(Charsets.US_ASCII))
         buffer.putInt(dataBytes)
         pcm.forEach { buffer.putShort(it) }

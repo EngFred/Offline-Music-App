@@ -7,8 +7,20 @@ package com.engfred.musicplayer.feature_dj_mix.data.sampler
  * AUTO-only samples are triggered exclusively by crossfade lifecycle hooks — they
  * have no pad button but can still be called via [SamplerEngine.triggerSample].
  *
+ * ── Auto-trigger map (full coverage) ────────────────────────────────────────
+ *
+ *  Strategy          │ On crossfade START  │ Mid-mix                  │ On DROP (complete)
+ *  ──────────────────┼─────────────────────┼──────────────────────────┼────────────────────
+ *  TRANSPARENT       │ DJ_SCRATCH          │ —                        │ — (silence = effect)
+ *  SMOOTH            │ RISER_SWEEP         │ STUTTER_HIT (50%)        │ AIR_HORN
+ *  POWER_MIX         │ WHITE_NOISE_UP      │ IMPACT_HIT (35%)         │ AIR_HORN
+ *  HARMONIC          │ REWIND_SWEEP        │ —                        │ CROWD_HEY
+ *  WIDE_TRANSITION   │ SIREN               │ STUTTER_HIT (45%)        │ CROWD_HEY
+ *  ─────────────────────────────────────────────────────────────────────────────────────────
+ *  Session start     │ AIR_HORN (once, fired by DjMixService on first play)
+ *
  * @param displayName   Human-readable label shown on the pad grid.
- * @param assetPath     Path inside assets/ for downloaded CC0 samples.
+ * @param assetPath     Path inside assets/ for downloaded CC0 OGG samples.
  *                      Null means the sound is synthesized at runtime by
  *                      [SynthesizedSampleGenerator] and cached to internal storage.
  * @param isManual      True  → appears as a UI pad the user can tap.
@@ -22,7 +34,7 @@ enum class SampleId(
     val emoji: String
 ) {
 
-    // ── Downloaded CC0 samples ────────────────────────────────────────────────
+    // ── Downloaded CC0 OGG samples ────────────────────────────────────────────
 
     AIR_HORN(
         displayName = "Air Horn",
@@ -62,6 +74,17 @@ enum class SampleId(
         assetPath   = null,
         isManual    = false,
         emoji       = "⬆️"
+    ),
+    /**
+     * Downward vinyl-brake sweep: 1 400 Hz → 180 Hz with pitch flutter.
+     * The classic DJ signal for harmonic (half-time / double-time) transitions.
+     * Psychoacoustically tells the crowd "time is shifting" before the tempo lands.
+     */
+    REWIND_SWEEP(
+        displayName = "Rewind",
+        assetPath   = null,
+        isManual    = false,
+        emoji       = "⏪"
     ),
     WHITE_NOISE_UP(
         displayName = "Noise Up",

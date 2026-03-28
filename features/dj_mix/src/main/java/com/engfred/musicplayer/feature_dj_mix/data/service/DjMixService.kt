@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -94,6 +95,7 @@ class DjMixService : Service() {
         observeEngineSettings()
         observeStopSignal()
         samplerEngine.initialize()
+        observeFirstPlay()
     }
 
     // ── Media session ─────────────────────────────────────────────────────────
@@ -208,6 +210,28 @@ class DjMixService : Service() {
                 Log.d(TAG, "Stop signal received — normal player taking over.")
                 releaseAndStop()
             }
+        }
+    }
+
+    /**
+     * Fires [SamplerEngine.onSessionStarted] exactly once — when the DJ Mix engine
+     * plays its first track for this session.
+     *
+     * We wait for [CrossfadeEngineState.isPlaying] = true rather than firing
+     * immediately in onCreate() because:
+     *  a) SoundPool needs time to decode the AIR_HORN asset after initialize().
+     *  b) The user may have opened the DJ screen but not yet pressed Play.
+     *
+     * [kotlinx.coroutines.flow.first] automatically cancels collection after the
+     * first matching emission, so this never fires twice.
+     */
+    private fun observeFirstPlay() {
+        serviceScope.launch {
+            crossfadeEngine.state
+                .first { it.isPlaying && !it.isCrossfading }
+            // Reached here only on the first isPlaying=true, non-crossfading emission.
+            samplerEngine.onSessionStarted()
+            Log.d(TAG, "observeFirstPlay: session-start AIR_HORN triggered")
         }
     }
 

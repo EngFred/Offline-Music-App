@@ -731,16 +731,6 @@ class CrossfadeEngine @Inject constructor(
                     } else {
                         maxTrackDurationMs
                     }
-//                    val mixAt = if (useHalfwayMix) {
-//                        // Offset the halfway point by how much of the track was skipped at the start.
-//                        // Example: 2-min track, firstBeat=26s → mixAt = 60s + 26s = 86s (1m26s).
-//                        // This means "halfway through the portion the listener actually hears."
-//                        ((duration / 2L) + currentTrackFirstBeatMs)
-//                            .coerceAtMost(duration - crossfadeDurationMs - 1000L)
-//                            .coerceAtLeast(duration / 2L) // never earlier than the old halfway
-//                    } else {
-//                        maxTrackDurationMs
-//                    }
                     position >= mixAt && remaining > crossfadeDurationMs
                 } else false
 
