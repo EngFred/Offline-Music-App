@@ -2,20 +2,35 @@ package com.engfred.musicplayer.feature_player.utils
 
 import android.content.Context
 import android.graphics.drawable.BitmapDrawable
-import android.util.Log
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.toArgb
 import androidx.palette.graphics.Palette
 import coil.imageLoader
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * Extracts up to four perceptually distinct colors from [uri] using Palette.
+ *
+ * The returned list is used by [AnimatedBlobBackground] to drive the animated
+ * blob colors. Each color is mildly darkened (~15 %) to sit well on a dark
+ * canvas while keeping vibrance.  If fewer than four distinct swatches are
+ * found the list is padded with deep-space defaults.
+ *
+ * Swatch priority order:
+ *  DarkVibrant → Vibrant → LightVibrant → Muted → DarkMuted → LightMuted → Dominant
+ *
+ * A color is skipped if it is perceptually too close (colorDistance < 0.05)
+ * to a color already in the selection.
+ */
 suspend fun getDynamicGradientColors(context: Context, uri: String?): List<Color> {
-    // Default dark gradient colors
-    val defaultColors = listOf(Color(0xFF1E1E1E), Color(0xFF333333))
+    val defaultColors = listOf(
+        Color(0xFF1A0A2E),
+        Color(0xFF0A142E),
+        Color(0xFF0A2A1A),
+        Color(0xFF2E1A0A),
+    )
 
     if (uri == null) return defaultColors
 
@@ -27,69 +42,63 @@ suspend fun getDynamicGradientColors(context: Context, uri: String?): List<Color
 
     return withContext(Dispatchers.IO) {
         try {
-            val result = loader.execute(request)
-            val bitmapDrawable = result.drawable as? BitmapDrawable
-            val bitmap = bitmapDrawable?.bitmap
+            val result  = loader.execute(request)
+            val bitmap  = (result.drawable as? BitmapDrawable)?.bitmap
+                ?: return@withContext defaultColors
 
-            if (bitmap != null) {
-                val palette = Palette.from(bitmap).generate()
+            val palette = Palette.from(bitmap).generate()
 
-                val vibrant = palette.vibrantSwatch
-                val darkVibrant = palette.darkVibrantSwatch
-                val muted = palette.mutedSwatch
-                val darkMuted = palette.darkMutedSwatch
-                val dominant = palette.dominantSwatch
+            // All available swatches in priority order — vibrant first
+            val candidates: List<Palette.Swatch?> = listOf(
+                palette.darkVibrantSwatch,
+                palette.vibrantSwatch,
+                palette.lightVibrantSwatch,
+                palette.mutedSwatch,
+                palette.darkMutedSwatch,
+                palette.lightMutedSwatch,
+                palette.dominantSwatch,
+            )
 
-                // Prefer darker swatches first so extracted colors are naturally darker
-                val primarySwatchInt = (darkVibrant ?: darkMuted ?: vibrant ?: muted ?: dominant)?.rgb
-                val secondarySwatchInt = when {
-                    // try to get a different swatch for variety
-                    primarySwatchInt == null -> (darkMuted ?: muted ?: vibrant ?: dominant)?.rgb
-                    else -> (darkMuted?.rgb ?: muted?.rgb ?: vibrant?.rgb ?: dominant?.rgb)
+            val selected = mutableListOf<Color>()
+
+            for (swatch in candidates) {
+                if (swatch == null) continue
+                if (selected.size >= 4) break
+
+                val candidate = Color(swatch.rgb)
+
+                // Skip if too perceptually similar to any already-selected color
+                val tooClose = selected.any { existing ->
+                    colorDistance(existing, candidate) < 0.05f
                 }
-
-                // If no swatches found, fallback to defaults
-                if (primarySwatchInt == null) {
-                    return@withContext defaultColors
+                if (!tooClose) {
+                    // Mild darkening (15 %) — keeps vibrancy while working on a dark canvas
+                    selected.add(candidate.darken(0.15f))
                 }
-
-                // Construct Compose colors
-                val primary = Color(primarySwatchInt)
-                val secondary = secondarySwatchInt?.let { Color(it) } ?: primary
-
-                // Aggressively darken the extracted colors to avoid too-bright gradients.
-                // Using lerp with black yields perceptually better results than scaling channels.
-                // primaryDark: slightly less dark than secondaryDark so gradient has depth
-                val primaryDark = primary.darken(0.28f).copy(alpha = 1f)
-                val secondaryDark = secondary.darken(0.42f).copy(alpha = 1f)
-
-                // Ensure two distinct colors; if they are too close, nudge secondary further
-                val finalSecondary = if (colorDistance(primaryDark, secondaryDark) < 0.02f) {
-                    secondaryDark.darken(0.08f)
-                } else secondaryDark
-
-                // Return sorted by luminance (dark -> lighter) so verticalGradient draws smoothly
-                listOf(primaryDark, finalSecondary).sortedBy { it.luminance() }
-            } else {
-//                Log.w("getDynamicGradientColors", "Bitmap could not be extracted from URI: $uri")
-                defaultColors
             }
+
+            if (selected.isEmpty()) return@withContext defaultColors
+
+            // Pad to 4 if we extracted fewer unique swatches
+            while (selected.size < 4) selected.add(selected[0])
+
+            selected
         } catch (e: Exception) {
-//            Log.e("getDynamicGradientColors", "Error generating palette from album art for URI: $uri", e)
             defaultColors
         }
     }
 }
 
-/** Utility: perceptual-ish distance between two colors (based on RGB floats). */
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+/** Perceptual-ish RGB distance in the 0..3 range (squared). */
 private fun colorDistance(a: Color, b: Color): Float {
-    val dr = a.red - b.red
+    val dr = a.red   - b.red
     val dg = a.green - b.green
-    val db = a.blue - b.blue
-    return (dr * dr + dg * dg + db * db)
+    val db = a.blue  - b.blue
+    return dr * dr + dg * dg + db * db
 }
 
-/** Darken using lerp towards Color.Black for nicer visuals. fraction: 0..1 */
-private fun Color.darken(fraction: Float): Color {
-    return lerp(this, Color.Black, fraction.coerceIn(0f, 1f))
-}
+/** Darken toward black using linear interpolation. [fraction] 0 = no change, 1 = black. */
+private fun Color.darken(fraction: Float): Color =
+    lerp(this, Color.Black, fraction.coerceIn(0f, 1f))

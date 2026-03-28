@@ -29,7 +29,6 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +54,8 @@ import coil.compose.AsyncImage
 import com.engfred.musicplayer.core.domain.model.AutomaticPlaylistType
 import com.engfred.musicplayer.core.domain.model.DjMixPlaylistFilter
 import com.engfred.musicplayer.core.domain.model.Playlist
+import com.engfred.musicplayer.core.ui.components.shimmerBrush
+import com.engfred.musicplayer.feature_dj_mix.presentation.components.DjMixLauncherShimmer
 import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.DjMixLauncherViewModel
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,9 +84,8 @@ fun DjMixLauncherScreen(
     ) {
         when {
             uiState.isLoading -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                }
+                // Show the perfectly matched shimmer layout instead of a spinner
+                DjMixLauncherShimmer(modifier = Modifier.fillMaxSize())
             }
 
             uiState.error != null -> {
@@ -201,9 +201,6 @@ private fun LauncherContent(
 // Shared Components
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** * A sleek, horizontally scrollable row of custom pill-shaped chips
- * to act as the primary filter for the screen.
- */
 @Composable
 private fun FilterChipRow(
     currentFilter: DjMixPlaylistFilter,
@@ -414,6 +411,10 @@ private fun EmptyLauncherState(modifier: Modifier = Modifier) {
         )
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 private fun AutomaticPlaylistType?.toIcon(): ImageVector = when (this) {
     AutomaticPlaylistType.RECENTLY_ADDED -> Icons.Rounded.AccessTime
