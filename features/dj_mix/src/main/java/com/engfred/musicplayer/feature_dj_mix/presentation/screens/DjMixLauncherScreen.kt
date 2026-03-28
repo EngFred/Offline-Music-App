@@ -407,7 +407,7 @@ private fun EmptyLauncherState(modifier: Modifier = Modifier) {
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "The DJ Engine requires playlists to have more than 2 tracks. Add more songs to your playlists in the Library to start mixing.",
+            text = "The Mix Engine requires playlists to have more than 2 tracks. Add more songs to your playlists in the Library to start mixing.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
             textAlign = TextAlign.Center

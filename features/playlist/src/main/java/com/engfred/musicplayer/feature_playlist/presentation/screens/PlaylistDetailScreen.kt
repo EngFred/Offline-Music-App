@@ -165,6 +165,19 @@ fun PlaylistDetailScreen(
     val batchSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var allowBatchDismiss by remember { mutableStateOf(false) }
 
+    // Unified click handler for the DJ Mix button to ensure consistent UX across layouts
+    val handleDjMixClick: () -> Unit = {
+        val trackCount = uiState.playlist?.songs?.size ?: 0
+        if (trackCount < 3) {
+            Toast.makeText(context, "The Mix engine requires at least 3 tracks to mix.", Toast.LENGTH_SHORT).show()
+        } else {
+            val playlistId = uiState.playlist?.id
+            if (playlistId != null && onDjMixClick != null) {
+                onDjMixClick.invoke(playlistId)
+            }
+        }
+    }
+
     Scaffold(
         bottomBar = {
             if (uiState.currentPlayingAudioFile != null) {
@@ -335,9 +348,7 @@ fun PlaylistDetailScreen(
                                         if (showDjMixButton) {
                                             Spacer(modifier = Modifier.height(10.dp))
                                             DjMixButton(
-                                                onClick = {
-                                                    uiState.playlist?.id?.let { id -> onDjMixClick!!(id) }
-                                                },
+                                                onClick = handleDjMixClick,
                                                 modifier = Modifier.padding(horizontal = 12.dp)
                                             )
                                         }
@@ -451,9 +462,7 @@ fun PlaylistDetailScreen(
                         if (showDjMixButton) {
                             item {
                                 DjMixButton(
-                                    onClick = {
-                                        uiState.playlist?.id?.let { id -> onDjMixClick!!(id) }
-                                    }
+                                    onClick = handleDjMixClick
                                 )
                             }
                         }
