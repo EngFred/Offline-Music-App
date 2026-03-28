@@ -106,12 +106,12 @@ class SettingsRepositoryImpl @Inject constructor(
                     widgetBackgroundMode = widgetMode,
                     crossfadeDurationSec = preferences[CROSSFADE_DURATION_SEC] ?: 5,
                     bpmTolerance         = preferences[BPM_TOLERANCE] ?: 10f,
-                    isRealMixMode        = preferences[DJ_REAL_MIX_MODE] ?: false,
-                    maxTrackDurationSec  = preferences[DJ_MAX_TRACK_DUR_SEC] ?: 120,
+                    isRealMixMode        = preferences[DJ_REAL_MIX_MODE] ?: true,
+                    maxTrackDurationSec  = preferences[DJ_MAX_TRACK_DUR_SEC] ?: 146,
                     loopQueue            = preferences[DJ_LOOP_QUEUE] ?: true,
                     useManualMaxDuration = preferences[DJ_MANUAL_MAX_DURATION] ?: false,
                     autoSamplerEnabled   = preferences[DJ_AUTO_SAMPLER] ?: true,
-                    sampleVolume         = preferences[DJ_SAMPLE_VOLUME] ?: 0.75f
+                    sampleVolume         = preferences[DJ_SAMPLE_VOLUME] ?: 1f
                 )
             }
     }

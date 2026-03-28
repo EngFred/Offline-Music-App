@@ -119,7 +119,7 @@ fun ControlsSection(
         PremiumToggleRow(
             title = "Mix Sound Effects",
             subtitle = if (autoSamplerEnabled)
-                "AI drops air horns, sweeps & hits at the perfect moment"
+                "App drops air horns, sweeps & hits at the perfect moment"
             else
                 "Transitions play silently — no effects",
             isChecked = autoSamplerEnabled,

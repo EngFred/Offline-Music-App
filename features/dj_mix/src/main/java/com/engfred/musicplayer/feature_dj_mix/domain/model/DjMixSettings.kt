@@ -23,7 +23,7 @@ package com.engfred.musicplayer.feature_dj_mix.domain.model
 data class DjMixSettings(
     val crossfadeDurationSec: Int     = 5,
     val bpmTolerance: Float           = 10f,
-    val isRealMixMode: Boolean        = false,
+    val isRealMixMode: Boolean        = true,
     val maxTrackDurationSec: Int      = 146,
     val loopQueue: Boolean            = true,
     val useManualMaxDuration: Boolean = false,

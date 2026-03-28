@@ -50,7 +50,7 @@ fun DjMixButton(
         )
         Spacer(modifier = Modifier.width(10.dp))
         Text(
-            text = "DJ Mix",
+            text = "DJ Studio Mix",
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.tertiary
         )

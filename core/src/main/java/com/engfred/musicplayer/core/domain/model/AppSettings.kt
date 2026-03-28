@@ -22,7 +22,7 @@ data class AppSettings(
     // ── DJ Mix settings ────────────────────────────────────────────────────────
     val crossfadeDurationSec: Int     = 5,
     val bpmTolerance: Float           = 10f,
-    val isRealMixMode: Boolean        = false,
+    val isRealMixMode: Boolean        = true,
     val maxTrackDurationSec: Int      = 146,
     val loopQueue: Boolean            = true,
     val useManualMaxDuration: Boolean = false,
@@ -31,5 +31,5 @@ data class AppSettings(
     /** Whether the algorithm-driven sampler fires automatically during mixes. */
     val autoSamplerEnabled: Boolean   = true,
     /** Master volume for all sample playback (0.0 – 1.0). */
-    val sampleVolume: Float           = 0.75f
+    val sampleVolume: Float           = 1.0f
 )
