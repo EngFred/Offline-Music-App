@@ -3,13 +3,11 @@ package com.engfred.musicplayer.core.domain.model
 import com.engfred.musicplayer.core.domain.repository.RepeatMode
 import com.engfred.musicplayer.core.ui.theme.AppThemeType
 
-/**
- * Represents the application's user settings.
- * This is a pure domain model.
- *
- * DJ Mix fields have defaults so existing DataStore serialisation is
- * backwards-compatible — DataStore returns the default for any key not yet written.
- */
+// ── Added Filter Enum ─────────────────────────────────────────────────────────
+enum class DjMixPlaylistFilter {
+    ALL, AUTOMATIC, USER
+}
+
 data class AppSettings(
     val selectedTheme: AppThemeType = AppThemeType.NEON_DARK,
     val selectedPlayerLayout: PlayerLayout,
@@ -27,9 +25,10 @@ data class AppSettings(
     val loopQueue: Boolean            = true,
     val useManualMaxDuration: Boolean = false,
 
+    // ── Added Filter State ─────────────────────────────────────────────────────
+    val djMixPlaylistFilter: DjMixPlaylistFilter = DjMixPlaylistFilter.ALL,
+
     // ── Sampler settings ───────────────────────────────────────────────────────
-    /** Whether the algorithm-driven sampler fires automatically during mixes. */
     val autoSamplerEnabled: Boolean   = true,
-    /** Master volume for all sample playback (0.0 – 1.0). */
     val sampleVolume: Float           = 1.0f
 )

@@ -24,8 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -33,7 +31,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -64,7 +61,7 @@ import com.engfred.musicplayer.core.ui.components.MiniPlayer
 import com.engfred.musicplayer.core.ui.components.PlayShuffleBar
 import com.engfred.musicplayer.core.util.TextUtils.formatCount
 import com.engfred.musicplayer.core.util.TextUtils.pluralize
-import com.engfred.musicplayer.core.util.restartApp
+import com.engfred.musicplayer.feature_dj_mix.presentation.screens.DjMixLauncherScreen
 import com.engfred.musicplayer.feature_library.presentation.screens.LibraryScreen
 import com.engfred.musicplayer.feature_playlist.presentation.screens.PlaylistsScreen
 import com.engfred.musicplayer.feature_settings.presentation.screens.SettingsScreen
@@ -97,31 +94,36 @@ fun MainScreen(
     totalDurationMs: Long,
     isDjMixActive: Boolean,
     onNavigateToDjMix: () -> Unit,
-    onOpenMixOfTheDay: (Long) -> Unit
+    onOpenMixOfTheDay: (Long) -> Unit,
+    /** Called when the user picks a playlist from the DJ Mix Launcher tab. */
+    onDjMixPlaylistSelected: (Long) -> Unit,
 ) {
     val bottomNavController = rememberNavController()
     val bottomNavItems = listOf(
         AppDestinations.BottomNavItem.Library,
         AppDestinations.BottomNavItem.Playlists,
+        AppDestinations.BottomNavItem.DjMix,
         AppDestinations.BottomNavItem.Settings,
     )
     var showDropdownMenu by remember { mutableStateOf(false) }
-    var showRestartDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val permissionHandler = remember { PermissionHandlerUseCase(context) }
-    var hasPermission by remember { mutableStateOf(permissionHandler.hasAudioPermission() && permissionHandler.hasWriteStoragePermission()) }
+    var hasPermission by remember {
+        mutableStateOf(
+            permissionHandler.hasAudioPermission() && permissionHandler.hasWriteStoragePermission()
+        )
+    }
     val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
 
     DisposableEffect(Unit) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                hasPermission = permissionHandler.hasAudioPermission() && permissionHandler.hasWriteStoragePermission()
+                hasPermission = permissionHandler.hasAudioPermission() &&
+                        permissionHandler.hasWriteStoragePermission()
             }
         }
         owner.lifecycle.addObserver(observer)
-        onDispose {
-            owner.lifecycle.removeObserver(observer)
-        }
+        onDispose { owner.lifecycle.removeObserver(observer) }
     }
 
     Scaffold(
@@ -129,17 +131,20 @@ fun MainScreen(
         topBar = {
             val navBackStackEntry by bottomNavController.currentBackStackEntryAsState()
             val currentDestination = navBackStackEntry?.destination
-            val isOnLibraryScreen = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Library.baseRoute } == true
-            val isOnPlaylistsScreen = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Playlists.baseRoute } == true
-            val isOnSettingsScreen = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Settings.baseRoute } == true
+
+            val isOnLibrary  = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Library.baseRoute   } == true
+            val isOnPlaylist = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Playlists.baseRoute  } == true
+            val isOnDjMix    = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.DjMix.baseRoute      } == true
+            val isOnSettings = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Settings.baseRoute   } == true
 
             val mainTitle = when {
-                isOnLibraryScreen -> AppDestinations.BottomNavItem.Library.label
-                isOnPlaylistsScreen -> AppDestinations.BottomNavItem.Playlists.label
-                isOnSettingsScreen -> AppDestinations.BottomNavItem.Settings.label
-                else -> "Music"
+                isOnLibrary  -> AppDestinations.BottomNavItem.Library.label
+                isOnPlaylist -> AppDestinations.BottomNavItem.Playlists.label
+                isOnDjMix    -> AppDestinations.BottomNavItem.DjMix.label
+                isOnSettings -> AppDestinations.BottomNavItem.Settings.label
+                else         -> "Music"
             }
-            val subtitle = if (audioItems.isNotEmpty() && isOnLibraryScreen) {
+            val subtitle = if (audioItems.isNotEmpty() && isOnLibrary) {
                 "${formatCount(audioItems.size)} ${pluralize(audioItems.size, "Audio files", "Audio files", showCount = false)}"
             } else null
 
@@ -150,34 +155,27 @@ fun MainScreen(
                     subtitle = subtitle,
                     showNavigationIcon = false,
                     onNavigateBack = null,
-                    actions = {
-                        IconButton(onClick = { showDropdownMenu = true }) {
-                            Icon(Icons.Rounded.MoreVert, contentDescription = "more icon")
-                        }
-                        DropdownMenu(
-                            expanded = showDropdownMenu,
-                            onDismissRequest = { showDropdownMenu = false },
-                            offset = DpOffset(x = (-16).dp, y = 0.dp),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surface)
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Contact Developer", color = MaterialTheme.colorScheme.onSurface) },
-                                onClick = {
-                                    showDropdownMenu = false
-                                    onContactDeveloper()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Restart Music", color = MaterialTheme.colorScheme.onSurface) },
-                                onClick = {
-                                    showDropdownMenu = false
-                                    showRestartDialog = true
-                                }
-                            )
-                        }
-                    }
+//                    actions = {
+//                        IconButton(onClick = { showDropdownMenu = true }) {
+//                            Icon(Icons.Rounded.MoreVert, contentDescription = "more icon")
+//                        }
+//                        DropdownMenu(
+//                            expanded = showDropdownMenu,
+//                            onDismissRequest = { showDropdownMenu = false },
+//                            offset = DpOffset(x = (-16).dp, y = 0.dp),
+//                            modifier = Modifier
+//                                .clip(RoundedCornerShape(12.dp))
+//                                .background(MaterialTheme.colorScheme.surface)
+//                        ) {
+//                            DropdownMenuItem(
+//                                text = { Text("Contact Developer", color = MaterialTheme.colorScheme.onSurface) },
+//                                onClick = {
+//                                    showDropdownMenu = false
+//                                    onContactDeveloper()
+//                                }
+//                            )
+//                        }
+//                    }
                 )
             }
         },
@@ -223,7 +221,7 @@ fun MainScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(60.dp)
-                        .padding(start = 16.dp, end = 16.dp),
+                        .padding(start = 8.dp, end = 8.dp),
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -272,7 +270,16 @@ fun MainScreen(
                 )
             }
             composable(AppDestinations.BottomNavItem.Playlists.baseRoute) {
-                PlaylistsScreen(onPlaylistClick = onPlaylistClick, onCreatePlaylist = onCreatePlaylist)
+                PlaylistsScreen(
+                    onPlaylistClick = onPlaylistClick,
+                    onCreatePlaylist = onCreatePlaylist
+                )
+            }
+            // ── DJ Mix Launcher tab ───────────────────────────────────────────
+            composable(AppDestinations.BottomNavItem.DjMix.baseRoute) {
+                DjMixLauncherScreen(
+                    onPlaylistSelected = onDjMixPlaylistSelected,
+                )
             }
             composable(AppDestinations.BottomNavItem.Settings.baseRoute) {
                 SettingsScreen()
@@ -280,49 +287,11 @@ fun MainScreen(
         }
     }
 
-    if (showRestartDialog) {
-        AlertDialog(
-            onDismissRequest = { showRestartDialog = false },
-            title = { Text("Restart Music") },
-            text = {
-                Column {
-                    Text(
-                        "Are you sure you want to restart Music? This will stop current playback."
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "Note: On some phones the system may stop the app from starting again (battery or system settings). If that happens the app will close — just open it again manually.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showRestartDialog = false
-                        restartApp(
-                            context = context.applicationContext ?: context,
-                            delayMs = 300,
-                            toastMessage = "Restarting music player...",
-                            onBeforeRestart = {
-                                onReleasePlayer()
-                            }
-                        )
-                    }
-                ) {
-                    Text("Restart")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRestartDialog = false }) {
-                    Text("Cancel")
-                }
-            },
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Private composables (unchanged from original)
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun CustomBottomNavItem(
@@ -345,7 +314,7 @@ private fun CustomBottomNavItem(
             .clip(CircleShape)
             .background(animatedBackgroundColor)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
             .animateContentSize(animationSpec = tween(durationMillis = 300)),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically

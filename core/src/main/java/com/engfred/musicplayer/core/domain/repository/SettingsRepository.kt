@@ -3,6 +3,7 @@ package com.engfred.musicplayer.core.domain.repository
 import com.engfred.musicplayer.core.domain.model.AppSettings
 import com.engfred.musicplayer.core.domain.model.AudioFileTypeFilter
 import com.engfred.musicplayer.core.domain.model.AudioPreset
+import com.engfred.musicplayer.core.domain.model.DjMixPlaylistFilter
 import com.engfred.musicplayer.core.domain.model.FilterOption
 import com.engfred.musicplayer.core.domain.model.LastPlaybackState
 import com.engfred.musicplayer.core.domain.model.PlayerLayout
@@ -49,4 +50,6 @@ interface SettingsRepository {
 
     suspend fun updateDjAutoSampler(enabled: Boolean)
     suspend fun updateDjSampleVolume(volume: Float)
+
+    suspend fun updateDjMixPlaylistFilter(filter: DjMixPlaylistFilter)
 }

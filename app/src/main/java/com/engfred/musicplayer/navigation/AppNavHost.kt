@@ -100,6 +100,12 @@ fun AppNavHost(
                 onNavigateToDjMix = onNavigateToDjMix,
                 onOpenMixOfTheDay = { playlistId ->
                     rootNavController.navigate(AppDestinations.DjMix.createRoute(playlistId))
+                },
+                // ── DJ Mix Launcher → DJ Studio ───────────────────────────────
+                // When the user selects a playlist from the bottom-nav DJ tab,
+                // we navigate to the full DjMixScreen in the root back stack.
+                onDjMixPlaylistSelected = { playlistId ->
+                    rootNavController.navigate(AppDestinations.DjMix.createRoute(playlistId))
                 }
             )
         }

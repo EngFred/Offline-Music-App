@@ -67,7 +67,6 @@ fun DjMixScreen(
     }
 
     val lazyListState = rememberLazyListState()
-    // ✅ NEW: Coroutine scope for scroll animations
     val coroutineScope = rememberCoroutineScope()
 
     // Creates the deep, emotional background extraction feel using the current theme's primary color
@@ -85,7 +84,7 @@ fun DjMixScreen(
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text          = "DJ STUDIO",
+                            text          = "MIX STUDIO",
                             style         = MaterialTheme.typography.titleMedium,
                             fontWeight    = FontWeight.Black,
                             letterSpacing = 1.5.sp,
@@ -304,7 +303,7 @@ fun DjMixScreen(
                     .padding(horizontal = 24.dp, vertical = 16.dp)
             ) {
                 Text(
-                    text = "DJ MIX SETTINGS",
+                    text = "MIX SETTINGS",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.5.sp,

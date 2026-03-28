@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.engfred.musicplayer.core.domain.model.AppSettings
 import com.engfred.musicplayer.core.domain.model.AudioFileTypeFilter
 import com.engfred.musicplayer.core.domain.model.AudioPreset
+import com.engfred.musicplayer.core.domain.model.DjMixPlaylistFilter
 import com.engfred.musicplayer.core.domain.model.FilterOption
 import com.engfred.musicplayer.core.domain.model.LastPlaybackState
 import com.engfred.musicplayer.core.domain.model.PlayerLayout
@@ -63,6 +64,8 @@ class SettingsRepositoryImpl @Inject constructor(
         private val DJ_SAMPLE_VOLUME       = floatPreferencesKey("dj_sample_volume")
 
         private val LAST_MIX_OF_THE_DAY_TIMESTAMP = longPreferencesKey("last_mix_of_the_day_timestamp")
+
+        private val DJ_MIX_PLAYLIST_FILTER = stringPreferencesKey("dj_mix_playlist_filter")
     }
 
     override fun getAppSettings(): Flow<AppSettings> {
@@ -80,6 +83,11 @@ class SettingsRepositoryImpl @Inject constructor(
                 val playlistLayoutType = PlaylistLayoutType.valueOf(
                     preferences[PLAYLIST_LAYOUT_TYPE] ?: PlaylistLayoutType.LIST.name
                 )
+                val djMixFilter = try {
+                    DjMixPlaylistFilter.valueOf(
+                        preferences[DJ_MIX_PLAYLIST_FILTER] ?: DjMixPlaylistFilter.ALL.name
+                    )
+                } catch (_: Exception) { DjMixPlaylistFilter.ALL }
                 val repeatMode = RepeatMode.valueOf(
                     preferences[REPEAT_MODE] ?: RepeatMode.OFF.name
                 )
@@ -104,6 +112,7 @@ class SettingsRepositoryImpl @Inject constructor(
                     repeatMode           = repeatMode,
                     audioPreset          = selectedAudioPreset,
                     widgetBackgroundMode = widgetMode,
+                    djMixPlaylistFilter  = djMixFilter,
                     crossfadeDurationSec = preferences[CROSSFADE_DURATION_SEC] ?: 5,
                     bpmTolerance         = preferences[BPM_TOLERANCE] ?: 10f,
                     isRealMixMode        = preferences[DJ_REAL_MIX_MODE] ?: true,
@@ -263,5 +272,9 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun updateLastMixOfTheDayTimestamp(timestamp: Long) {
         dataStore.edit { it[LAST_MIX_OF_THE_DAY_TIMESTAMP] = timestamp }
+    }
+
+    override suspend fun updateDjMixPlaylistFilter(filter: DjMixPlaylistFilter) {
+        dataStore.edit { it[DJ_MIX_PLAYLIST_FILTER] = filter.name }
     }
 }
