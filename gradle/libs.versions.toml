@@ -27,13 +27,13 @@ hiltNavigationCompose = "1.3.0"
 paletteKtx = "1.0.0"
 room = "2.8.4"
 # Media3 (Modern Media Playback Library, successor to ExoPlayer)
-media3 = "1.8.0"
+media3 = "1.10.0"
 # Kotlin Coroutines
 kotlinxCoroutines = "1.10.2"
 # Accompanist Permissions (For easier permission handling with Compose)
 accompanistPermissions = "0.37.3"
 # DataStore (for persistent settings)
-datastorePreferences = "1.2.0"
+datastorePreferences = "1.2.1"
 # Coil for album artwork
 coil = "2.7.0"
 # Kotlin Symbol Processing (KSP) - Must match Kotlin version compatibility

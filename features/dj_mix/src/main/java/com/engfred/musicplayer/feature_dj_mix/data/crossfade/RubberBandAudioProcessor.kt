@@ -13,7 +13,23 @@ import kotlin.math.abs
 
 /**
  * ExoPlayer [AudioProcessor] backed by RubberBand for music-quality time-stretching.
- * (Full Documentation Kept as Requested)
+ *
+ * This processor sits in the audio pipeline between the AAC decoder and DefaultAudioSink.
+ * The most important diagnostic signal it emits is a SECOND call to [configure] after
+ * playback has already started — this is the fingerprint of an AAC DRC format change
+ * that [DrcSuppressingMediaCodecAdapterFactory] should have prevented.
+ *
+ * Log tag "RubberBandProcessor" — search for:
+ *   "configure: SECOND CONFIGURE DETECTED" → DRC suppression did NOT work on this device
+ *   "configure: initial configure"          → normal first-time setup, DRC suppression working
+ *
+ * Architecture:
+ *  - At ratio = 1.0 (no tempo sync needed): pure bypass path (no RubberBand processing).
+ *    This prevents phase rotation and latency artefacts when stretching is off.
+ *  - At ratio ≠ 1.0: interleaved PCM → RubberBand → output queue drain loop.
+ *  - flush() re-primes the native stretcher after each seek or AudioSink reconfigure.
+ *  - The nativePrewarm() call after create/flush fills the FFT windows with silence so
+ *    the first real audio frames are not delayed by algorithmic latency.
  */
 @OptIn(UnstableApi::class)
 class RubberBandAudioProcessor : AudioProcessor {
@@ -27,6 +43,10 @@ class RubberBandAudioProcessor : AudioProcessor {
 
     private var nativeHandle: Long = 0L
     private var configuredFormat: AudioFormat = AudioFormat.NOT_SET
+
+    // How many times configure() has been called on this instance.
+    // Expected: exactly 1. If > 1 seen in logs, DRC suppression is failing.
+    private var configureCallCount = 0
 
     @Volatile private var pendingRatio: Double = 1.0
     private var appliedRatio: Double = 1.0
@@ -45,21 +65,55 @@ class RubberBandAudioProcessor : AudioProcessor {
 
     @Throws(UnhandledAudioFormatException::class)
     override fun configure(inputAudioFormat: AudioFormat): AudioFormat {
+        configureCallCount++
+
+        // ── KEY DIAGNOSTIC LOG ───────────────────────────────────────────────
+        // A second call to configure() during active playback means the AAC
+        // decoder emitted INFO_OUTPUT_FORMAT_CHANGED and ExoPlayer responded by
+        // flushing and reconfiguring DefaultAudioSink — exactly the sequence that
+        // causes the headphone/BT stall. DrcSuppressingMediaCodecAdapterFactory
+        // should have prevented this. If you see this log, check that:
+        //   1. buildExoPlayer() is passing DrcSuppressingMediaCodecAdapterFactory
+        //      to ExoPlayer.Builder.setMediaCodecAdapterFactory()
+        //   2. DrcSuppressingAdapter.getOutputFormat() logged
+        //      "Layer1C: ✅ Suppressed DRC-only format change!" — if not, the
+        //      factory is not wrapping this player's codec
+        if (configureCallCount == 1) {
+            Log.d(TAG, "configure: initial configure #$configureCallCount — " +
+                    "sr=${inputAudioFormat.sampleRate} ch=${inputAudioFormat.channelCount} " +
+                    "encoding=${inputAudioFormat.encoding}. " +
+                    "DRC suppression should prevent any further calls.")
+        } else {
+            Log.e(TAG, "configure: ❌ SECOND CONFIGURE DETECTED (#$configureCallCount)! " +
+                    "sr=${inputAudioFormat.sampleRate} ch=${inputAudioFormat.channelCount}. " +
+                    "This means DrcSuppressingMediaCodecAdapterFactory did NOT suppress the " +
+                    "DRC format change on this device. The AudioTrack stall will likely occur. " +
+                    "The Layer 2 stall detector in CrossfadeEngine will attempt auto-recovery. " +
+                    "Check DrcSuppressingAdapter logcat for Layer1C lines.")
+        }
+
         if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
             throw UnhandledAudioFormatException(inputAudioFormat)
         }
-        if (nativeHandle != 0L) { nativeDelete(nativeHandle); nativeHandle = 0L }
+        if (nativeHandle != 0L) {
+            Log.d(TAG, "configure: deleting existing native handle before reconfigure")
+            nativeDelete(nativeHandle)
+            nativeHandle = 0L
+        }
 
         nativeHandle = nativeCreate(inputAudioFormat.sampleRate, inputAudioFormat.channelCount)
+        Log.d(TAG, "configure: native handle created. Prewarming...")
 
-        // ROOT CAUSE FIX 2: Pre-warm native stretcher immediately after creation.
+        // Pre-warm native stretcher immediately after creation.
+        // Fills FFT windows with silence to minimize output latency on the first
+        // real audio frames.
         nativePrewarm(nativeHandle)
+        Log.d(TAG, "configure: pre-warm complete. Handle ready.")
 
         configuredFormat = inputAudioFormat
         outputQueue.clear()
         inputEnded = false; streamEnded = false
         appliedRatio = 1.0; pendingRatio = 1.0
-        Log.d(TAG, "configure sr=${inputAudioFormat.sampleRate} ch=${inputAudioFormat.channelCount}")
         return inputAudioFormat
     }
 
@@ -69,8 +123,9 @@ class RubberBandAudioProcessor : AudioProcessor {
         if (nativeHandle == 0L || !inputBuffer.hasRemaining()) return
         applyPendingRatio()
 
-        // ROOT CAUSE FIX 3: Soft Bypass at Ratio 1.0.
-        // Prevents phase rotation and latency artifacts when time-stretching isn't needed.
+        // Soft Bypass at Ratio 1.0:
+        // When no tempo-stretching is needed, pass audio through directly without
+        // going through RubberBand. Prevents phase rotation and latency artefacts.
         if (abs(appliedRatio - 1.0) < RATIO_THRESHOLD) {
             val bytes = inputBuffer.remaining()
             val bypassBuffer = ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder())
@@ -119,8 +174,11 @@ class RubberBandAudioProcessor : AudioProcessor {
     override fun flush() {
         if (nativeHandle != 0L) {
             nativeReset(nativeHandle)
-            // ROOT CAUSE FIX 2: Re-prime native stretcher after a flush/seek.
+            // Re-prime native stretcher after a flush/seek so the first frames
+            // after the seek don't suffer from algorithm startup latency.
             nativePrewarm(nativeHandle)
+            Log.d(TAG, "flush: native stretcher reset + pre-warmed. " +
+                    "configureCallCount=$configureCallCount appliedRatio=$appliedRatio")
         }
         outputQueue.clear(); inputEnded = false; streamEnded = false
         appliedRatio = pendingRatio
@@ -128,10 +186,15 @@ class RubberBandAudioProcessor : AudioProcessor {
     }
 
     override fun reset() {
+        Log.d(TAG, "reset: releasing native handle. configureCallCount=$configureCallCount")
         if (nativeHandle != 0L) { nativeDelete(nativeHandle); nativeHandle = 0L }
         outputQueue.clear()
-        configuredFormat = AudioFormat.NOT_SET
-        inputEnded = false; streamEnded = false; appliedRatio = 1.0; pendingRatio = 1.0
+        configuredFormat  = AudioFormat.NOT_SET
+        configureCallCount = 0  // Reset so the next configure() starts fresh
+        inputEnded        = false
+        streamEnded       = false
+        appliedRatio      = 1.0
+        pendingRatio      = 1.0
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -141,6 +204,7 @@ class RubberBandAudioProcessor : AudioProcessor {
         if (Math.abs(r - appliedRatio) > RATIO_THRESHOLD) {
             nativeSetTimeRatio(nativeHandle, r)
             appliedRatio = r
+            Log.d(TAG, "applyPendingRatio: ratio changed to $r")
         }
     }
 
@@ -166,5 +230,5 @@ class RubberBandAudioProcessor : AudioProcessor {
     private external fun nativeRetrieve(handle: Long, frameCount: Int): FloatArray?
     private external fun nativeReset(handle: Long)
     private external fun nativeDelete(handle: Long)
-    private external fun nativePrewarm(handle: Long) // New native helper
+    private external fun nativePrewarm(handle: Long)
 }

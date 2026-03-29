@@ -12,8 +12,11 @@ import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -42,26 +45,42 @@ import kotlin.math.sin
  * Dual-[ExoPlayer] DJ crossfade engine with BPM-aware mix strategy selection.
  *
  * Split into three files for maintainability:
- *  - [CrossfadeModels]    — data types (CrossfadeEngineState, MixStrategy, MixDecision)
- *  - [MixDecisionEngine]  — pure BPM classification + bass-kill EQ logic
- *  - [CrossfadeEngine]    — this file: player lifecycle, crossfade execution, position monitoring
+ * - [CrossfadeModels]              — data types (CrossfadeEngineState, MixStrategy, MixDecision)
+ * - [MixDecisionEngine]            — pure BPM classification + bass-kill EQ logic
+ * - [DrcSuppressingMediaCodecAdapterFactory] — three-layer AAC DRC suppression
+ * - [CrossfadeEngine]              — this file: player lifecycle, crossfade, position monitoring
  *
  * Robustness notes:
- *  - startPlayback() always resets to PlayerA (audio focus holder) and clears stale
- *    crossfade jobs, prebuffer state, and the nextTrackRequest replay cache to prevent
- *    a spurious immediate crossfade on fresh session start.
- *  - A 5-second postCrossfadeGuard is applied after startPlayback so the position
- *    monitor cannot trigger an auto-crossfade before the track has a chance to play.
- *  - executeCrossfade() clamps the incoming seek point so the incoming track cannot
- *    end mid-fade, re-asserts audio focus after a player swap, and recovers the
- *    primary if the secondary swap fails.
+ * - startPlayback() always resets to PlayerA (audio focus holder) and clears stale
+ * crossfade jobs, prebuffer state, and the nextTrackRequest replay cache to prevent
+ * a spurious immediate crossfade on fresh session start.
+ * - A 5-second postCrossfadeGuard is applied after startPlayback so the position
+ * monitor cannot trigger an auto-crossfade before the track has a chance to play.
+ * - executeCrossfade() clamps the incoming seek point so the incoming track cannot
+ * end mid-fade, re-asserts audio focus after a player swap, and recovers the
+ * primary if the secondary swap fails.
  *
- * Known open issue (MTK / AAC DRC stall):
- *  On MediaTek devices, certain AAC files cause the AudioTrack to silently freeze
- *  after the AAC decoder emits two DRC format changes (~400ms post-play). Position
- *  stays at 0 indefinitely even though isPlaying=true. seekTo(0) re-triggers the
- *  DRC loop and does not help. The user can work around this by pressing "Mix Now"
- *  which loads the file into PlayerB where it plays correctly.
+ * BT/headphone cold-start stall fix:
+ * When BT or wired headphones are connected, the very first AudioTrack created for
+ * PlayerA races against the BT HAL codec negotiation. The AudioTrack enters a frozen
+ * state: isPlaying=true but getPlaybackHeadPosition()=0 forever. This is a one-time
+ * cold-start issue — once PlayerA establishes the BT session, all subsequent
+ * AudioTracks (including PlayerB and any restart) initialise instantly into the warm
+ * session.
+ *
+ * Fix (stallRecoveryCount):
+ * On STALL_CONFIRMED the position monitor performs ONE same-track restart instead of
+ * immediately crossfading away. By the time the stall is confirmed (~4 s in), the BT
+ * session is provably warm (READY+isPlaying already fired). The fresh AudioTrack from
+ * the restart joins the warm session — identical to why PlayerB never stalls. If the
+ * restart itself stalls (exotic device), it escalates to crossfade as before.
+ *
+ * AAC DRC headphone/Bluetooth AudioSink reconfigure fix:
+ * Both ExoPlayers are built with [DrcSuppressingMediaCodecAdapterFactory] which
+ * intercepts AAC DRC parameter renegotiation at three layers, preventing the
+ * mid-playback AudioSink reconfigure + AudioTrack recreation that can also cause
+ * position to freeze on headphone/Bluetooth output with certain AAC tracks.
+ * (Layer 1C confirmed working in logs: "✅ Suppressed DRC-only format change!")
  */
 @UnstableApi
 @Singleton
@@ -73,15 +92,25 @@ class CrossfadeEngine @Inject constructor(
     companion object {
         private const val TAG = "CrossfadeEngine"
 
-        private const val POSITION_POLL_MS       = 300L
-        private const val FAST_POLL_MS           = 50L
-        private const val WAVEFORM_POLL_MS       = 16L
-        private const val FADE_STEPS             = 60
-        private const val CROSSFADE_GUARD_MS     = 200L
-        private const val BEAT_SNAP_WINDOW_MS    = 25L
-        private const val PHRASE_BARS            = 8
-        private const val BARS_PER_BEAT_MULTIPLE = 4
-        private const val WAVEFORM_BARS          = 32
+        private const val POSITION_POLL_MS          = 300L
+        private const val FAST_POLL_MS              = 50L
+        private const val WAVEFORM_POLL_MS          = 16L
+        private const val FADE_STEPS                = 60
+        private const val CROSSFADE_GUARD_MS        = 200L
+        private const val BEAT_SNAP_WINDOW_MS       = 25L
+        private const val PHRASE_BARS               = 8
+        private const val BARS_PER_BEAT_MULTIPLE    = 4
+        private const val WAVEFORM_BARS             = 32
+
+        // ── Stall detector constants ──────────────────────────────────────────
+        // After a track starts, how long we wait before treating position=0 as a stall.
+        // Must be longer than normal startup latency (typically <1s) but short enough
+        // for the user not to notice silence. 2.5s is safe across all devices tested.
+        private const val STALL_STARTUP_GRACE_MS    = 2_500L
+
+        // How long position must be continuously stuck at 0 (after the grace period)
+        // before we declare a stall and trigger recovery.
+        private const val STALL_CONFIRM_MS          = 1_500L
     }
 
     // ── Coroutine scope ───────────────────────────────────────────────────────
@@ -99,10 +128,10 @@ class CrossfadeEngine @Inject constructor(
 
     @Volatile private var isPrimaryA = true
 
-    private fun primaryPlayer()            = if (isPrimaryA) playerA          else playerB
-    private fun secondaryPlayer()          = if (isPrimaryA) playerB          else playerA
-    private fun primaryProcessor()         = if (isPrimaryA) processorA       else processorB
-    private fun secondaryProcessor()       = if (isPrimaryA) processorB       else processorA
+    private fun primaryPlayer()            = if (isPrimaryA) playerA            else playerB
+    private fun secondaryPlayer()          = if (isPrimaryA) playerB            else playerA
+    private fun primaryProcessor()         = if (isPrimaryA) processorA         else processorB
+    private fun secondaryProcessor()       = if (isPrimaryA) processorB         else processorA
     private fun primaryWaveformProcessor() = if (isPrimaryA) waveformProcessorA else waveformProcessorB
 
     // ── Public state ──────────────────────────────────────────────────────────
@@ -132,13 +161,27 @@ class CrossfadeEngine @Inject constructor(
 
     // ── Current-track metadata ────────────────────────────────────────────────
 
-    @Volatile private var currentTrackBpm: Float         = 0f
-    @Volatile private var currentTrackFirstBeatMs: Long  = 0L
-    @Volatile private var currentTrackBaseVolume: Float  = 1.0f
-    @Volatile private var currentTrackAmplitude: Float   = 0f
+    @Volatile private var currentTrackBpm: Float          = 0f
+    @Volatile private var currentTrackFirstBeatMs: Long   = 0L
+    @Volatile private var currentTrackBaseVolume: Float   = 1.0f
+    @Volatile private var currentTrackAmplitude: Float    = 0f
     @Volatile private var currentWaveformEnvelope: FloatArray = FloatArray(0)
-    @Volatile private var currentTrackMixOutMs: Long?    = null
+    @Volatile private var currentTrackMixOutMs: Long?     = null
     @Volatile private var postCrossfadeGuardUntilMs: Long = 0L
+
+    // ── Stall detector state ──────────────────────────────────────────────────
+    // lastPlaybackStartMs: set each time a track actually starts playing
+    //   (startPlayback, stall recovery restart, or after a successful crossfade swap).
+    //   The position monitor uses this to compute the startup grace period.
+    //
+    // stallRecoveryCount: how many same-track restart attempts have been made for the
+    //   current stall event. Capped at 1. On the first confirmed stall the engine
+    //   restarts the same track (BT session is warm by then). If the restart itself
+    //   stalls, stallRecoveryCount == 1 and the engine escalates to crossfade.
+    //   Reset to 0 on startPlayback() and after every successful crossfade swap so
+    //   each new track gets exactly one restart attempt if needed.
+    @Volatile private var lastPlaybackStartMs: Long = 0L
+    @Volatile private var stallRecoveryCount: Int   = 0
 
     // ── Pre-buffer / queue state ──────────────────────────────────────────────
 
@@ -188,6 +231,8 @@ class CrossfadeEngine @Inject constructor(
             currentTrackBpm = 0f; currentTrackFirstBeatMs = 0L
             currentTrackBaseVolume = 1.0f; currentTrackAmplitude = 0f
             currentTrackMixOutMs = null; postCrossfadeGuardUntilMs = 0L
+            lastPlaybackStartMs = 0L
+            stallRecoveryCount  = 0
         }
 
         try {
@@ -213,7 +258,8 @@ class CrossfadeEngine @Inject constructor(
         playerB = buildExoPlayer(attrs, handleAudioFocus = false, isPlayerA = false)
 
         isInitialized = true
-        Log.d(TAG, "initialize: ready (RubberBand=${processorA != null})")
+        Log.d(TAG, "initialize: ready — RubberBand=${processorA != null}, " +
+                "DrcSuppression=ACTIVE on both players")
     }
 
     @OptIn(UnstableApi::class)
@@ -227,7 +273,10 @@ class CrossfadeEngine @Inject constructor(
             if (isPlayerA) processorA         else processorB
         ).toTypedArray()
 
+        val drcFactory = DrcSuppressingMediaCodecAdapterFactory()
+
         val renderersFactory = object : DefaultRenderersFactory(context) {
+
             override fun buildAudioSink(
                 context: Context,
                 enableFloatOutput: Boolean,
@@ -235,13 +284,42 @@ class CrossfadeEngine @Inject constructor(
             ): AudioSink = DefaultAudioSink.Builder(context)
                 .setAudioProcessors(processors)
                 .build()
+
+            override fun buildAudioRenderers(
+                context: Context,
+                extensionRendererMode: Int,
+                mediaCodecSelector: MediaCodecSelector,
+                enableDecoderFallback: Boolean,
+                audioSink: AudioSink,
+                eventHandler: android.os.Handler,
+                eventListener: AudioRendererEventListener,
+                out: ArrayList<androidx.media3.exoplayer.Renderer>
+            ) {
+                // Inject drcFactory directly into MediaCodecAudioRenderer.
+                // Do NOT call super — that would add a second, unfactored renderer.
+                out.add(
+                    MediaCodecAudioRenderer(
+                        context,
+                        drcFactory,          // ← DRC suppression wired here
+                        mediaCodecSelector,
+                        enableDecoderFallback,
+                        eventHandler,
+                        eventListener,
+                        audioSink            // uses our custom AudioSink with processors
+                    )
+                )
+            }
         }
 
-        return ExoPlayer.Builder(context, renderersFactory).build().apply {
-            setAudioAttributes(attrs, handleAudioFocus)
-            skipSilenceEnabled = false   // RubberBand needs startup silence for clock sync
-            addListener(createPlayerListener(isPlayerA))
-        }
+        Log.d(TAG, "buildExoPlayer(${if (isPlayerA) "A" else "B"}): " +
+                "handleAudioFocus=$handleAudioFocus DrcSuppression=ACTIVE")
+
+        return ExoPlayer.Builder(context, renderersFactory)
+            .build().apply {
+                setAudioAttributes(attrs, handleAudioFocus)
+                skipSilenceEnabled = false
+                addListener(createPlayerListener(isPlayerA))
+            }
     }
 
     fun release() {
@@ -276,6 +354,13 @@ class CrossfadeEngine @Inject constructor(
     fun startPlayback(audioFile: AudioFile) {
         if (isReleased) return
 
+        // ── Record when playback actually starts for stall detection ──────────
+        // Set immediately (not inside the coroutine) so the stall grace period
+        // begins counting from this moment, not from when the coroutine is scheduled.
+        lastPlaybackStartMs = System.currentTimeMillis()
+        stallRecoveryCount  = 0
+        Log.d(TAG, "startPlayback: id=${audioFile.id} uri=${audioFile.uri}")
+
         // Cancel any stale crossfade — its volume ramp must not overwrite the new track.
         crossfadeJob?.cancel()
         crossfadeJob = null
@@ -293,7 +378,7 @@ class CrossfadeEngine @Inject constructor(
         // being delivered to the service and immediately crossfading the new first track.
         _nextTrackRequest.resetReplayCache()
 
-        // Guard the position monitor for 5 s so it cannot fire a crossfade before
+        // Guard the position monitor for 5 s so it cannot fire an auto-crossfade before
         // the track has had time to start playing.
         postCrossfadeGuardUntilMs = System.currentTimeMillis() + 5_000L
 
@@ -310,15 +395,16 @@ class CrossfadeEngine @Inject constructor(
                 playerB?.volume = 0f
 
                 val primary = playerA ?: return@withContext
-                Log.d(TAG, "startPlayback: loading ${audioFile.id} uri=${audioFile.uri}")
+                Log.d(TAG, "startPlayback: configuring PlayerA for id=${audioFile.id} " +
+                        "audioSessionId=${primary.audioSessionId}")
                 primary.stop()
                 primary.clearMediaItems()
                 primary.setMediaItem(MediaItem.fromUri(audioFile.uri))
                 primary.volume = 1f
                 primary.prepare()
                 primary.play()
-                Log.d(TAG, "startPlayback: play() called; playbackState=${primary.playbackState} " +
-                        "audioSessionId=${primary.audioSessionId}")
+                Log.d(TAG, "startPlayback: play() called — playbackState=${primary.playbackState} " +
+                        "isPlaying=${primary.isPlaying} audioSessionId=${primary.audioSessionId}")
             }
 
             // Re-stamp the guard after the Main block to account for scheduling delay.
@@ -356,7 +442,7 @@ class CrossfadeEngine @Inject constructor(
         currentTrackBaseVolume    = if (amplitude > 0f) (0.15f / amplitude).coerceIn(0.2f, 1.0f) else 1.0f
         currentTrackMixOutMs      = mixOutMs
         Log.d(TAG, "updateCurrentBpmInfo: bpm=$bpm firstBeatMs=$firstBeatMs " +
-                "amplitude=$amplitude mixOutMs=$mixOutMs")
+                "amplitude=$amplitude mixOutMs=$mixOutMs baseVolume=$currentTrackBaseVolume")
     }
 
     fun triggerMixNow() {
@@ -385,13 +471,14 @@ class CrossfadeEngine @Inject constructor(
                 val secondary = secondaryPlayer() ?: run {
                     isPrebufferingInProgress = false; return@withContext
                 }
-                Log.d(TAG, "prebufferTrack: preparing id=${audioFile.id}")
+                Log.d(TAG, "prebufferTrack: preparing id=${audioFile.id} " +
+                        "audioSessionId=${secondary.audioSessionId}")
                 secondary.stop(); secondary.clearMediaItems()
                 secondary.setMediaItem(MediaItem.fromUri(audioFile.uri))
                 secondary.volume = 0f; secondary.prepare()
                 // Seek is applied here speculatively; executeCrossfade will clamp it safely.
                 if (firstBeatMs > 0L) secondary.seekTo(firstBeatMs)
-                Log.d(TAG, "prebufferTrack: prepared audioSessionId=${secondary.audioSessionId}")
+                Log.d(TAG, "prebufferTrack: prepared. audioSessionId=${secondary.audioSessionId}")
             }
             prebufferedTrackId       = audioFile.id
             isPrebufferingInProgress = false
@@ -407,7 +494,8 @@ class CrossfadeEngine @Inject constructor(
         if (isReleased) return
         if (_state.value.isCrossfading) {
             pendingNextTrack = PendingTrack(audioFile, firstBeatMs, nextBpm, nextAmplitude)
-            Log.d(TAG, "queueNextTrack: queued pendingNextTrack id=${audioFile.id}")
+            Log.d(TAG, "queueNextTrack: queued pendingNextTrack id=${audioFile.id} " +
+                    "(crossfade already in progress)")
             return
         }
         crossfadeJob?.cancel()
@@ -422,14 +510,14 @@ class CrossfadeEngine @Inject constructor(
 
     /**
      * Full crossfade flow:
-     *  1. Classify BPM pair → MixDecision (strategy, duration, tempo-sync, bass-kill point).
-     *  2. Prepare secondary player (or resume pre-buffered track).
-     *  3. Clamp seek: if firstBeatMs leaves < 2× fade duration before track end, pull back.
-     *  4. Start secondary muted; wait for it to actually begin playing.
-     *  5. Equal-power sin/cos volume ramp with optional bass-kill EQ on outgoing track.
-     *  6. Finalise player swap; re-assert audio focus on new primary.
-     *  7. If swap fails (secondary stopped), restart primary to avoid total silence.
-     *  8. Execute any pendingNextTrack queued during the crossfade.
+     * 1. Classify BPM pair → MixDecision (strategy, duration, tempo-sync, bass-kill point).
+     * 2. Prepare secondary player (or resume pre-buffered track).
+     * 3. Clamp seek: if firstBeatMs leaves < 2× fade duration before track end, pull back.
+     * 4. Start secondary muted; wait for it to actually begin playing.
+     * 5. Equal-power sin/cos volume ramp with optional bass-kill EQ on outgoing track.
+     * 6. Finalise player swap; re-assert audio focus on new primary.
+     * 7. If swap fails (secondary stopped), restart primary to avoid total silence.
+     * 8. Execute any pendingNextTrack queued during the crossfade.
      */
     private suspend fun executeCrossfade(
         nextTrack: AudioFile,
@@ -464,14 +552,14 @@ class CrossfadeEngine @Inject constructor(
             val alreadyPrebuffered = prebufferedTrackId == nextTrack.id
             withContext(Dispatchers.Main) {
                 if (!alreadyPrebuffered) {
-                    Log.d(TAG, "executeCrossfade: preparing secondary for id=${nextTrack.id}")
+                    Log.d(TAG, "executeCrossfade: preparing secondary for id=${nextTrack.id} " +
+                            "audioSessionId=${secondaryRef.audioSessionId}")
                     secondaryRef.stop(); secondaryRef.clearMediaItems()
                     secondaryRef.setMediaItem(MediaItem.fromUri(nextTrack.uri))
                     secondaryRef.volume = 0f; secondaryRef.prepare()
-                    Log.d(TAG, "executeCrossfade: secondary prepared " +
-                            "audioSessionId=${secondaryRef.audioSessionId}")
                 } else {
-                    Log.d(TAG, "executeCrossfade: using prebuffered id=${nextTrack.id}")
+                    Log.d(TAG, "executeCrossfade: using prebuffered id=${nextTrack.id} " +
+                            "audioSessionId=${secondaryRef.audioSessionId}")
                     prebufferedTrackId = null
                 }
 
@@ -495,14 +583,12 @@ class CrossfadeEngine @Inject constructor(
                 delay(100L); waitMs += 100L
             }
             Log.d(TAG, "executeCrossfade: secondary ready=$ready after ${waitMs}ms " +
-                    "(playbackState=${withContext(Dispatchers.Main) { secondaryRef.playbackState }})")
+                    "playbackState=${withContext(Dispatchers.Main) { secondaryRef.playbackState }}")
 
             // ── Seek clamp ────────────────────────────────────────────────────
-            // Read the real duration only after STATE_READY so it is known.
-            // If firstBeatMs leaves < 2× crossfade duration remaining, pull it back.
             val safeFirstBeatMs: Long = withContext(Dispatchers.Main) {
                 val secDuration = secondaryRef.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-                Log.w(TAG, "SEEK DIAGNOSTIC: id=${nextTrack.id} duration=${secDuration}ms " +
+                Log.d(TAG, "SEEK DIAGNOSTIC: id=${nextTrack.id} duration=${secDuration}ms " +
                         "firstBeatMs=${firstBeatMs}ms remaining=${secDuration - firstBeatMs}ms")
                 if (secDuration > 0L && firstBeatMs > 0L) {
                     val minRemaining = decision.effectiveCrossfadeDurationMs * 2
@@ -521,7 +607,7 @@ class CrossfadeEngine @Inject constructor(
             withContext(Dispatchers.Main) {
                 try {
                     Log.d(TAG, "executeCrossfade: secondary.play() muted " +
-                            "(audioSessionId=${secondaryRef.audioSessionId})")
+                            "audioSessionId=${secondaryRef.audioSessionId}")
                     secondaryRef.volume = 0f
                     secondaryRef.play()
                 } catch (e: Exception) {
@@ -529,7 +615,7 @@ class CrossfadeEngine @Inject constructor(
                 }
             }
 
-            // Confirm secondary started; retry once at 500 ms.
+            // Confirm secondary started; retry once at 500ms.
             var playWaitMs = 0L
             var secondaryIsPlaying = withContext(Dispatchers.Main) { secondaryRef.isPlaying }
             while (!secondaryIsPlaying && playWaitMs < 1000L) {
@@ -550,7 +636,7 @@ class CrossfadeEngine @Inject constructor(
                     "after ${playWaitMs}ms")
             if (!ready || !secondaryIsPlaying) {
                 Log.w(TAG, "executeCrossfade: secondary not fully ready " +
-                        "(ready=$ready isPlaying=$secondaryIsPlaying); proceeding with guarded swap")
+                        "(ready=$ready isPlaying=$secondaryIsPlaying) — proceeding with guarded swap")
             }
 
             // ── Equal-power ramp + optional bass-kill ─────────────────────────
@@ -574,10 +660,14 @@ class CrossfadeEngine @Inject constructor(
                                     eq.enabled = true
                                     eq.setBandLevel(bassIndex, eq.bandLevelRange[0])
                                     bassKillEq = eq
-                                    Log.d(TAG, "Bass kill band=$bassIndex at ${(progress * 100).toInt()}%")
+                                    Log.d(TAG, "Bass kill: band=$bassIndex " +
+                                            "at ${(progress * 100).toInt()}% sessionId=$sessionId")
                                 } else {
                                     eq.release()
+                                    Log.w(TAG, "Bass kill: no suitable bass band found — skipped")
                                 }
+                            } else {
+                                Log.w(TAG, "Bass kill: AUDIO_SESSION_ID_UNSET — skipped")
                             }
                         } catch (e: Exception) {
                             Log.w(TAG, "Bass kill EQ failed (non-fatal): ${e.message}")
@@ -587,7 +677,8 @@ class CrossfadeEngine @Inject constructor(
 
                 withContext(Dispatchers.Main) {
                     if (step % 10 == 0) {
-                        Log.d(TAG, "executeCrossfade: step=$step progress=${"%.2f".format(progress)} " +
+                        Log.d(TAG, "executeCrossfade: step=$step/$FADE_STEPS " +
+                                "progress=${"%.2f".format(progress)} " +
                                 "primaryVol=${"%.3f".format(cos(angle) * primaryBaseVolume)} " +
                                 "secondaryVol=${"%.3f".format(sin(angle) * secondaryBaseVolume)}")
                     }
@@ -600,7 +691,7 @@ class CrossfadeEngine @Inject constructor(
 
             // ── Abort recovery ────────────────────────────────────────────────
             if (abortCrossfade) {
-                Log.d(TAG, "executeCrossfade: ABORTED — restoring primary")
+                Log.w(TAG, "executeCrossfade: ABORTED — restoring primary volume")
                 secondaryProcessor()?.resetRatio()
                 withContext(Dispatchers.Main) {
                     primaryRef.volume = primaryBaseVolume
@@ -631,9 +722,10 @@ class CrossfadeEngine @Inject constructor(
                         primaryRef.pause()
                         primaryWasPaused = true
                         primaryRef.volume = primaryBaseVolume
-                        Log.d(TAG, "executeCrossfade: primary paused (audioSessionId=${primaryRef.audioSessionId})")
+                        Log.d(TAG, "executeCrossfade: primary paused " +
+                                "audioSessionId=${primaryRef.audioSessionId}")
                     } else {
-                        Log.e(TAG, "executeCrossfade: secondary failed — keeping primary")
+                        Log.e(TAG, "executeCrossfade: secondary failed — keeping primary active")
                         primaryRef.volume = primaryBaseVolume
                         try { secondaryRef.play() }
                         catch (e: Exception) { Log.e(TAG, "final secondary.play() failed", e) }
@@ -652,7 +744,7 @@ class CrossfadeEngine @Inject constructor(
             }
 
             if (!swapped) {
-                Log.e(TAG, "executeCrossfade: swap failed — primaryWasPaused=$primaryWasPaused")
+                Log.e(TAG, "executeCrossfade: swap FAILED — primaryWasPaused=$primaryWasPaused")
                 if (primaryWasPaused) {
                     withContext(Dispatchers.Main) {
                         try {
@@ -672,11 +764,20 @@ class CrossfadeEngine @Inject constructor(
             withContext(Dispatchers.Main) {
                 try {
                     primaryPlayer()?.play()
-                    Log.d(TAG, "executeCrossfade: audio focus re-asserted on new primary")
+                    Log.d(TAG, "executeCrossfade: audio focus re-asserted on new primary " +
+                            "isPrimaryA=$isPrimaryA audioSessionId=${primaryPlayer()?.audioSessionId}")
                 } catch (e: Exception) {
                     Log.w(TAG, "executeCrossfade: audio focus re-assertion failed: ${e.message}")
                 }
             }
+
+            // ── Reset stall detector for the new primary ──────────────────────
+            // The new primary just started playing after the crossfade swap.
+            // Give it a fresh grace period and a fresh recovery budget.
+            lastPlaybackStartMs = System.currentTimeMillis()
+            stallRecoveryCount  = 0
+            Log.d(TAG, "executeCrossfade: stall detector reset for new primary " +
+                    "isPrimaryA=$isPrimaryA")
 
             lastRequestedTrackId      = null
             prebufferedTrackId        = null
@@ -689,13 +790,17 @@ class CrossfadeEngine @Inject constructor(
                     isCrossfading = false, crossfadeProgressFraction = 0f)
             }
             Log.d(TAG, "executeCrossfade: COMPLETE strategy=${decision.strategy.name} " +
-                    "newPrimaryIsA=$isPrimaryA")
+                    "newPrimaryIsA=$isPrimaryA nextTrack='${nextTrack.title}'")
 
             // ── Post-crossfade tempo snap ─────────────────────────────────────
             if (decision.shouldTempoSync && decision.stretchRatio != 1.0) {
                 withContext(Dispatchers.Main) {
-                    try { primaryProcessor()?.resetRatio(); Log.d(TAG, "Tempo snap-back to 1.0") }
-                    catch (e: Exception) { Log.w(TAG, "Tempo snap-back failed: ${e.message}") }
+                    try {
+                        primaryProcessor()?.resetRatio()
+                        Log.d(TAG, "Tempo snap-back to 1.0 on new primary")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Tempo snap-back failed: ${e.message}")
+                    }
                 }
             }
 
@@ -714,6 +819,150 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
+    /**
+     * BT/headphone stall recovery: loads the SAME track onto the secondary player
+     * and swaps it in as the new primary.
+     *
+     * The frozen AudioTrack belongs to the primary player instance. ExoPlayer reuses
+     * the AudioTrack across stop/prepare cycles on the same player, so restarting on
+     * the primary always hits the same frozen instance.
+     *
+     * The secondary player has a completely separate AudioTrack. By the time the stall
+     * is confirmed (~4s in), the BT HAL has already completed its cold-start codec
+     * negotiation (the primary received READY+isPlaying before freezing). The secondary's
+     * fresh AudioTrack joins the now-warm session — no negotiation delay, no freeze.
+     *
+     * This is exactly why "Mix Now" always works: PlayerB's AudioTrack is always fresh.
+     */
+    private suspend fun performSameTrackRecoveryOnSecondary(track: AudioFile) {
+        val frozenPrimary = primaryPlayer()
+        val freshSecondary = secondaryPlayer()
+        if (frozenPrimary == null || freshSecondary == null) {
+            Log.e(TAG, "sameTrackRecovery: players null — escalating to crossfade")
+            _nextTrackRequest.tryEmit(track.id)
+            return
+        }
+        _state.update { it.copy(isCrossfading = true, crossfadeProgressFraction = 0f) }
+
+        // ── Step 1: silence the frozen primary, load same track on secondary ─────
+        withContext(Dispatchers.Main) {
+            try { frozenPrimary.pause() } catch (e: Exception) { /* frozen — may throw */ }
+            frozenPrimary.volume = 0f
+            freshSecondary.stop()
+            freshSecondary.clearMediaItems()
+            freshSecondary.setMediaItem(MediaItem.fromUri(track.uri))
+            freshSecondary.volume = 0f
+            freshSecondary.prepare()
+            Log.d(TAG, "sameTrackRecovery: loading id=${track.id} on secondary " +
+                    "audioSessionId=${freshSecondary.audioSessionId} " +
+                    "(frozen primary audioSessionId=${frozenPrimary.audioSessionId})")
+        }
+
+        // ── Step 2: wait for secondary READY (up to 5s) ──────────────────────────
+        var waitMs = 0L
+        var ready = false
+        while (waitMs < 5_000L) {
+            ready = withContext(Dispatchers.Main) {
+                freshSecondary.playbackState == Player.STATE_READY &&
+                        freshSecondary.currentMediaItem != null
+            }
+            if (ready) break
+            delay(100L); waitMs += 100L
+        }
+
+        if (!ready) {
+            Log.e(TAG, "sameTrackRecovery: secondary not ready after 5s — escalating to crossfade")
+            withContext(Dispatchers.Main) {
+                frozenPrimary.volume = currentTrackBaseVolume
+                try { frozenPrimary.play() } catch (e: Exception) { /* ignore */ }
+            }
+            _state.update { it.copy(isCrossfading = false) }
+            // Fall through to crossfade as last resort
+            if (track.id != lastRequestedTrackId) {
+                lastRequestedTrackId = track.id
+                _nextTrackRequest.tryEmit(track.id)
+            }
+            return
+        }
+
+        // ── Step 3: start secondary (still muted) ────────────────────────────────
+        withContext(Dispatchers.Main) {
+            freshSecondary.volume = 0f
+            try { freshSecondary.play() } catch (e: Exception) {
+                Log.e(TAG, "sameTrackRecovery: secondary.play() failed: ${e.message}")
+            }
+        }
+
+        // Wait up to 2s for isPlaying=true
+        var playWaitMs = 0L
+        var secondaryPlaying = false
+        while (playWaitMs < 2_000L) {
+            secondaryPlaying = withContext(Dispatchers.Main) { freshSecondary.isPlaying }
+            if (secondaryPlaying) break
+            delay(50L); playWaitMs += 50L
+        }
+
+        if (!secondaryPlaying) {
+            Log.e(TAG, "sameTrackRecovery: secondary won't start after ${playWaitMs}ms " +
+                    "— escalating to crossfade")
+            withContext(Dispatchers.Main) {
+                frozenPrimary.volume = currentTrackBaseVolume
+                try { frozenPrimary.play() } catch (e: Exception) { /* ignore */ }
+            }
+            _state.update { it.copy(isCrossfading = false) }
+            if (track.id != lastRequestedTrackId) {
+                lastRequestedTrackId = track.id
+                _nextTrackRequest.tryEmit(track.id)
+            }
+            return
+        }
+
+        Log.i(TAG, "sameTrackRecovery: secondary isPlaying=true after ${playWaitMs}ms " +
+                "audioSessionId=${freshSecondary.audioSessionId} — performing swap")
+
+        // ── Step 4: quick 300ms fade-in on secondary, fade-out frozen primary ────
+        val fadeSteps = 6
+        for (step in 1..fadeSteps) {
+            val progress = step.toFloat() / fadeSteps
+            withContext(Dispatchers.Main) {
+                freshSecondary.volume = progress * currentTrackBaseVolume
+                frozenPrimary.volume  = (1f - progress) * currentTrackBaseVolume
+            }
+            delay(50L)
+        }
+
+        // ── Step 5: commit swap ───────────────────────────────────────────────────
+        withContext(Dispatchers.Main) {
+            isPrimaryA = !isPrimaryA   // secondary is now primary
+            try { frozenPrimary.stop() } catch (e: Exception) { /* ignore */ }
+            frozenPrimary.volume = 0f
+            // Re-request audio focus on the new primary
+            try {
+                primaryPlayer()?.play()
+                Log.d(TAG, "sameTrackRecovery: ✅ COMPLETE — id=${track.id} now on " +
+                        "${if (isPrimaryA) "PlayerA" else "PlayerB"} " +
+                        "audioSessionId=${primaryPlayer()?.audioSessionId}")
+            } catch (e: Exception) {
+                Log.w(TAG, "sameTrackRecovery: audio focus re-assertion failed: ${e.message}")
+            }
+        }
+
+        // ── Bookkeeping: same track, fresh grace period ───────────────────────────
+        lastPlaybackStartMs       = System.currentTimeMillis()
+        postCrossfadeGuardUntilMs = System.currentTimeMillis() + 5_000L
+        lastRequestedTrackId      = null
+        prebufferedTrackId        = null
+        // currentTrack intentionally unchanged — same song, same queue position
+        _state.update {
+            it.copy(
+                isPlaying                 = true,
+                isCrossfading             = false,
+                crossfadeProgressFraction = 0f
+                // currentTrack stays the same
+            )
+        }
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     // POSITION MONITORING
     // ═════════════════════════════════════════════════════════════════════════
@@ -721,6 +970,13 @@ class CrossfadeEngine @Inject constructor(
     private fun startPositionMonitoring() {
         positionMonitorJob?.cancel()
         positionMonitorJob = engineScope.launch {
+
+            // ── Stall detector local state ────────────────────────────────────
+            // stallSinceMs: timestamp when we first observed playing=true + position=0
+            //               after the startup grace period. Reset to 0 when position
+            //               advances or conditions clear.
+            var stallSinceMs = 0L
+
             while (isActive) {
                 val (position, duration, playing) = withContext(Dispatchers.Main) {
                     val p   = primaryPlayer()
@@ -758,7 +1014,6 @@ class CrossfadeEngine @Inject constructor(
 
                 val isMaxTime = if (isRealMixMode && duration > 0L) {
                     val mixAt = if (useHalfwayMix) {
-                        // Offset halfway by the portion skipped at the start (cue-in point).
                         (duration / 2L) + currentTrackFirstBeatMs
                     } else {
                         maxTrackDurationMs
@@ -766,6 +1021,7 @@ class CrossfadeEngine @Inject constructor(
                     position >= mixAt && remaining > crossfadeDurationMs
                 } else false
 
+                // ── Pre-buffer request ────────────────────────────────────────
                 if (inPrebufferZone && !_state.value.isCrossfading
                     && prebufferedTrackId == null && !isPrebufferingInProgress) {
                     val id = _state.value.currentTrack?.id
@@ -776,6 +1032,7 @@ class CrossfadeEngine @Inject constructor(
                     }
                 }
 
+                // ── Normal crossfade trigger ──────────────────────────────────
                 val shouldTrigger = playing && !_state.value.isCrossfading
                         && !postGuardActive && duration > 0L && (
                         customMixOut ||
@@ -787,11 +1044,111 @@ class CrossfadeEngine @Inject constructor(
                     if (id != null && id != lastRequestedTrackId) {
                         lastRequestedTrackId = id
                         _nextTrackRequest.tryEmit(id)
-                        Log.d(TAG, "monitor: nextTrackRequest id=$id remaining=$remaining " +
-                                "isOnBeat=$isOnBeat isAtPhrase=$isAtPhrase customMixOut=$customMixOut")
+                        Log.d(TAG, "monitor: nextTrackRequest id=$id remaining=${remaining}ms " +
+                                "inTriggerZone=$inTriggerZone isMaxTime=$isMaxTime " +
+                                "isOnBeat=$isOnBeat isAtPhrase=$isAtPhrase " +
+                                "customMixOut=$customMixOut mustTrigger=$mustTrigger")
                     }
                 }
 
+                // ── Stall detector ────────────────────────────────────────────
+                //
+                // Detects the BT/headphone cold-start AudioTrack HAL freeze:
+                //   isPlaying=true but getPlaybackHeadPosition()=0 indefinitely.
+                //
+                // This is a one-time cold-start problem. By the time STALL_CONFIRMED
+                // fires (~4s in), the BT session is provably warm — READY+isPlaying
+                // already fired before the stall candidate was even logged. A fresh
+                // stop/prepare/play cycle creates a new AudioTrack that joins the
+                // already-established BT session cleanly, identical to why PlayerB
+                // never stalls.
+                //
+                // Recovery flow:
+                //   1st confirmed stall → restart same track (stallRecoveryCount = 0→1)
+                //                         fresh grace period set so monitor won't
+                //                         immediately re-trigger on the restarted track
+                //   2nd confirmed stall → stallRecoveryCount == 1 → escalate to crossfade
+                //
+                // Conditions checked:
+                //  • playing=true          — the player thinks it's running
+                //  • position == 0         — but AudioTrack is frozen (HAL init race)
+                //  • duration > 0          — track is loaded (not just between tracks)
+                //  • not crossfading       — don't interrupt an active crossfade
+                //  • startup grace passed  — exclude normal slow-start on spinning storage
+                //  • sustained for 1500ms  — exclude transient false reads at poll boundaries
+                val startupGracePassed = System.currentTimeMillis() - lastPlaybackStartMs > STALL_STARTUP_GRACE_MS
+                val stallCandidate = playing
+                        && position == 0L
+                        && duration > 0L
+                        && !_state.value.isCrossfading
+                        && startupGracePassed
+
+                if (stallCandidate) {
+                    if (stallSinceMs == 0L) {
+                        stallSinceMs = System.currentTimeMillis()
+                        Log.w(TAG, "monitor: STALL CANDIDATE detected — position=0 with " +
+                                "playing=true after grace. duration=${duration}ms. " +
+                                "stallRecoveryCount=$stallRecoveryCount. " +
+                                "Waiting ${STALL_CONFIRM_MS}ms to confirm...")
+                    }
+                } else {
+                    // Position advanced or conditions cleared — reset the stall timer.
+                    if (stallSinceMs > 0L && position > 0L) {
+                        Log.d(TAG, "monitor: stall candidate cleared — position advanced to ${position}ms")
+                    }
+                    stallSinceMs = 0L
+                }
+
+                val stallConfirmed = stallCandidate
+                        && stallSinceMs > 0L
+                        && System.currentTimeMillis() - stallSinceMs > STALL_CONFIRM_MS
+
+                if (stallConfirmed) {
+                    stallSinceMs = 0L  // Reset so we don't re-fire immediately.
+                    val stalledTrack = _state.value.currentTrack
+
+                    if (stalledTrack != null && stallRecoveryCount < 1) {
+                        stallRecoveryCount++
+                        // Fresh grace period so the monitor doesn't immediately re-fire
+                        // while the secondary is buffering.
+                        lastPlaybackStartMs = System.currentTimeMillis()
+
+                        Log.w(TAG, "monitor: STALL CONFIRMED — BT/headphone HAL freeze on " +
+                                "audioSessionId=${primaryPlayer()?.audioSessionId}. " +
+                                "Loading same track onto SECONDARY player (different AudioTrack). " +
+                                "The frozen AudioTrack is per-instance — secondary is unaffected. " +
+                                "attempt=$stallRecoveryCount id=${stalledTrack.id}")
+
+                        // We launch a coroutine here so the monitor loop can keep running
+                        // (and its stallSinceMs stays reset) while we wait for READY.
+                        crossfadeJob?.cancel()
+                        crossfadeJob = engineScope.launch {
+                            performSameTrackRecoveryOnSecondary(stalledTrack)
+                        }
+
+                    } else {
+                        // ── Escalate: crossfade away ──────────────────────────
+                        // Either the restart itself stalled (stallRecoveryCount == 1)
+                        // or currentTrack is null. Move on to the next track.
+                        val id = stalledTrack?.id
+                        if (id != null && id != lastRequestedTrackId) {
+                            lastRequestedTrackId = id
+                            Log.e(TAG, "monitor: ❌ STALL recovery exhausted " +
+                                    "(stallRecoveryCount=$stallRecoveryCount) — " +
+                                    "crossfading away from id=$id. " +
+                                    "Device BT HAL may not release the frozen AudioTrack.")
+                            _nextTrackRequest.tryEmit(id)
+                        } else if (stalledTrack == null) {
+                            Log.e(TAG, "monitor: STALL CONFIRMED but currentTrack is null — " +
+                                    "cannot recover")
+                        } else {
+                            Log.w(TAG, "monitor: STALL CONFIRMED but lastRequestedTrackId already " +
+                                    "set for id=$id — recovery already in flight")
+                        }
+                    }
+                }
+
+                // ── State update ──────────────────────────────────────────────
                 val timeToNextMixMs: Long? = when {
                     _state.value.isCrossfading   -> null
                     !playing || duration <= 0L   -> null
@@ -803,12 +1160,19 @@ class CrossfadeEngine @Inject constructor(
                 }
 
                 _state.update {
-                    it.copy(currentPositionMs = position, currentDurationMs = duration,
-                        timeToNextMixMs = timeToNextMixMs)
+                    it.copy(
+                        currentPositionMs = position,
+                        currentDurationMs = duration,
+                        timeToNextMixMs   = timeToNextMixMs
+                    )
                 }
 
-                delay(if (inTriggerZone || inPrebufferZone || isMaxTime || customMixOut)
-                    FAST_POLL_MS else POSITION_POLL_MS)
+                delay(
+                    if (inTriggerZone || inPrebufferZone || isMaxTime || customMixOut || stallCandidate)
+                        FAST_POLL_MS
+                    else
+                        POSITION_POLL_MS
+                )
             }
         }
     }
@@ -866,7 +1230,7 @@ class CrossfadeEngine @Inject constructor(
             val isPrimary = (isPlayerA && isPrimaryA) || (!isPlayerA && !isPrimaryA)
             if (isPrimary) _state.update { it.copy(isPlaying = isPlaying) }
             Log.d(TAG, "PlayerListener(${if (isPlayerA) "A" else "B"}).onIsPlayingChanged: " +
-                    "isPlaying=$isPlaying isPrimary=$isPrimary")
+                    "isPlaying=$isPlaying isPrimary=$isPrimary isPrimaryA=$isPrimaryA")
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -875,17 +1239,38 @@ class CrossfadeEngine @Inject constructor(
                 Player.STATE_BUFFERING -> "BUFFERING"
                 Player.STATE_READY     -> "READY"
                 Player.STATE_ENDED     -> "ENDED"
-                else                   -> "UNKNOWN"
+                else                   -> "UNKNOWN($playbackState)"
             }
-            Log.d(TAG, "PlayerListener(${if (isPlayerA) "A" else "B"}).onPlaybackStateChanged: $name")
+            Log.d(TAG, "PlayerListener(${if (isPlayerA) "A" else "B"}).onPlaybackStateChanged: $name " +
+                    "isPrimaryA=$isPrimaryA")
             if (playbackState == Player.STATE_ENDED) {
-                Log.w(TAG, "PlayerListener(${if (isPlayerA) "A" else "B"}) STATE_ENDED")
+                Log.w(TAG, "PlayerListener(${if (isPlayerA) "A" else "B"}) STATE_ENDED reached. " +
+                        "If this is the primary player, the track finished naturally.")
             }
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            Log.e(TAG, "PlayerListener(${if (isPlayerA) "A" else "B"}).onPlayerError: ${error.message}", error)
-            _state.update { it.copy(error = "Player error: ${error.message}") }
+            val isPrimary = (isPlayerA && isPrimaryA) || (!isPlayerA && !isPrimaryA)
+            Log.e(TAG, "PlayerListener(${if (isPlayerA) "A" else "B"}).onPlayerError: " +
+                    "${error.message} errorCode=${error.errorCode} isPrimary=$isPrimary", error)
+            if (isPrimary) {
+                // errorCode=1003 is ExoPlayer's StuckPlayerException — fired when
+                // getPlaybackHeadPosition() makes no progress for 10 seconds.
+                // This is the exact BT/headphone HAL freeze our stall detector handles
+                // at ~4s (well before ExoPlayer's 10s timeout). By the time this
+                // callback fires, the position monitor has already issued a restart
+                // or crossfade. Surfacing it as a UI error is misleading and causes
+                // the user to see an error state on a track that is already recovering.
+                if (error.errorCode == 1003) {
+                    Log.w(TAG, "PlayerListener(${if (isPlayerA) "A" else "B"}): " +
+                            "StuckPlayerException (errorCode=1003) suppressed — " +
+                            "stall recovery was already initiated by position monitor " +
+                            "${System.currentTimeMillis() - lastPlaybackStartMs}ms ago. " +
+                            "stallRecoveryCount=$stallRecoveryCount")
+                    return
+                }
+                _state.update { it.copy(error = "Player error: ${error.message}") }
+            }
         }
     }
 }
