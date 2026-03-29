@@ -13,7 +13,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        minSdk = 23
+        minSdk = libs.versions.minSdk.get().toInt()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
@@ -90,8 +90,11 @@ dependencies {
     // Animation utils
     implementation(libs.androidx.animation)
 
-    //media3-transformer
-    implementation(libs.media3.transformer)
+    // REMOVE this:
+    // implementation(libs.media3.transformer)
+
+    // ADD this:
+    implementation(libs.ffmpeg.kit.min)
 
     implementation(libs.jaudiotagger.android)
 

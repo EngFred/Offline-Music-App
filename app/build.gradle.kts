@@ -10,12 +10,12 @@ plugins {
 
 android {
     namespace = "com.engfred.musicplayer"
-    compileSdk = 36
+    compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
         applicationId = "com.engfred.musicplayer"
-        minSdk = 23
-        targetSdk = 36
+        minSdk = libs.versions.minSdk.get().toInt()
+        targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 5
         versionName = "2.4.4"
 

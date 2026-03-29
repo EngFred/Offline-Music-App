@@ -1,7 +1,8 @@
 [versions]
 accompanistSystemuicontroller = "0.36.0"
 agp = "8.13.1"
-animation = "1.9.5"
+animation = "1.10.6"
+ffmpegKitMin = "6.0.1"
 guava = "33.5.0-android"
 jaudiotaggerAndroid = "2.3.15"
 kotlin = "2.2.10"
@@ -10,16 +11,16 @@ junit = "4.13.2"
 junitVersion = "1.3.0"
 espressoCore = "3.7.0"
 kotlinxCoroutinesGuava = "1.10.2"
-landscapistCoil = "2.6.1"
+landscapistCoil = "2.9.5"
 lifecycleRuntimeKtx = "2.10.0"
-activityCompose = "1.12.0"
-composeBom = "2025.11.01"
+activityCompose = "1.13.0"
+composeBom = "2026.03.01"
 tarsosDsp = "2.5"
 
 # Jetpack Compose
 lottieCompose = "6.7.1"
 media = "1.7.1"
-navigationCompose = "2.9.6"
+navigationCompose = "2.9.7"
 # Hilt (Dependency Injection)
 hiltAndroid = "2.57.2"
 hiltNavigationCompose = "1.3.0"
@@ -44,9 +45,13 @@ materialIconsExtended = "1.7.8"
 splashscreen = "1.2.0"
 imageCropper = "4.7.0"
 
-workRuntimeKtx = "2.11.0"
+workRuntimeKtx = "2.11.2"
 hiltWork = "1.3.0"
 lifecycleService = "2.10.0"
+
+minSdk = "24"
+compileSdk = "36"
+targetSdk = "36"
 
 [libraries]
 accompanist-systemuicontroller = { module = "com.google.accompanist:accompanist-systemuicontroller", version.ref = "accompanistSystemuicontroller" }
@@ -54,6 +59,7 @@ androidx-animation = { module = "androidx.compose.animation:animation", version.
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-media = { module = "androidx.media:media", version.ref = "media" }
 androidx-palette-ktx = { module = "androidx.palette:palette-ktx", version.ref = "paletteKtx" }
+ffmpeg-kit-min = { module = "io.github.maitrungduc1410:ffmpeg-kit-min", version.ref = "ffmpegKitMin" }
 guava = { module = "com.google.guava:guava", version.ref = "guava" }
 jaudiotagger-android = { group = "com.github.adonai", name = "jaudiotagger-android", version.ref = "jaudiotaggerAndroid" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }

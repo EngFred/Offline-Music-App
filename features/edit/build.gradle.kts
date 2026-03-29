@@ -15,7 +15,7 @@ android {
     }
 
     defaultConfig {
-        minSdk = 23
+        minSdk = libs.versions.minSdk.get().toInt()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
@@ -72,11 +72,11 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
 
-    //coil compose
+    // Coil for album artwork
     implementation(libs.coil.compose)
 
-    //extended material 3 icons
-    implementation(libs.androidx.material.icons.extended);
+    // Extended Material 3 icons
+    implementation(libs.androidx.material.icons.extended)
 
     // Accompanist Permissions
     implementation(libs.accompanist.permissions)
@@ -85,12 +85,19 @@ dependencies {
     implementation(libs.landscapist.coil)
     implementation(libs.androidx.animation)
 
-    //
+    // Palette for colour extraction
     implementation(libs.androidx.palette.ktx)
 
-    implementation(libs.jaudiotagger.android)
+    // FFmpeg-kit (community-maintained fork of arthenica/ffmpeg-kit).
+    // Replaces JAudioTagger for metadata editing. Handles MP3, M4A, FLAC, OGG,
+    // OPUS, WAV, WMA reliably via stream copy + -metadata flags.
+    // jaudiotagger-android has been REMOVED — it only supported MP3/M4A and
+    // threw unchecked exceptions for every other format.
+    implementation(libs.ffmpeg.kit.min)
 
+    // Image cropper for album art selection
     implementation(libs.image.cropper)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
