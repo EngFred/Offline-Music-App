@@ -20,7 +20,7 @@ class MixDecisionEngine @Inject constructor(
     companion object {
         private const val TAG = "MixDecisionEngine"
 
-        // Crossfade duration scale factors per strategy
+        // ── Tuning Block: Crossfade Duration Multipliers ─────────────────────
         private const val TRANSPARENT_MULT      = 0.70f
         private const val SMOOTH_MULT           = 1.00f
         private const val POWER_MIX_MULT        = 1.40f
@@ -29,7 +29,14 @@ class MixDecisionEngine @Inject constructor(
         const val MIN_CROSSFADE_MS              = 2_000L
         const val MAX_CROSSFADE_MS              = 14_000L
 
-        // Bass-kill trigger points (fraction of crossfade elapsed). Lower = earlier.
+        // ── Tuning Block: BPM Delta Thresholds ───────────────────────────────
+        // Determines when a strategy upgrades to the next intensity level.
+        private const val DELTA_TRANSPARENT     = 3f
+        private const val DELTA_SMOOTH          = 8f
+        private const val DELTA_POWER_MIX       = 15f
+
+        // ── Tuning Block: Bass-Kill Triggers ─────────────────────────────────
+        // Fraction of crossfade elapsed. Lower = earlier kill.
         private const val BASS_KILL_TRANSPARENT     = 0.70f
         private const val BASS_KILL_SMOOTH          = 0.50f
         private const val BASS_KILL_POWER_MIX       = 0.35f
@@ -45,27 +52,32 @@ class MixDecisionEngine @Inject constructor(
      * Classifies the BPM pair and derives all crossfade parameters.
      *
      * Decision order:
-     * 1. Check harmonic compatibility first (120→60 is HARMONIC, not WIDE_TRANSITION).
-     * 2. Classify by raw delta into TRANSPARENT / SMOOTH / POWER_MIX / WIDE_TRANSITION.
-     * 3. Scale crossfade duration by strategy multiplier.
-     * 4. Compute RubberBand stretch ratio = incomingBpm / outgoingBpm (coerced to safe range).
-     * 5. Select bass-kill trigger point based on strategy.
+     * 1. Validate BPMs (Fallback to safe mix if metadata is missing/zero).
+     * 2. Check harmonic compatibility first (120→60 is HARMONIC, not WIDE_TRANSITION).
+     * 3. Classify by raw delta into TRANSPARENT / SMOOTH / POWER_MIX / WIDE_TRANSITION.
+     * 4. Scale crossfade duration by strategy multiplier.
+     * 5. Compute RubberBand stretch ratio = incomingBpm / outgoingBpm (coerced to safe range).
+     * 6. Select bass-kill trigger point based on strategy.
      */
     fun computeMixDecision(
         outgoingBpm: Float,
         incomingBpm: Float,
         userCrossfadeDurationMs: Long
     ): MixDecision {
-        val rawDelta       = abs(outgoingBpm - incomingBpm)
-        val effectiveDelta = smartNextTrack.minimumHarmonicDelta(outgoingBpm, incomingBpm)
-        val isHarmonic     = smartNextTrack.isHarmonicallyCompatible(outgoingBpm, incomingBpm)
+        // SAFETY GUARD: If a track lacks BPM metadata, do not attempt complex math.
+        val isBpmValid = outgoingBpm > 0f && incomingBpm > 0f
+
+        val rawDelta       = if (isBpmValid) abs(outgoingBpm - incomingBpm) else 0f
+        val effectiveDelta = if (isBpmValid) smartNextTrack.minimumHarmonicDelta(outgoingBpm, incomingBpm) else 0f
+        val isHarmonic     = if (isBpmValid) smartNextTrack.isHarmonicallyCompatible(outgoingBpm, incomingBpm) else false
 
         val strategy = when {
-            isHarmonic && rawDelta > 3f -> MixStrategy.HARMONIC
-            rawDelta <= 3f              -> MixStrategy.TRANSPARENT
-            rawDelta <= 8f              -> MixStrategy.SMOOTH
-            rawDelta <= 15f             -> MixStrategy.POWER_MIX
-            else                        -> MixStrategy.WIDE_TRANSITION
+            !isBpmValid                                  -> MixStrategy.SMOOTH // Safe fallback for missing metadata
+            isHarmonic && rawDelta > DELTA_TRANSPARENT   -> MixStrategy.HARMONIC
+            rawDelta <= DELTA_TRANSPARENT                -> MixStrategy.TRANSPARENT
+            rawDelta <= DELTA_SMOOTH                     -> MixStrategy.SMOOTH
+            rawDelta <= DELTA_POWER_MIX                  -> MixStrategy.POWER_MIX
+            else                                         -> MixStrategy.WIDE_TRANSITION
         }
 
         val durationMult = when (strategy) {
@@ -81,10 +93,10 @@ class MixDecisionEngine @Inject constructor(
         // Tempo sync only for SMOOTH / POWER_MIX.
         // HARMONIC: the harmonic lock IS the mix — sync fights it.
         // WIDE_TRANSITION: delta too large; visible speed artefacts even with RubberBand.
-        val shouldTempoSync = strategy == MixStrategy.SMOOTH || strategy == MixStrategy.POWER_MIX
+        val shouldTempoSync = isBpmValid && (strategy == MixStrategy.SMOOTH || strategy == MixStrategy.POWER_MIX)
 
         // stretchRatio < 1 = speed up incoming; > 1 = slow it down to match outgoing BPM.
-        val stretchRatio: Double = if (shouldTempoSync && outgoingBpm > 0f && incomingBpm > 0f) {
+        val stretchRatio: Double = if (shouldTempoSync) {
             (incomingBpm / outgoingBpm).toDouble().coerceIn(MIN_STRETCH_RATIO, MAX_STRETCH_RATIO)
         } else 1.0
 
@@ -98,11 +110,17 @@ class MixDecisionEngine @Inject constructor(
 
         val djNote = buildString {
             append("[DJ DECISION] ${strategy.name}: ")
-            append("${outgoingBpm.fmt()} → ${incomingBpm.fmt()} BPM")
-            append(" | rawΔ=${rawDelta.fmt()} effectiveΔ=${effectiveDelta.fmt()}")
-            if (isHarmonic) append(" | ★ HARMONIC")
+            if (!isBpmValid) {
+                append("UNKNOWN BPM detected | Fallback to safe smooth fade")
+            } else {
+                append("${outgoingBpm.fmt()} → ${incomingBpm.fmt()} BPM")
+                append(" | rawΔ=${rawDelta.fmt()} effectiveΔ=${effectiveDelta.fmt()}")
+                if (isHarmonic) append(" | ★ HARMONIC")
+            }
+
             append(" | fade=${effectiveDurationMs}ms")
-            if (shouldTempoSync) {
+
+            if (shouldTempoSync && stretchRatio != 1.0) {
                 val speed = 1.0 / stretchRatio
                 append(" | RubberBand stretch=${stretchRatio.fmt3()} (×${speed.fmt3()})")
             } else {
@@ -170,5 +188,4 @@ class MixDecisionEngine @Inject constructor(
 
     private fun Float.fmt()   = String.format("%.1f", this)
     private fun Double.fmt3() = String.format("%.3f", this)
-    private fun Float.fmt3()  = String.format("%.3f", this)
 }

@@ -36,7 +36,7 @@ enum class MixStrategy {
  * in [CrossfadeEngine.executeCrossfade].
  *
  * @param stretchRatio RubberBand time-stretch ratio = incomingBpm/outgoingBpm (1.0 = no stretch).
- *                     < 1.0 speeds up incoming track; > 1.0 slows it down.
+ * < 1.0 speeds up incoming track; > 1.0 slows it down.
  */
 data class MixDecision(
     val outgoingBpm: Float,
@@ -50,4 +50,10 @@ data class MixDecision(
     val stretchRatio: Double,
     val bassKillThresholdFraction: Float,
     val djNote: String
-)
+) {
+    /** * Helper to verify if time-stretching will actually be applied.
+     * True ONLY if the strategy allows it AND the ratio isn't exactly 1.0.
+     */
+    val isEffectivelyTempoSynced: Boolean
+        get() = shouldTempoSync && stretchRatio != 1.0
+}
