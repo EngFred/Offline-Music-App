@@ -1,29 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="16dp" />
 
-    <!-- Shadow layer (slightly bigger and offset down) -->
-    <item android:left="0dp" android:top="4dp" android:right="0dp" android:bottom="0dp">
-        <shape android:shape="rectangle">
-            <corners android:radius="14dp" />
-            <!-- semi-transparent shadow -->
-            <solid android:color="#33000000" />
-        </shape>
-    </item>
+    <solid android:color="#D9121212" />
 
-    <!-- Main rounded card with subtle gradient and stroke -->
-    <item android:left="0dp" android:top="0dp" android:right="0dp" android:bottom="0dp">
-        <shape android:shape="rectangle">
-            <corners android:radius="12dp" />
-            <gradient
-                android:angle="270"
-                android:startColor="#FF512DA8"
-            android:endColor="#FF2B2B5F"
-            android:type="linear" />
-            <!-- faint border to separate from wallpaper -->
-            <stroke android:width="1dp" android:color="#FF2B2B5F" />
-            <!-- small padding inside -->
-            <padding android:left="10dp" android:top="10dp" android:right="10dp" android:bottom="10dp" />
-        </shape>
-    </item>
-
-</layer-list>
+    <stroke
+        android:width="1dp"
+        android:color="#1AFFFFFF" />
+</shape>

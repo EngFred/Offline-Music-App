@@ -139,7 +139,7 @@ class PlaybackControllerImpl @Inject constructor(
             progressTracker.startPlaybackPositionUpdates()
         }
 
-        // FIX: Pause the normal ExoPlayer whenever the DJ Mix becomes active.
+        // Pause the normal ExoPlayer whenever the DJ Mix becomes active.
         // This prevents both systems from playing simultaneously when the user
         // starts the DJ Mix while a normal song is already playing.
         repositoryScope.launch {
@@ -148,10 +148,19 @@ class PlaybackControllerImpl @Inject constructor(
                     if (isDjActive) {
                         withContext(Dispatchers.Main) {
                             mediaController.value?.pause()
-                            Log.d(TAG, "DJ Mix started — normal player paused.")
+                            Log.d(TAG, "Auto Mix started — normal player paused.")
                         }
                     }
                 }
+        }
+
+        repositoryScope.launch {
+            activePlayerRegistry.pauseNormalPlayerSignal.collect {
+                withContext(Dispatchers.Main) {
+                    mediaController.value?.pause()
+                    Log.d(TAG, "Transient audio focus requested (e.g. Trimmer) — normal player paused.")
+                }
+            }
         }
     }
 

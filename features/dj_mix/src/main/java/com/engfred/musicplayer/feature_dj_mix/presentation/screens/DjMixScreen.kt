@@ -140,24 +140,24 @@ fun DjMixScreen(
                         )
                     }
 
-                    // ── LOGIC FIX: Only show "MIX NOW" if a next track exists ──
-                    if (uiState.isPlaying && uiState.nextTrack != null) {
-                        FloatingActionButton(
-                            onClick        = { viewModel.onEvent(DjMixEvent.MixNow) },
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor   = MaterialTheme.colorScheme.onPrimary,
-                            shape          = RoundedCornerShape(percent = 50)
-                        ) {
-                            Row(
-                                modifier          = Modifier.padding(horizontal = 20.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Rounded.AutoAwesome, "Mix Now")
-                                Spacer(Modifier.width(8.dp))
-                                Text("MIX NOW", fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-                            }
-                        }
-                    }
+//                    // ── LOGIC FIX: Only show "MIX NOW" if a next track exists ──
+//                    if (uiState.isPlaying && uiState.nextTrack != null) {
+//                        FloatingActionButton(
+//                            onClick        = { viewModel.onEvent(DjMixEvent.MixNow) },
+//                            containerColor = MaterialTheme.colorScheme.primary,
+//                            contentColor   = MaterialTheme.colorScheme.onPrimary,
+//                            shape          = RoundedCornerShape(percent = 50)
+//                        ) {
+//                            Row(
+//                                modifier          = Modifier.padding(horizontal = 20.dp),
+//                                verticalAlignment = Alignment.CenterVertically
+//                            ) {
+//                                Icon(Icons.Rounded.AutoAwesome, "Mix Now")
+//                                Spacer(Modifier.width(8.dp))
+//                                Text("MIX NOW", fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+//                            }
+//                        }
+//                    }
                 }
             } else if (uiState.smartQueue.isNotEmpty()) {
                 // Initial "Start Mix" FAB when nothing is playing yet

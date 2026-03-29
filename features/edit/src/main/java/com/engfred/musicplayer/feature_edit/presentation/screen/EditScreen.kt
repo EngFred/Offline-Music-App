@@ -10,15 +10,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.ExperimentalAnimationApi
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -29,7 +23,6 @@ import com.engfred.musicplayer.feature_edit.presentation.viewModel.EditUIEvent
 import com.engfred.musicplayer.feature_edit.presentation.viewModel.EditViewModel
 import kotlinx.coroutines.flow.collectLatest
 
-@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun EditScreen(
     audioId: Long,
@@ -52,7 +45,6 @@ fun EditScreen(
     var pickedUri by remember { mutableStateOf<Uri?>(null) }
     var isCropping by remember { mutableStateOf(false) }
 
-    // Gallery picker
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
             pickedUri = uri
@@ -60,7 +52,6 @@ fun EditScreen(
         }
     }
 
-    // IntentSender for Saving (Android 10/11)
     val intentSenderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()
     ) { result: ActivityResult ->
@@ -71,7 +62,6 @@ fun EditScreen(
         }
     }
 
-    // Permission Launcher
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted: Boolean ->
@@ -81,7 +71,6 @@ fun EditScreen(
         }
     }
 
-    // Collect ViewModel events
     LaunchedEffect(Unit) {
         viewModel.events.collectLatest { event ->
             when (event) {
@@ -100,7 +89,6 @@ fun EditScreen(
         }
     }
 
-    // Load data and permissions
     LaunchedEffect(audioId) {
         viewModel.loadAudioFile(audioId)
         val perm = when {
@@ -109,45 +97,45 @@ fun EditScreen(
             else -> Manifest.permission.WRITE_EXTERNAL_STORAGE
         }
         val granted = ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
-        if (!granted) {
-            permissionLauncher.launch(perm)
-        }
+        if (!granted) permissionLauncher.launch(perm)
     }
 
-    // --- Screen Content ---
-
-    // We conditionally render the CropView full screen if cropping
-    if (isCropping && pickedUri != null) {
-        CropView(
-            imageUri = pickedUri!!,
-            onCrop = { croppedUri ->
-                viewModel.pickImage(croppedUri)
-                isCropping = false
-                pickedUri = null
-            },
-            onCancel = {
-                isCropping = false
-                pickedUri = null
-            }
-        )
-    } else {
-        EditView(
-            uiState = state,
-            onPickImage = { galleryLauncher.launch("image/*") },
-            onTitleChange = viewModel::updateTitle,
-            onArtistChange = viewModel::updateArtist,
-            onSave = { viewModel.saveChanges(audioId, context) },
-            onCancel = onFinish,
-            onMiniPlayerClick = onMiniPlayerClick,
-            onMiniPlayPauseClick = onMiniPlayPauseClick,
-            onMiniPlayNext = onMiniPlayNext,
-            onMiniPlayPrevious = onMiniPlayPrevious,
-            playingAudioFile = playingAudioFile,
-            isPlaying = isPlaying,
-            stopAfterCurrent = stopAfterCurrent,
-            onMiniToggleStopAfterCurrent = onToggleStopAfterCurrent,
-            playbackPositionMs = playbackPositionMs,
-            totalDurationMs = totalDurationMs
-        )
+    // Smooth transition between cropping and editing
+    Crossfade(
+        targetState = isCropping && pickedUri != null,
+        animationSpec = tween(400),
+        label = "crop_edit_transition"
+    ) { showCrop ->
+        if (showCrop) {
+            CropView(
+                imageUri = pickedUri!!, // Safe now because we don't nullify pickedUri during the fade-out
+                onCrop = { croppedUri ->
+                    viewModel.pickImage(croppedUri)
+                    isCropping = false
+                },
+                onCancel = {
+                    isCropping = false
+                }
+            )
+        } else {
+            EditView(
+                uiState = state,
+                onPickImage = { galleryLauncher.launch("image/*") },
+                onTitleChange = viewModel::updateTitle,
+                onArtistChange = viewModel::updateArtist,
+                onSave = { viewModel.saveChanges(audioId, context) },
+                onCancel = onFinish,
+                onMiniPlayerClick = onMiniPlayerClick,
+                onMiniPlayPauseClick = onMiniPlayPauseClick,
+                onMiniPlayNext = onMiniPlayNext,
+                onMiniPlayPrevious = onMiniPlayPrevious,
+                playingAudioFile = playingAudioFile,
+                isPlaying = isPlaying,
+                stopAfterCurrent = stopAfterCurrent,
+                onMiniToggleStopAfterCurrent = onToggleStopAfterCurrent,
+                playbackPositionMs = playbackPositionMs,
+                totalDurationMs = totalDurationMs
+            )
+        }
     }
 }

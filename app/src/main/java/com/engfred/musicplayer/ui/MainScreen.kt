@@ -74,7 +74,6 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 fun MainScreen(
     onNavigateToNowPlaying: () -> Unit,
     onPlaylistClick: (Long) -> Unit,
-    onContactDeveloper: () -> Unit,
     onPlayPause: () -> Unit,
     onPlayNext: () -> Unit,
     onPlayPrev: () -> Unit,
@@ -155,27 +154,6 @@ fun MainScreen(
                     subtitle = subtitle,
                     showNavigationIcon = false,
                     onNavigateBack = null,
-//                    actions = {
-//                        IconButton(onClick = { showDropdownMenu = true }) {
-//                            Icon(Icons.Rounded.MoreVert, contentDescription = "more icon")
-//                        }
-//                        DropdownMenu(
-//                            expanded = showDropdownMenu,
-//                            onDismissRequest = { showDropdownMenu = false },
-//                            offset = DpOffset(x = (-16).dp, y = 0.dp),
-//                            modifier = Modifier
-//                                .clip(RoundedCornerShape(12.dp))
-//                                .background(MaterialTheme.colorScheme.surface)
-//                        ) {
-//                            DropdownMenuItem(
-//                                text = { Text("Contact Developer", color = MaterialTheme.colorScheme.onSurface) },
-//                                onClick = {
-//                                    showDropdownMenu = false
-//                                    onContactDeveloper()
-//                                }
-//                            )
-//                        }
-//                    }
                 )
             }
         },
@@ -365,7 +343,7 @@ private fun DjMixBar(
             )
             Spacer(modifier = Modifier.width(12.dp))
             Text(
-                text = "DJ Auto-Mix Active",
+                text = "Auto-Mix Active",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer

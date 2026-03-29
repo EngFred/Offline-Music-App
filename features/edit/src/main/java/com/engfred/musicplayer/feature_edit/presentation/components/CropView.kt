@@ -4,28 +4,16 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import com.canhub.cropper.CropImageView
-import com.engfred.musicplayer.core.ui.components.CustomTopBar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -40,80 +28,71 @@ fun CropView(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // We hold a reference to the View to trigger the crop action
     var cropImageView by remember { mutableStateOf<CropImageView?>(null) }
     var isCropping by remember { mutableStateOf(false) }
 
-    BackHandler {
+    // Intercept physical/gesture back button
+    BackHandler(enabled = !isCropping) {
         onCancel()
     }
 
-    Scaffold(
+    // A completely immersive, edge-to-edge black box
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .systemBarsPadding(),
-        topBar = {
-            CustomTopBar(
-                title = "Crop Image",
-                showNavigationIcon = true,
-                onNavigateBack = onCancel,
-                backgroundColor = Color.Black,
-                contentColor = Color.White,
-                actions = {
-                    IconButton(
-                        onClick = {
-                            if (!isCropping) {
-                                isCropping = true
-                                scope.launch {
-                                    val bitmap = cropImageView?.getCroppedImage()
-                                    if (bitmap != null) {
-                                        saveBitmapAndCrop(context, bitmap, onCrop, onCancel)
-                                    } else {
-                                        onCancel()
-                                    }
-                                    isCropping = false
-                                }
-                            }
-                        }
-                    ) {
-                        Icon(
-                            Icons.Rounded.Check,
-                            contentDescription = "Save Crop",
-                            tint = Color.White // Ensure icon is white
-                        )
-                    }
-                }
-            )
-        }
-    ) { innerPadding ->
-        Box(
+            .systemBarsPadding()
+    ) {
+        // 1. The Core Image Cropper (Legacy View Interop)
+        AndroidView(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .background(Color.Black)
-        ) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    CropImageView(ctx).apply {
-                        setAspectRatio(1, 1)
-                        setFixedAspectRatio(true)
-                        guidelines = CropImageView.Guidelines.ON
-                        isShowProgressBar = true
-                        setBackgroundColor(0xFF000000.toInt())
-                    }
-                },
-                update = { view ->
-                    if (view.imageUri != imageUri) {
-                        view.setImageUriAsync(imageUri)
-                    }
-                    cropImageView = view
+                // Leave room at the bottom for our custom control bar
+                .padding(bottom = 80.dp),
+            factory = { ctx ->
+                CropImageView(ctx).apply {
+                    setAspectRatio(1, 1)
+                    setFixedAspectRatio(true)
+                    guidelines = CropImageView.Guidelines.ON
+                    isShowProgressBar = false // We handle loading states in Compose
+                    setBackgroundColor(android.graphics.Color.BLACK)
                 }
-            )
-        }
+            },
+            update = { view ->
+                // Only load the URI if it's new to avoid flickering
+                if (view.imageUri != imageUri) {
+                    view.setImageUriAsync(imageUri)
+                }
+                cropImageView = view
+            }
+        )
+
+        // 2. The Bottom Control Deck (Thumb-friendly)
+        CropBottomBar(
+            modifier = Modifier.align(Alignment.BottomCenter),
+            isCropping = isCropping,
+            onCancel = onCancel,
+            onDone = {
+                if (!isCropping && cropImageView != null) {
+                    isCropping = true
+                    scope.launch {
+                        val bitmap = cropImageView?.getCroppedImage()
+                        if (bitmap != null) {
+                            saveBitmapAndCrop(context, bitmap, onCrop, onCancel)
+                        } else {
+                            isCropping = false
+                            onCancel()
+                        }
+                    }
+                }
+            }
+        )
     }
 }
 
+// Extracted the heavy file I/O to keep the composable clean
 private suspend fun saveBitmapAndCrop(
     context: android.content.Context,
     bitmap: Bitmap,
@@ -124,6 +103,7 @@ private suspend fun saveBitmapAndCrop(
         try {
             val tempFile = File.createTempFile("crop_", ".jpg", context.cacheDir)
             val out = FileOutputStream(tempFile)
+            // 90 quality is perfect for album art (balances size and clarity)
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
             out.flush()
             out.close()

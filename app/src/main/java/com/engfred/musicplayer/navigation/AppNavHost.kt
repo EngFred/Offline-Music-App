@@ -72,7 +72,6 @@ fun AppNavHost(
                 onPlaylistClick = { playlistId ->
                     rootNavController.navigate(AppDestinations.PlaylistDetail.createRoute(playlistId))
                 },
-                onContactDeveloper = { launchWhatsapp(context = context) },
                 onPlayPause = onPlayPause,
                 onPlayNext = onPlayNext,
                 onPlayPrev = onPlayPrev,
@@ -271,16 +270,5 @@ fun AppNavHost(
         ) {
             TrimScreen(onNavigateUp = { rootNavController.navigateUp() })
         }
-    }
-}
-
-private fun launchWhatsapp(context: Context) {
-    try {
-        Toast.makeText(context, "Opening whatsapp...", Toast.LENGTH_SHORT).show()
-        val url = "https://wa.me/256754348118"
-        val intent = Intent(Intent.ACTION_VIEW).apply { data = url.toUri() }
-        context.startActivity(intent)
-    } catch (e: Exception) {
-        Toast.makeText(context, "Error opening whatsapp: ${e.message}", Toast.LENGTH_SHORT).show()
     }
 }

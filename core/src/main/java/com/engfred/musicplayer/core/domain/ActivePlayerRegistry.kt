@@ -30,42 +30,41 @@ class ActivePlayerRegistry @Inject constructor() {
     // ── DJ Mix active flag ────────────────────────────────────────────────────
 
     private val _isDjMixActive = MutableStateFlow(false)
-    /**
-     * True while [DjMixService] is running and [CrossfadeEngine] has active players.
-     * Observed by [PlaybackControllerImpl] to auto-pause the normal player.
-     */
     val isDjMixActive: StateFlow<Boolean> = _isDjMixActive.asStateFlow()
 
     // ── Stop signal (normal player → DJ) ─────────────────────────────────────
 
     private val _stopDjMixSignal = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    /**
-     * Emits a single Unit whenever normal playback requests the DJ mix to stop.
-     * [DjMixService] collects this and calls stopSelf() + releases the engine.
-     */
     val stopDjMixSignal: SharedFlow<Unit> = _stopDjMixSignal.asSharedFlow()
+
+    // ── Pause signal (Preview Trimmer → Normal Player) ───────────────────────
+
+    private val _pauseNormalPlayerSignal = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val pauseNormalPlayerSignal: SharedFlow<Unit> = _pauseNormalPlayerSignal.asSharedFlow()
+
 
     // ── API ───────────────────────────────────────────────────────────────────
 
-    /** Called by [DjMixViewModel] the moment a DJ session is initiated. */
     fun onDjMixStarted() {
         _isDjMixActive.value = true
     }
 
-    /** Called by [DjMixService.onDestroy] when the service is torn down. */
     fun onDjMixStopped() {
         _isDjMixActive.value = false
     }
 
-    /**
-     * Called by [PlaybackControllerImpl] when normal playback is about to start.
-     * If the DJ mix is currently active, emits [stopDjMixSignal] so [DjMixService]
-     * can shut itself down cleanly before the normal player takes audio focus.
-     */
     fun requestStopDjMix() {
         if (_isDjMixActive.value) {
             _isDjMixActive.value = false
             _stopDjMixSignal.tryEmit(Unit)
         }
+    }
+
+    /**
+     * Called by isolated players (like the Audio Trimmer Preview) to force the
+     * background normal player to pause so they don't play over each other.
+     */
+    fun requestPauseNormalPlayer() {
+        _pauseNormalPlayerSignal.tryEmit(Unit)
     }
 }

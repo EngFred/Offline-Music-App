@@ -12,6 +12,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.engfred.musicplayer.core.domain.ActivePlayerRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -28,7 +29,8 @@ import javax.inject.Inject
 private const val TAG = "PreviewPlayerManager"
 
 class PreviewPlayerManager @Inject constructor(
-    private val application: Application
+    private val application: Application,
+    private val activePlayerRegistry: ActivePlayerRegistry
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -225,6 +227,14 @@ class PreviewPlayerManager @Inject constructor(
      * Resumes if same clip already prepared; otherwise full setup.
      * Allows full track preview (start=0, end=duration) on load without trim.
      */
+    /**
+     * Helper to ensure no other audio is playing before we blast the preview.
+     */
+    private fun silenceBackgroundAudio() {
+        activePlayerRegistry.requestStopDjMix()
+        activePlayerRegistry.requestPauseNormalPlayer()
+    }
+
     fun playClip(uri: Uri, startMs: Long, endMs: Long) {
         if (endMs <= startMs) {
             val errorMsg = "Invalid clip range: end must be after start"
@@ -247,15 +257,17 @@ class PreviewPlayerManager @Inject constructor(
 
         Log.d(TAG, "Starting/resuming preview clip: $startMs-$endMs ms for URI $uri")
 
-        // Check for same clip
+        // Check for same clip (Resuming)
         if (lastUri == uri && lastStartMs == startMs && lastEndMs == endMs && isClipPrepared) {
             if (isPlayerReady) {
                 Log.d(TAG, "Resuming existing clip from current position")
+
+                // MUTE BACKGROUND BEFORE RESUMING
+                silenceBackgroundAudio()
+
                 player.playWhenReady = true
-                // Sync relative position immediately
                 val absPos = if (player.currentPosition == C.TIME_UNSET) startMs else player.currentPosition.coerceAtLeast(startMs)
                 _positionMs.value = (absPos - startMs).coerceAtLeast(0L)
-                // Updates will start on isPlaying true
                 return
             } else {
                 Log.d(TAG, "Ignoring duplicate play request for same clip during preparation")
@@ -265,11 +277,10 @@ class PreviewPlayerManager @Inject constructor(
 
         clipStartMs = startMs
         clipEndMs = endMs
-        isPlayerReady = false  // Reset readiness
+        isPlayerReady = false
         isClipPrepared = false
-        pendingSeekToMs = null  // Clear any pending on new clip
+        pendingSeekToMs = null
 
-        // Stop and clear previous media only if different clip
         try {
             if (lastUri != uri || lastStartMs != startMs || lastEndMs != endMs) {
                 player.stop()
@@ -286,11 +297,14 @@ class PreviewPlayerManager @Inject constructor(
                 .setUri(uri)
                 .build()
 
+            // MUTE BACKGROUND BEFORE STARTING NEW CLIP
+            silenceBackgroundAudio()
+
             player.setMediaItem(mediaItem)
             player.prepare()
-            player.playWhenReady = false  // Defer playback until after seek in ready callback
-            _positionMs.value = 0L  // Reset relative position
-            _error.value = null // Clear any previous errors on successful start
+            player.playWhenReady = false
+            _positionMs.value = 0L
+            _error.value = null
             isClipPrepared = true
             lastUri = uri
             lastStartMs = startMs

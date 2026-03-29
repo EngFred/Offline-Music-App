@@ -28,6 +28,10 @@ private val LightColorScheme = lightColorScheme(
     onSecondary = FrostOnSecondary,
     secondaryContainer = FrostSecondaryContainer,
     onSecondaryContainer = FrostOnSecondaryContainer,
+    tertiary = FrostTertiary,
+    onTertiary = FrostOnTertiary,
+    tertiaryContainer = FrostTertiaryContainer,
+    onTertiaryContainer = FrostOnTertiaryContainer,
     background = FrostBackground,
     onBackground = FrostOnBackground,
     surface = FrostSurface,
@@ -72,6 +76,10 @@ private val DeepBlueColorScheme = darkColorScheme(
     onSecondary = DeepBlueOnSecondary,
     secondaryContainer = DeepBlueSecondaryContainer,
     onSecondaryContainer = DeepBlueOnSecondaryContainer,
+    tertiary = DeepBlueTertiary,
+    onTertiary = DeepBlueOnTertiary,
+    tertiaryContainer = DeepBlueTertiaryContainer,
+    onTertiaryContainer = DeepBlueOnTertiaryContainer,
     background = DeepBlueBackground,
     onBackground = DeepBlueOnBackground,
     surface = DeepBlueSurface,
@@ -92,6 +100,10 @@ private val NeonPulseColorScheme = darkColorScheme(
     onSecondary = NeonOnSecondary,
     secondaryContainer = NeonSecondaryContainer,
     onSecondaryContainer = NeonOnSecondaryContainer,
+    tertiary = NeonTertiary,
+    onTertiary = NeonOnTertiary,
+    tertiaryContainer = NeonTertiaryContainer,
+    onTertiaryContainer = NeonOnTertiaryContainer,
     background = NeonBackground,
     onBackground = NeonOnBackground,
     surface = NeonSurface,
@@ -112,6 +124,10 @@ private val SunsetGrooveColorScheme = darkColorScheme(
     onSecondary = SunsetOnSecondary,
     secondaryContainer = SunsetSecondaryContainer,
     onSecondaryContainer = SunsetOnSecondaryContainer,
+    tertiary = SunsetTertiary,
+    onTertiary = SunsetOnTertiary,
+    tertiaryContainer = SunsetTertiaryContainer,
+    onTertiaryContainer = SunsetOnTertiaryContainer,
     background = SunsetBackground,
     onBackground = SunsetOnBackground,
     surface = SunsetSurface,
@@ -145,10 +161,8 @@ fun MusicPlayerAppTheme(
             window.statusBarColor = Color.Transparent.toArgb()
             window.navigationBarColor = Color.Transparent.toArgb()
 
-            // Determine if the current theme is a light theme (Frostbyte)
             val isLightTheme = selectedTheme == AppThemeType.CLASSIC_LIGHT
 
-            // Set status bar icons to dark for light themes, and light for dark themes
             WindowCompat.getInsetsController(window, view).apply {
                 isAppearanceLightStatusBars = isLightTheme
                 isAppearanceLightNavigationBars = isLightTheme

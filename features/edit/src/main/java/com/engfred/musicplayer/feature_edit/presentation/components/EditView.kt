@@ -3,20 +3,13 @@ package com.engfred.musicplayer.feature_edit.presentation.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.ui.components.CustomTopBar
 import com.engfred.musicplayer.core.ui.components.MiniPlayer
@@ -41,13 +34,21 @@ fun EditView(
     playbackPositionMs: Long,
     totalDurationMs: Long,
 ) {
+    // Subtle background gradient
+    val backgroundBrush = Brush.verticalGradient(
+        colors = listOf(
+            MaterialTheme.colorScheme.surface,
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+        )
+    )
+
     Scaffold(
         modifier = Modifier.imePadding(),
         topBar = {
             CustomTopBar(
-                title = "Edit Audio Info",
+                title = "Edit Metadata",
                 showNavigationIcon = true,
-                onNavigateBack = { onCancel() },
+                onNavigateBack = onCancel,
                 modifier = Modifier.statusBarsPadding()
             )
         },
@@ -73,103 +74,38 @@ fun EditView(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(horizontal = 16.dp)
+                .background(backgroundBrush)
+                .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
-            // Album Art Circle
-            Surface(
-                modifier = Modifier.size(200.dp),
-                shape = CircleShape,
-                shadowElevation = 4.dp,
-                color = MaterialTheme.colorScheme.surfaceVariant
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val imageUri = uiState.albumArtPreviewUri
-                    if (imageUri != null) {
-                        AsyncImage(
-                            model = imageUri,
-                            contentDescription = "Album art preview",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Icon(
-                            Icons.Rounded.Image,
-                            contentDescription = "No album art",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.size(80.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            TextButton(onClick = onPickImage) {
-                Text(text = "Change Album Art")
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            TextField(
-                value = uiState.title,
-                onValueChange = onTitleChange,
-                label = { Text("Song Title") },
-                leadingIcon = { Icon(Icons.Rounded.MusicNote, contentDescription = null) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+            // 1. Premium Album Art Selector
+            EditableAlbumArt(
+                imageUri = uiState.albumArtPreviewUri,
+                onClick = onPickImage
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(40.dp))
 
-            TextField(
-                value = uiState.artist,
-                onValueChange = onArtistChange,
-                label = { Text("Artist") },
-                leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+            // 2. Sleek Input Forms
+            EditMetadataForm(
+                title = uiState.title,
+                artist = uiState.artist,
+                onTitleChange = onTitleChange,
+                onArtistChange = onArtistChange
+            )
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            // 3. Focused Action Section
+            EditActionSection(
+                isSaving = uiState.isSaving,
+                onSave = onSave
             )
 
             Spacer(modifier = Modifier.height(32.dp))
-
-            if (uiState.isSaving) {
-                CircularProgressIndicator()
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = onCancel,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Cancel")
-                    }
-                    Button(
-                        onClick = onSave,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Save changes", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "The changes will be applied system-wide even across other applications that have access to this file.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 24.dp)
-            )
         }
     }
 }

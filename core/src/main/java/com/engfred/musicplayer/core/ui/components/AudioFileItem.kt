@@ -1,65 +1,27 @@
 package com.engfred.musicplayer.core.ui.components
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
-import androidx.compose.material.icons.rounded.ContentCut
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.QueuePlayNext
-import androidx.compose.material.icons.rounded.Share
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.util.MediaUtils
 import com.skydoves.landscapist.coil.CoilImage
-import kotlinx.coroutines.isActive
 
 @Composable
 fun AudioFileItem(
@@ -84,281 +46,254 @@ fun AudioFileItem(
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val rotationAnim = remember { Animatable(0f) }
 
-    LaunchedEffect(isCurrentPlayingAudio, isAudioPlaying) {
-        if (isCurrentPlayingAudio && isAudioPlaying) {
-            while (isActive) {
-                val target = rotationAnim.value + 360f
-                rotationAnim.animateTo(
-                    targetValue = target,
-                    animationSpec = tween(durationMillis = 4000, easing = LinearEasing)
-                )
-            }
-        } else {
-            if (!isCurrentPlayingAudio) rotationAnim.snapTo(0f)
-        }
-    }
-    val rotationDegrees = if (isCurrentPlayingAudio) (rotationAnim.value % 360f) else 0f
+    // Subtle background highlight when selected
+    val backgroundColor by animateColorAsState(
+        targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else Color.Transparent,
+        label = "selection_bg_color"
+    )
+
+    // Dynamic Title Color for Playing State
+    val titleColor by animateColorAsState(
+        targetValue = if (isCurrentPlayingAudio) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        label = "title_color"
+    )
 
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .background(backgroundColor)
             .combinedClickable(
-                onClick = onItemTap,
-                onLongClick = onItemLongPress
-            ).padding(top = 4.dp, bottom = 4.dp, start = if(isSelectionMode.not())15.dp else 3.dp, end = 5.dp),
+                onClick = { if (isSelectionMode) onToggleSelect() else onItemTap() },
+                onLongClick = { if (!isSelectionMode) onItemLongPress() }
+            )
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+
+        // 1. Premium Album Art
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            CoilImage(
+                imageModel = { audioFile.albumArtUri },
+                modifier = Modifier.fillMaxSize(),
+                loading = { DefaultAlbumArtIcon() },
+                failure = { DefaultAlbumArtIcon() }
+            )
+
+            // Overlaid Visualizer when playing (The "Spotify/Apple" feel)
+            if (isCurrentPlayingAudio) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isAudioPlaying) {
+                        VisualizerBars()
+                    } else {
+                        // Show a paused indicator if it's the current track but paused
+                        Icon(
+                            imageVector = Icons.Rounded.Pause,
+                            contentDescription = "Paused",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        // 2. Metadata Column
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = audioFile.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = titleColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            // Cleanly integrated artist and play count
+            val artistText = audioFile.artist ?: "Unknown Artist"
+            val metaText = if (playCount != null && playCount > 0) "$artistText • $playCount plays" else artistText
+
+            Text(
+                text = metaText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        // 3. Trailing Actions (Duration / Menu / Checkbox)
         if (isSelectionMode) {
             Checkbox(
                 checked = isSelected,
                 onCheckedChange = { onToggleSelect() },
-                modifier = Modifier.padding(end = 2.dp)
+                colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
             )
-        }
-        Box(modifier = Modifier.size(54.dp), contentAlignment = Alignment.Center) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)
-                    .graphicsLayer { rotationZ = rotationDegrees },
-                contentAlignment = Alignment.Center
-            ) {
-                CoilImage(
-                    imageModel = { audioFile.albumArtUri },
-                    modifier = Modifier.fillMaxSize(),
-                    loading = {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.MusicNote,
-                                contentDescription = "Loading icon",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                modifier = Modifier.size(45.dp)
-                            )
-                        }
-                    },
-                    failure = {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.MusicNote,
-                                contentDescription = "No album art available",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                modifier = Modifier.size(45.dp)
-                            )
-                        }
-                    }
-                )
-            }
-            if (playCount != null) {
-                val badgeSize = 20.dp
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = 0.dp, y = 3.dp)
-                        .size(badgeSize)
-                        .zIndex(1f)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .border(1.dp, MaterialTheme.colorScheme.surface, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (playCount > 9) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.onPrimary)
-                        )
-                    } else {
-                        Text(
-                            text = playCount.toString(),
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontSize = 11.sp
-                        )
-                    }
-                }
-            }
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = audioFile.title,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            val artistText = audioFile.artist ?: "Unknown Artist"
-            Text(
-                text = artistText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = MediaUtils.formatDuration(audioFile.duration),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier.padding(horizontal = 0.dp)
-            )
-            if (isCurrentPlayingAudio && isAudioPlaying) VisualizerBars()
-        }
-
-        if (!isSelectionMode) {
-            Box {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(
-                        imageVector = Icons.Rounded.MoreVert,
-                        contentDescription = "More options for ${audioFile.title}",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false },
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surface)
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Play Next") },
-                        onClick = {
-                            onPlayNext(audioFile)
-                            showMenu = false
-                        },
-                        leadingIcon = {
-                            Icon(Icons.Rounded.QueuePlayNext, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Add to Playlist") },
-                        onClick = {
-                            onAddToPlaylist(audioFile)
-                            showMenu = false
-                        },
-                        leadingIcon = {
-                            Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
-                        }
-                    )
-
-                    // Use as Playlist Cover Option
-                    // ENABLED FOR ALL PLAYLISTS (including automatic/favorites)
-                    // Only restricted if we are in the main Library (where covers don't apply)
-                    // or if the file has no artwork.
-                    if (!isFromLibrary && audioFile.albumArtUri.toString().isNullOrEmpty().not() && onSetAsPlaylistCover != null) {
-                        DropdownMenuItem(
-                            text = { Text("Use as Playlist Cover") },
-                            onClick = {
-                                onSetAsPlaylistCover(audioFile)
-                                showMenu = false
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Rounded.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
-                            }
-                        )
-                    }
-
-                    // Only show Remove/Delete based on playlist type
-                    if (!isFromAutomaticPlaylist) {
-                        DropdownMenuItem(
-                            text = { Text(if (isFromLibrary) "Delete File" else "Remove Audio") },
-                            onClick = {
-                                onRemoveOrDelete(audioFile)
-                                showMenu = false
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
-                            }
-                        )
-                    }
-
-                    DropdownMenuItem(
-                        text = { Text("Edit Info") },
-                        onClick = {
-                            showMenu = false
-                            onEditInfo(audioFile)
-                        },
-                        leadingIcon = {
-                            Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Trim Audio") },
-                        onClick = {
-                            showMenu = false
-                            onTrimAudio(audioFile)
-                        },
-                        leadingIcon = {
-                            Icon(Icons.Rounded.ContentCut, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
-                        }
-                    )
-
-                    DropdownMenuItem(
-                        text = { Text("Share Audio") },
-                        onClick = {
-                            MediaUtils.shareAudioFile(context, audioFile)
-                            showMenu = false
-                        },
-                        leadingIcon = {
-                            Icon(Icons.Rounded.Share, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
-                        }
-                    )
-                }
-            }
         } else {
-            Spacer(modifier = Modifier.width(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = MediaUtils.formatDuration(audioFile.duration),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Box {
+                    IconButton(
+                        onClick = { showMenu = true },
+                        modifier = Modifier.padding(start = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = "Options",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Modularized Menu to keep main composable clean
+                    TrackDropdownMenu(
+                        expanded = showMenu,
+                        onDismiss = { showMenu = false },
+                        audioFile = audioFile,
+                        isFromLibrary = isFromLibrary,
+                        isFromAutomaticPlaylist = isFromAutomaticPlaylist,
+                        onPlayNext = onPlayNext,
+                        onAddToPlaylist = onAddToPlaylist,
+                        onSetAsPlaylistCover = onSetAsPlaylistCover,
+                        onRemoveOrDelete = onRemoveOrDelete,
+                        onEditInfo = onEditInfo,
+                        onTrimAudio = onTrimAudio,
+                        onShare = { MediaUtils.shareAudioFile(context, audioFile) }
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
+private fun DefaultAlbumArtIcon() {
+    Icon(
+        imageVector = Icons.Rounded.MusicNote,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+        modifier = Modifier.size(32.dp)
+    )
+}
+
+@Composable
 private fun VisualizerBars() {
     val transition = rememberInfiniteTransition(label = "visualizer")
-    val heights = List(4) { i ->
+    val heights = List(3) { i ->
         transition.animateFloat(
-            initialValue = 4f,
-            targetValue = 12f + (i * 4),
+            initialValue = 6f,
+            targetValue = 18f + (i * 2), // Slightly taller for the center overlay
             animationSpec = infiniteRepeatable(
-                animation = tween(400 + (i * 100)),
+                animation = tween(400 + (i * 150)),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "bar$i"
         )
     }
     Row(
-        modifier = Modifier
-            .padding(top = 2.dp)
-            .height(14.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = Modifier.height(20.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
         verticalAlignment = Alignment.Bottom
     ) {
         heights.forEach { anim ->
             Box(
                 modifier = Modifier
-                    .width(3.dp)
+                    .width(4.dp)
                     .height(anim.value.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.primary)
+                    .background(Color.White) // White pops best against dark overlay
             )
         }
+    }
+}
+
+@Composable
+private fun TrackDropdownMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    audioFile: AudioFile,
+    isFromLibrary: Boolean,
+    isFromAutomaticPlaylist: Boolean,
+    onPlayNext: (AudioFile) -> Unit,
+    onAddToPlaylist: (AudioFile) -> Unit,
+    onSetAsPlaylistCover: ((AudioFile) -> Unit)?,
+    onRemoveOrDelete: (AudioFile) -> Unit,
+    onEditInfo: (AudioFile) -> Unit,
+    onTrimAudio: (AudioFile) -> Unit,
+    onShare: () -> Unit
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp))
+    ) {
+        DropdownMenuItem(
+            text = { Text("Play Next") },
+            onClick = { onPlayNext(audioFile); onDismiss() },
+            leadingIcon = { Icon(Icons.Rounded.QueuePlayNext, contentDescription = null) }
+        )
+        DropdownMenuItem(
+            text = { Text("Add to Playlist") },
+            onClick = { onAddToPlaylist(audioFile); onDismiss() },
+            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null) }
+        )
+
+        if (!isFromLibrary && audioFile.albumArtUri.toString().isNotEmpty() && onSetAsPlaylistCover != null) {
+            DropdownMenuItem(
+                text = { Text("Use as Playlist Cover") },
+                onClick = { onSetAsPlaylistCover(audioFile); onDismiss() },
+                leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
+            )
+        }
+
+        if (!isFromAutomaticPlaylist) {
+            DropdownMenuItem(
+                text = { Text(if (isFromLibrary) "Delete File" else "Remove Audio") },
+                onClick = { onRemoveOrDelete(audioFile); onDismiss() },
+                leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                colors = MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.error) // Fixed here!
+            )
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
+
+        DropdownMenuItem(
+            text = { Text("Edit Metadata") },
+            onClick = { onEditInfo(audioFile); onDismiss() },
+            leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) }
+        )
+        DropdownMenuItem(
+            text = { Text("Trim Audio") },
+            onClick = { onTrimAudio(audioFile); onDismiss() },
+            leadingIcon = { Icon(Icons.Rounded.ContentCut, contentDescription = null) }
+        )
+        DropdownMenuItem(
+            text = { Text("Share") },
+            onClick = { onShare(); onDismiss() },
+            leadingIcon = { Icon(Icons.Rounded.Share, contentDescription = null) }
+        )
     }
 }

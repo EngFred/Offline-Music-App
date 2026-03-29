@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.MusicPlayer" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.MusicPlayer" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/splash_background_color</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
 
-    <!-- Splash Screen Theme -->
     <style name="Theme.App.Starting" parent="Theme.SplashScreen">
-        <!-- Set the splash screen background. -->
         <item name="windowSplashScreenBackground">@color/splash_background_color</item>
-        <!-- Set the drawable to use as the icon in the center of the splash screen. -->
+
         <item name="windowSplashScreenAnimatedIcon">@drawable/avd_splash_icon</item>
-        <!-- Optional: Background color for the icon. -->
-        <item name="windowSplashScreenIconBackgroundColor">@color/splash_icon_background_color</item>
-        <!-- Set the theme of the Activity that will be launched after the splash screen. -->
+
         <item name="postSplashScreenTheme">@style/Theme.MusicPlayer</item>
     </style>
 </resources>

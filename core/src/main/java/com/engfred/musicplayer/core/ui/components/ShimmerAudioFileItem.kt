@@ -3,7 +3,6 @@ package com.engfred.musicplayer.core.ui.components
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -47,30 +46,29 @@ fun ShimmerAudioFileItem(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 4.dp, bottom = 4.dp, start = 15.dp, end = 5.dp),
+            // MATCHES the new AudioFileItem padding perfectly
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Album Art Placeholder
+        // MATCHES: 56.dp and 12.dp rounded corners
         Box(
             modifier = Modifier
-                .size(54.dp)
-                .clip(CircleShape)
+                .size(56.dp)
+                .clip(RoundedCornerShape(12.dp))
                 .background(brush)
         )
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(16.dp))
 
         // Text Placeholders
         Column(modifier = Modifier.weight(1f)) {
-            // Title Placeholder
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.7f)
-                    .height(18.dp)
+                    .height(20.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .background(brush)
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            // Artist Placeholder
+            Spacer(modifier = Modifier.height(6.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.4f)
@@ -84,21 +82,20 @@ fun ShimmerAudioFileItem(modifier: Modifier = Modifier) {
         // Duration Placeholder
         Box(
             modifier = Modifier
-                .width(36.dp)
+                .width(40.dp)
                 .height(14.dp)
                 .clip(RoundedCornerShape(4.dp))
                 .background(brush)
         )
+
         Spacer(modifier = Modifier.width(12.dp))
 
-        // More Options Icon Placeholder
+        // More Options Icon Placeholder (Matches the 24dp size of the MoreVert icon)
         Box(
             modifier = Modifier
                 .size(24.dp)
-                .clip(CircleShape)
+                .clip(RoundedCornerShape(4.dp))
                 .background(brush)
         )
-        // Match the end padding of your actual item
-        Spacer(modifier = Modifier.width(12.dp))
     }
 }
