@@ -140,8 +140,8 @@ fun DjMixScreen(
                         )
                     }
 
-                    // Mix Now FAB
-                    if (uiState.isPlaying) {
+                    // ── LOGIC FIX: Only show "MIX NOW" if a next track exists ──
+                    if (uiState.isPlaying && uiState.nextTrack != null) {
                         FloatingActionButton(
                             onClick        = { viewModel.onEvent(DjMixEvent.MixNow) },
                             containerColor = MaterialTheme.colorScheme.primary,

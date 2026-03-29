@@ -164,6 +164,11 @@ class MainActivity : ComponentActivity() {
             navigateToMixOfTheDayOnStart = true
         }
 
+        // ── FIX: Catch the intent if the app is launched fresh from the notification ──
+        if (intent?.getBooleanExtra("OPEN_DJ_MIX", false) == true) {
+            navigateToDjMixOnStart = true
+        }
+
         setContent {
             val audioItems by sharedAudioDataSource.deviceAudioFiles.collectAsState(initial = emptyList())
 
@@ -195,11 +200,17 @@ class MainActivity : ComponentActivity() {
                         if (playlistId != null) {
                             val route = AppDestinations.DjMix.createRoute(playlistId)
                             if (navController.currentDestination?.route != route) {
-                                navController.navigate(route)
+                                // ── FIX: Prevent duplicate instances of the DJ Mix screen ──
+                                navController.navigate(route) {
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
                             }
                         } else {
                             Log.w(TAG, "DJ active but no playlistId – fallback to graph")
-                            navController.navigate(AppDestinations.DjMix.createRoute(-1))
+                            navController.navigate(AppDestinations.DjMix.createRoute(-1)) {
+                                launchSingleTop = true
+                            }
                         }
                     } else {
                         Log.w(TAG, "navigateToDjMix called but DJ not active")
@@ -216,7 +227,9 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(navigateToMixOfTheDayOnStart) {
                     if (navigateToMixOfTheDayOnStart) {
-                        navController.navigate(AppDestinations.DjMix.createRoute(mixOfTheDayPlaylistId))
+                        navController.navigate(AppDestinations.DjMix.createRoute(mixOfTheDayPlaylistId)) {
+                            launchSingleTop = true
+                        }
                         navigateToMixOfTheDayOnStart = false
                     }
                 }
@@ -292,7 +305,9 @@ class MainActivity : ComponentActivity() {
                                     return@launch
                                 }
                             }
-                            navController.navigate(AppDestinations.NowPlaying.route)
+                            navController.navigate(AppDestinations.NowPlaying.route) {
+                                launchSingleTop = true
+                            }
                         }
                     },
                     onPlayAll = { PlaybackQueueHelper.playAll(this, sharedAudioDataSource, playbackController, settingsRepository) },
@@ -330,7 +345,9 @@ class MainActivity : ComponentActivity() {
                     if (uri != null) {
                         val success = withContext(Dispatchers.IO) { initiatePlaybackFromExternalUri(uri) }
                         if (success) {
-                            navController.navigate(AppDestinations.NowPlaying.route)
+                            navController.navigate(AppDestinations.NowPlaying.route) {
+                                launchSingleTop = true
+                            }
                         }
                         externalPlaybackUri = null
                     }

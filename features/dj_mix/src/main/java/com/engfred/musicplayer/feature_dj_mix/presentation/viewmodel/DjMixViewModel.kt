@@ -38,6 +38,14 @@ object DjMixArgs {
 
 private const val TAG = "DjMixViewModel"
 
+/**
+ * 🚨 ARCHITECTURE NOTE 🚨
+ * This ViewModel acts as the supreme orchestrator for the DJ Mix session.
+ * It coordinates the Hardware (CrossfadeEngine), the Audio FX (SamplerEngine),
+ * and the State/History (DjSessionManager).
+ * * - Handles the "Dead End" queue restart logic.
+ * - Handles "Cross-Playlist Navigation" auto-starts.
+ */
 @UnstableApi
 @HiltViewModel
 class DjMixViewModel @Inject constructor(
@@ -67,6 +75,9 @@ class DjMixViewModel @Inject constructor(
     private var rawPlaylistSongs: List<AudioFile> = emptyList()
     private var rebuildJob: Job? = null
 
+    // Flag to trigger an auto-start once the queue finishes building after a playlist swap
+    private var pendingAutoStart = false
+
     init {
         crossfadeEngine.initialize()
         observeSettings()
@@ -79,19 +90,39 @@ class DjMixViewModel @Inject constructor(
     fun onEvent(event: DjMixEvent) {
         when (event) {
             DjMixEvent.PlayPause -> {
-                if (!crossfadeEngine.isActive || crossfadeEngine.state.value.currentTrack == null) {
-                    val firstTrack = _uiState.value.smartQueue.firstOrNull() ?: return
+                val engineState = crossfadeEngine.state.value
+
+                // ── DEAD END DETECTION ──
+                // Detect if the mix naturally reached the end of the final track without looping.
+                val isAtEndOfTrack = engineState.currentDurationMs > 0L &&
+                        (engineState.currentDurationMs - engineState.currentPositionMs) <= 500L
+                val isQueueExhausted = engineState.currentTrack != null &&
+                        djSessionManager.selectNextTrack(engineState.currentTrack.id) == null
+                val isMixFinished = !engineState.isPlaying && isAtEndOfTrack && isQueueExhausted
+
+                if (!crossfadeEngine.isActive || engineState.currentTrack == null || isMixFinished) {
+                    // ── INITIAL START OR RESTART AFTER FINISH ──
+                    Log.i(TAG, "[PLAYBACK] Starting fresh mix session (isMixFinished=$isMixFinished)")
+
                     crossfadeEngine.initialize()
                     djSessionManager.startSession(playlistId)
+                    djSessionManager.resetPlayHistory() // Wipe history for a completely fresh start
+
+                    val firstTrack = _uiState.value.smartQueue.firstOrNull() ?: return
                     djSessionManager.markTrackPlayed(firstTrack.id)
                     activePlayerRegistry.onDjMixStarted()
+
                     syncBeatGridForTrack(firstTrack.id)
                     crossfadeEngine.startPlayback(firstTrack)
+
+                    // Fire the session Air Horn locally! Fixes the "Missing Horn" bug on new playlists.
+                    samplerEngine.onSessionStarted()
+
                     _uiState.update { it.copy(currentTrack = firstTrack) }
                     viewModelScope.launch { _uiEvent.emit("START_DJ_SERVICE") }
                     updateNextTrackPreview()
-                    Log.d(TAG, "PlayPause: started session with '${firstTrack.title}'")
                 } else {
+                    // ── NORMAL PAUSE / RESUME ──
                     crossfadeEngine.playPause()
                 }
             }
@@ -107,9 +138,9 @@ class DjMixViewModel @Inject constructor(
                     _uiState.update { it.copy(currentTrack = previous) }
                     viewModelScope.launch { _uiEvent.emit("START_DJ_SERVICE") }
                     updateNextTrackPreview()
-                    Log.d(TAG, "SkipBack: now playing '${previous.title}'")
+                    Log.d(TAG, "[PLAYBACK] SkipBack: now playing '${previous.title}'")
                 } else {
-                    Log.d(TAG, "SkipBack: no history — ignored")
+                    Log.d(TAG, "[PLAYBACK] SkipBack: no history — ignored")
                     viewModelScope.launch { _uiEvent.emit("SKIP_BACK_UNAVAILABLE") }
                 }
             }
@@ -119,48 +150,32 @@ class DjMixViewModel @Inject constructor(
             is DjMixEvent.SetCustomCueIn -> {
                 val currentTrackId = _uiState.value.currentTrack?.id ?: return
                 val positionMs = crossfadeEngine.state.value.currentPositionMs
-                viewModelScope.launch {
-                    djMixRepository.updateCustomCueIn(currentTrackId, positionMs)
-                }
-                Log.d(TAG, "Set Custom Cue In for track $currentTrackId at ${positionMs}ms")
+                viewModelScope.launch { djMixRepository.updateCustomCueIn(currentTrackId, positionMs) }
             }
 
             is DjMixEvent.SetCustomMixOut -> {
                 val currentTrackId = _uiState.value.currentTrack?.id ?: return
                 val positionMs = crossfadeEngine.state.value.currentPositionMs
-                viewModelScope.launch {
-                    djMixRepository.updateCustomMixOut(currentTrackId, positionMs)
-                }
-                Log.d(TAG, "Set Custom Mix Out for track $currentTrackId at ${positionMs}ms")
+                viewModelScope.launch { djMixRepository.updateCustomMixOut(currentTrackId, positionMs) }
             }
 
             is DjMixEvent.ClearCustomCues -> {
                 val currentTrackId = _uiState.value.currentTrack?.id ?: return
-                viewModelScope.launch {
-                    djMixRepository.clearCustomCues(currentTrackId)
-                }
-                Log.d(TAG, "Cleared Custom Cues for track $currentTrackId")
+                viewModelScope.launch { djMixRepository.clearCustomCues(currentTrackId) }
             }
 
-            // ── Queue ordering — all gated while BPM analysis is in progress ──
+            // ── Queue ordering ────────────────────────────────────────────────
 
             DjMixEvent.ShuffleQueue -> {
-                if (_uiState.value.isAnalyzing) {
-                    Log.d(TAG, "ShuffleQueue: ignored — analysis in progress")
-                    return
-                }
+                if (_uiState.value.isAnalyzing) return
                 val shuffled = _uiState.value.smartQueue.shuffled()
                 _uiState.update { it.copy(smartQueue = shuffled, isQueueUserOrdered = true) }
                 djSessionManager.updateSmartQueue(shuffled)
                 updateNextTrackPreview()
-                Log.d(TAG, "ShuffleQueue: queue shuffled")
             }
 
             DjMixEvent.SortByBpm -> {
-                if (_uiState.value.isAnalyzing) {
-                    Log.d(TAG, "SortByBpm: ignored — analysis in progress")
-                    return
-                }
+                if (_uiState.value.isAnalyzing) return
                 val cache = _uiState.value.bpmCache
                 val sorted = _uiState.value.smartQueue.sortedWith(
                     compareBy(
@@ -171,14 +186,10 @@ class DjMixViewModel @Inject constructor(
                 _uiState.update { it.copy(smartQueue = sorted, isQueueUserOrdered = true) }
                 djSessionManager.updateSmartQueue(sorted)
                 updateNextTrackPreview()
-                Log.d(TAG, "SortByBpm: queue sorted")
             }
 
             is DjMixEvent.MoveTrack -> {
-                if (_uiState.value.isAnalyzing) {
-                    Log.d(TAG, "MoveTrack: ignored — analysis in progress")
-                    return
-                }
+                if (_uiState.value.isAnalyzing) return
                 val current = _uiState.value.smartQueue.toMutableList()
                 if (event.fromIndex !in current.indices || event.toIndex !in current.indices) return
                 val item = current.removeAt(event.fromIndex)
@@ -190,20 +201,15 @@ class DjMixViewModel @Inject constructor(
 
             is DjMixEvent.RemoveTrack -> {
                 val id = event.audioFile.id
-                // Don't allow removing the currently playing track
-                if (id == _uiState.value.currentTrack?.id) {
-                    Log.d(TAG, "RemoveTrack: ignored — cannot remove currently playing track")
-                    return
-                }
+                if (id == _uiState.value.currentTrack?.id) return // Don't remove currently playing
                 rawPlaylistSongs = rawPlaylistSongs.filter { it.id != id }
                 val updated = _uiState.value.smartQueue.filter { it.id != id }
                 _uiState.update { it.copy(smartQueue = updated, isQueueUserOrdered = true) }
                 djSessionManager.updateSmartQueue(updated)
                 updateNextTrackPreview()
-                Log.d(TAG, "RemoveTrack: removed '${event.audioFile.title}' from session queue")
             }
 
-            // ── Existing events (unchanged) ───────────────────────────────────
+            // ── Settings Updates ──────────────────────────────────────────────
             is DjMixEvent.UpdateCrossfadeDuration -> {
                 val s = _uiState.value.settings.copy(crossfadeDurationSec = event.seconds)
                 crossfadeEngine.crossfadeDurationMs = event.seconds * 1000L
@@ -257,6 +263,7 @@ class DjMixViewModel @Inject constructor(
                 syncBeatGridForTrack(event.audioFile.id)
                 crossfadeEngine.startPlayback(event.audioFile)
                 _uiState.update { it.copy(currentTrack = event.audioFile) }
+
                 if (!djSessionManager.isSessionActive.value) {
                     djSessionManager.startSession(playlistId)
                     activePlayerRegistry.onDjMixStarted()
@@ -285,8 +292,6 @@ class DjMixViewModel @Inject constructor(
         }
     }
 
-    // ── Next track preview ────────────────────────────────────────────────────
-
     private fun updateNextTrackPreview() {
         val currentId = _uiState.value.currentTrack?.id
         if (currentId == null) {
@@ -295,7 +300,6 @@ class DjMixViewModel @Inject constructor(
         }
         val next = djSessionManager.selectNextTrack(currentId)
         _uiState.update { it.copy(nextTrack = next) }
-        Log.d(TAG, "nextTrack preview: '${next?.title}'")
     }
 
     // ── Private observers ─────────────────────────────────────────────────────
@@ -348,20 +352,30 @@ class DjMixViewModel @Inject constructor(
                     _uiState.update { it.copy(isLoading = false, error = "Playlist not found.") }
                     return@onEach
                 }
+
+                // ── CROSS-PLAYLIST NAVIGATION FIX ──
+                // If the user taps a different playlist from the home screen, kill the old session entirely.
+                val activeId = djSessionManager.activePlaylistId
+                if (djSessionManager.isSessionActive.value && activeId != null && activeId != playlistId) {
+                    Log.i(TAG, "[LIFECYCLE] Different playlist detected ($playlistId). Killing old session ($activeId) & Auto-Starting new.")
+                    samplerEngine.stopAllSamples()
+                    crossfadeEngine.release()
+                    djSessionManager.endSession()
+                    crossfadeEngine.initialize()
+                    pendingAutoStart = true // Signals the queue builder to trigger playback automatically
+                }
+
                 val songs = playlist.songs
                 rawPlaylistSongs = songs
 
-                val sessionAlreadyActive = djSessionManager.isSessionActive.value
-                        && djSessionManager.activePlaylistId == playlistId
+                val sessionAlreadyActive = djSessionManager.isSessionActive.value && djSessionManager.activePlaylistId == playlistId
 
                 if (songs.isNotEmpty() && !sessionAlreadyActive) {
                     _uiState.update { it.copy(isAnalyzing = true) }
                     analyzeBpmUseCase(playlistId, songs)
                 }
 
-                _uiState.update {
-                    it.copy(playlistName = playlist.name, totalSongs = songs.size, isLoading = false)
-                }
+                _uiState.update { it.copy(playlistName = playlist.name, totalSongs = songs.size, isLoading = false) }
                 observeBpmCache(songs)
             }
             .launchIn(viewModelScope)
@@ -371,7 +385,6 @@ class DjMixViewModel @Inject constructor(
         djMixRepository.getBpmCacheFlow()
             .onEach { bpmCache ->
                 val doneCount    = songs.count { bpmCache.containsKey(it.id) }
-                // Only count analysis failures for songs currently in this Mix
                 val failedCount  = songs.count { bpmCache[it.id]?.analysisFailed == true }
                 val progress     = if (songs.isEmpty()) 1f else doneCount.toFloat() / songs.size
                 val stillAnalysing = progress < 1f
@@ -381,7 +394,6 @@ class DjMixViewModel @Inject constructor(
                     val freshBpmInfo  = bpmCache[currentTrackId]
                     val cachedBpmInfo = _uiState.value.bpmCache[currentTrackId]
 
-                    // Detect if new analysis arrived OR if the user just updated the cue points
                     val isNewlyAnalyzed = freshBpmInfo != null && cachedBpmInfo == null && !freshBpmInfo.analysisFailed
                     val cuePointsChanged = freshBpmInfo != null && cachedBpmInfo != null &&
                             (freshBpmInfo.customCueInMs != cachedBpmInfo.customCueInMs ||
@@ -395,7 +407,6 @@ class DjMixViewModel @Inject constructor(
                             waveformEnvelope = freshBpmInfo.waveformEnvelope,
                             mixOutMs         = freshBpmInfo.customMixOutMs
                         )
-                        if (cuePointsChanged) Log.d(TAG, "Beat grid dynamically updated due to Custom Cue change.")
                     }
                 }
 
@@ -440,7 +451,6 @@ class DjMixViewModel @Inject constructor(
                     )
                 }
 
-                // Refresh next-track preview whenever the current track changes
                 if (newTrackId != null && newTrackId != prevTrackId) {
                     updateNextTrackPreview()
                 }
@@ -452,7 +462,6 @@ class DjMixViewModel @Inject constructor(
         val bpmInfo = _uiState.value.bpmCache[trackId] ?: return
         if (bpmInfo.analysisFailed) return
 
-        // Pass the custom overrides into the engine
         crossfadeEngine.updateCurrentBpmInfo(
             bpm              = bpmInfo.bpm,
             firstBeatMs      = bpmInfo.customCueInMs ?: bpmInfo.firstBeatMs,
@@ -460,22 +469,17 @@ class DjMixViewModel @Inject constructor(
             waveformEnvelope = bpmInfo.waveformEnvelope,
             mixOutMs         = bpmInfo.customMixOutMs
         )
-        Log.d(TAG, "Beat grid synced: trackId=$trackId BPM=${bpmInfo.bpm} MixOut=${bpmInfo.customMixOutMs}")
     }
 
     private fun rebuildSmartQueue(
         bpmCache: Map<Long, BpmInfo> = _uiState.value.bpmCache
     ) {
-        if (_uiState.value.isQueueUserOrdered) {
-            Log.d(TAG, "rebuildSmartQueue: skipped — user has manually ordered the queue")
-            return
-        }
+        if (_uiState.value.isQueueUserOrdered) return
         if (rawPlaylistSongs.isEmpty()) return
         rebuildJob?.cancel()
         rebuildJob = viewModelScope.launch {
             delay(300L)
             performRebuild(bpmCache)
-            // Refresh next-track preview after every rebuild since queue order changed
             updateNextTrackPreview()
         }
     }
@@ -492,8 +496,6 @@ class DjMixViewModel @Inject constructor(
         remaining.remove(opener)
 
         val openerBpm = bpmCache[opener.id]?.bpm?.takeIf { bpmCache[opener.id]?.analysisFailed != true } ?: 120f
-        Log.d(TAG, "performRebuild: Opener '${opener.title}' @ ${openerBpm.fmt()} BPM")
-
         val recentBpms = ArrayDeque<Float>(4)
         if (openerBpm > 0f) recentBpms.addLast(openerBpm)
 
@@ -504,12 +506,9 @@ class DjMixViewModel @Inject constructor(
             val next = getSmartNextTrackUseCase(
                 currentBpm          = lastBpm,
                 remainingQueue      = remaining,
-                bpmCache            = bpmCache.mapValues {
-                    if (it.value.analysisFailed) 120f else it.value.bpm
-                },
+                bpmCache            = bpmCache.mapValues { if (it.value.analysisFailed) 120f else it.value.bpm },
                 tolerance           = tolerance,
                 recentBpms          = recentBpms.toList()
-                // Removed setProgressFraction to sync with updated use case
             ) ?: remaining.first()
 
             result.add(next)
@@ -524,10 +523,13 @@ class DjMixViewModel @Inject constructor(
 
         _uiState.update { it.copy(smartQueue = result) }
         djSessionManager.updateSmartQueue(result)
-        Log.d(TAG, "performRebuild: ${result.size} tracks. Arc: ${result.joinToString(" → ") {
-            if (bpmCache[it.id]?.analysisFailed == true) "FAIL"
-            else bpmCache[it.id]?.bpm?.fmt() ?: "??"
-        }}")
+
+        // ── AUTO-START HANDOFF ──
+        if (pendingAutoStart && result.isNotEmpty()) {
+            Log.i(TAG, "[LIFECYCLE] Queue built. Auto-starting new playlist mix.")
+            pendingAutoStart = false
+            onEvent(DjMixEvent.PlayPause) // Triggers the fresh-start flow
+        }
     }
 
     private fun selectOpener(songs: List<AudioFile>, bpmCache: Map<Long, BpmInfo>): AudioFile {
@@ -540,16 +542,11 @@ class DjMixViewModel @Inject constructor(
         val upperIdx = (n * 0.40).toInt().coerceIn(lowerIdx, n - 1)
         val targetIdx = (lowerIdx + upperIdx) / 2
 
-        return sorted.getOrNull(targetIdx)
-            ?: sorted.getOrNull(n / 2)
-            ?: songs.filterNot { bpmCache.containsKey(it.id) }.firstOrNull()
-            ?: songs.first()
+        return sorted.getOrNull(targetIdx) ?: sorted.getOrNull(n / 2) ?: songs.first()
     }
 
     override fun onCleared() {
         super.onCleared()
-        Log.d(TAG, "onCleared — engine and session running in background")
+        Log.i(TAG, "[LIFECYCLE] ViewModel Cleared — Service keeps engine alive in background")
     }
-
-    private fun Float.fmt() = String.format("%.1f", this)
 }

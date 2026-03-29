@@ -219,8 +219,8 @@ class DjMixService : Service() {
      *
      * We wait for [CrossfadeEngineState.isPlaying] = true rather than firing
      * immediately in onCreate() because:
-     *  a) SoundPool needs time to decode the AIR_HORN asset after initialize().
-     *  b) The user may have opened the DJ screen but not yet pressed Play.
+     * a) SoundPool needs time to decode the AIR_HORN asset after initialize().
+     * b) The user may have opened the DJ screen but not yet pressed Play.
      *
      * [kotlinx.coroutines.flow.first] automatically cancels collection after the
      * first matching emission, so this never fires twice.
@@ -292,10 +292,12 @@ class DjMixService : Service() {
         val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause
         else           android.R.drawable.ic_media_play
 
+        // ── FIX: Adjusted Intent Flags to prevent multiple screen instances ──
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("OPEN_DJ_MIX", true)
         }
+
         val openAppPi = launchIntent?.let {
             PendingIntent.getActivity(this, 0, it,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
