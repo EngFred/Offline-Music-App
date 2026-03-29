@@ -5,7 +5,6 @@ import android.net.Uri
 import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
-import androidx.work.Data
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkerParameters
@@ -16,16 +15,6 @@ import com.engfred.musicplayer.feature_dj_mix.data.local.entity.BpmCacheEntity
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
-/**
- * WorkManager worker that performs BPM analysis for a batch of audio files and
- * persists results in the local [BpmCacheDao].
- *
- * Follows the exact same `@HiltWorker` / `@AssistedInject` pattern used by
- * [com.engfred.musicplayer.feature_library.data.worker.NewAudioScanWorker].
- *
- * Enqueue with [BpmAnalysisWorker.buildRequest]; observe progress by collecting
- * [BpmCacheDao.getAllBpmEntries] in the ViewModel and diffing against the playlist.
- */
 @HiltWorker
 class BpmAnalysisWorker @AssistedInject constructor(
     @Assisted private val context: Context,
@@ -33,50 +22,57 @@ class BpmAnalysisWorker @AssistedInject constructor(
     private val bpmCacheDao: BpmCacheDao,
     private val bpmAnalyzer: BpmAnalyzer
 ) : CoroutineWorker(context, workerParams) {
+
     companion object {
         private const val TAG = "BpmAnalysisWorker"
-        /** Unique tag used to identify / cancel work for a specific playlist. */
         const val TAG_PREFIX = "bpm_analysis_"
-        // Input data keys
-        private const val KEY_AUDIO_IDS = "bpm_audio_ids" // LongArray
-        private const val KEY_AUDIO_URIS = "bpm_audio_uris" // StringArray
+        private const val KEY_AUDIO_IDS  = "bpm_audio_ids"
+        private const val KEY_AUDIO_URIS = "bpm_audio_uris"
+
+        // WorkManager's Data hard limit is 10 KB.
+        // A single content URI is ~70–100 chars; 40 tracks ≈ 3–4 KB — safely under the cap.
+        private const val CHUNK_SIZE = 40
+
         /**
-         * Builds a one-time work request for the given [audioFiles].
-         *
-         * WorkManager's [Data] class natively supports LongArray and StringArray,
-         * so we avoid any manual serialisation.
+         * Splits [audioFiles] into chunks of [CHUNK_SIZE] and returns one
+         * [OneTimeWorkRequest] per chunk.  Each request is well under the 10 KB
+         * WorkManager Data limit even for very long URIs.
          */
-        fun buildRequest(audioFiles: List<AudioFile>): OneTimeWorkRequest {
-            val ids = audioFiles.map { it.id }.toLongArray()
-            val uris = audioFiles.map { it.uri.toString() }.toTypedArray()
-            val inputData: Data = workDataOf(
-                KEY_AUDIO_IDS to ids,
-                KEY_AUDIO_URIS to uris
-            )
-            return OneTimeWorkRequestBuilder<BpmAnalysisWorker>()
-                .setInputData(inputData)
-                .addTag(TAG_PREFIX)
-                .build()
-        }
+        fun buildRequests(audioFiles: List<AudioFile>): List<OneTimeWorkRequest> =
+            audioFiles.chunked(CHUNK_SIZE).map { chunk ->
+                val ids  = chunk.map { it.id }.toLongArray()
+                val uris = chunk.map { it.uri.toString() }.toTypedArray()
+                OneTimeWorkRequestBuilder<BpmAnalysisWorker>()
+                    .setInputData(workDataOf(
+                        KEY_AUDIO_IDS  to ids,
+                        KEY_AUDIO_URIS to uris
+                    ))
+                    .addTag(TAG_PREFIX)
+                    .build()
+            }
     }
 
     override suspend fun doWork(): Result {
-        val ids = inputData.getLongArray(KEY_AUDIO_IDS)
+        val ids        = inputData.getLongArray(KEY_AUDIO_IDS)
         val uriStrings = inputData.getStringArray(KEY_AUDIO_URIS)
+
         if (ids == null || uriStrings == null || ids.size != uriStrings.size) {
             Log.e(TAG, "Invalid input data — missing or mismatched IDs/URIs")
             return Result.failure()
         }
+
         Log.d(TAG, "Starting BPM analysis for ${ids.size} files")
+
         ids.zip(uriStrings.map { Uri.parse(it) }).forEach { (audioFileId, uri) ->
-            // Skip if already cached — idempotent re-runs are safe
             val cached = bpmCacheDao.getBpmForAudio(audioFileId)
             if (cached != null) {
                 Log.d(TAG, "BPM already cached for $audioFileId (${cached.bpm} bpm) — skipping")
                 return@forEach
             }
+
             Log.d(TAG, "Analysing BPM for audioFileId=$audioFileId uri=$uri")
             val result = bpmAnalyzer.analyzeBpm(uri)
+
             if (result != null) {
                 bpmCacheDao.insertBpm(
                     BpmCacheEntity(
@@ -91,10 +87,6 @@ class BpmAnalysisWorker @AssistedInject constructor(
                 )
                 Log.d(TAG, "Cached BPM ${result.bpm} for audioFileId=$audioFileId")
             } else {
-                // Insert a tombstone row so the UI can distinguish "not yet analyzed" from
-                // "permanently failed." bpm=0f + analysisFailed=true is the sentinel contract.
-                // The worker skips rows that already have a cache entry (see getBpmForAudio check
-                // above), so this tombstone prevents repeated analysis attempts on broken files.
                 bpmCacheDao.insertBpm(
                     BpmCacheEntity(
                         audioFileId    = audioFileId,
@@ -106,7 +98,8 @@ class BpmAnalysisWorker @AssistedInject constructor(
                 Log.w(TAG, "BPM analysis failed for audioFileId=$audioFileId — tombstone inserted")
             }
         }
-        Log.d(TAG, "BPM analysis work complete")
+
+        Log.d(TAG, "BPM analysis chunk complete")
         return Result.success()
     }
 }

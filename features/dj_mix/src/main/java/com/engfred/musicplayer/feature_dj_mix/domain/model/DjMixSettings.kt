@@ -25,7 +25,7 @@ data class DjMixSettings(
     val bpmTolerance: Float           = 10f,
     val isRealMixMode: Boolean        = true,
     val maxTrackDurationSec: Int      = 146,
-    val loopQueue: Boolean            = true,
+    val loopQueue: Boolean            = false,
     val useManualMaxDuration: Boolean = false,
     val autoSamplerEnabled: Boolean   = true,
     val sampleVolume: Float           = 1.0f

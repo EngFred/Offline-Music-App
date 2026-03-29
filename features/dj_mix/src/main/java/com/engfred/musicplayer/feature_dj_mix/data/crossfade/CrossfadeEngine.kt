@@ -444,6 +444,20 @@ class CrossfadeEngine @Inject constructor(
             }
 
             // ── 5. Equal-Power Ramp & Bass Kill ──
+            //
+            // 🔧 FIX: Capture the REAL current volume of the primary player before the
+            // fade loop begins. On the first-ever crossfade, startPlayback sets
+            // player.volume = 1f, while currentTrackBaseVolume is e.g. 0.42f (auto-gain
+            // normalised). Using primaryBaseVolume directly as the start point caused an
+            // immediate 1.0 → 0.42 jump on frame 1 — the audible "track dying and
+            // resurrecting" artefact. Subsequent crossfades were fine because after every
+            // swap the new primary was already playing at secondaryBaseVolume ≈ its own
+            // currentTrackBaseVolume, so no jump occurred.
+            //
+            // By reading the live volume here, we always fade smoothly from wherever
+            // the player actually is, regardless of normalisation state.
+            val primaryStartVolume = withContext(Dispatchers.Main) { primaryRef.volume }
+
             val stepDelayMs = (decision.effectiveCrossfadeDurationMs / FADE_STEPS).coerceAtLeast(16L)
             var bassKillApplied = false
 
@@ -472,7 +486,9 @@ class CrossfadeEngine @Inject constructor(
                 }
 
                 withContext(Dispatchers.Main) {
-                    primaryRef.volume   = cos(angle) * primaryBaseVolume
+                    // 🔧 FIX: fade OUT from primaryStartVolume (real current volume),
+                    // not from primaryBaseVolume (normalised target that may differ).
+                    primaryRef.volume   = cos(angle) * primaryStartVolume
                     secondaryRef.volume = sin(angle) * secondaryBaseVolume
                 }
                 _state.update { it.copy(crossfadeProgressFraction = sin(angle)) }
@@ -483,7 +499,8 @@ class CrossfadeEngine @Inject constructor(
             if (abortCrossfade) {
                 secondaryProcessor()?.resetRatio()
                 withContext(Dispatchers.Main) {
-                    primaryRef.volume = primaryBaseVolume
+                    // 🔧 FIX: restore to where we started, not to the normalised target.
+                    primaryRef.volume = primaryStartVolume
                     try { secondaryRef.pause(); secondaryRef.volume = 0f } catch (e: Exception) {}
                 }
                 abortCrossfade = false
@@ -495,7 +512,7 @@ class CrossfadeEngine @Inject constructor(
             withContext(Dispatchers.Main) {
                 try {
                     primaryRef.pause()
-                    primaryRef.volume = primaryBaseVolume
+                    primaryRef.volume = primaryBaseVolume  // safe: player is paused, resets for reuse
                     if (secondaryRef.isPlaying) { secondaryRef.volume = secondaryBaseVolume }
                 } catch (e: Exception) {}
             }

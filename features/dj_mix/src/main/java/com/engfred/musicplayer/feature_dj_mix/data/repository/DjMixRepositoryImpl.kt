@@ -14,70 +14,65 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Concrete implementation of [DjMixRepository].
- *
- * Both [getBpmCacheFlow] and [getBpmForAudios] were building [BpmInfo] objects
- * without mapping the [amplitude] column from the database entity. This meant
- * every track was presented to the CrossfadeEngine with amplitude = 0f, causing
- * Auto-Gain normalization to always compute a base volume of 1.0f — effectively
- * disabling the feature entirely.
- *
- * Fixed: BpmCacheEntity.amplitude is now included in both mappings.
- */
 @Singleton
 class DjMixRepositoryImpl @Inject constructor(
     private val bpmCacheDao: BpmCacheDao,
     @param:ApplicationContext private val context: Context,
 ) : DjMixRepository {
 
-    /**
-     * Returns a reactive map of audioFileId → [BpmInfo].
-     * Emits a new value every time any BPM cache row is inserted or replaced
-     * (i.e., as BpmAnalysisWorker processes each file in the playlist).
-     *
-     * amplitude is now correctly mapped from the entity.
-     */
     override fun getBpmCacheFlow(): Flow<Map<Long, BpmInfo>> =
         bpmCacheDao.getAllBpmEntries().map { entries ->
             entries.associate { entity ->
-                entity.audioFileId to
-                        BpmInfo(
-                            bpm              = entity.bpm,
-                            firstBeatMs      = entity.firstBeatMs,
-                            amplitude        = entity.amplitude,
-                            waveformEnvelope = entity.waveformEnvelope,
-                            analysisFailed   = entity.analysisFailed
-                        )
+                entity.audioFileId to BpmInfo(
+                    bpm              = entity.bpm,
+                    firstBeatMs      = entity.firstBeatMs,
+                    amplitude        = entity.amplitude,
+                    waveformEnvelope = entity.waveformEnvelope,
+                    analysisFailed   = entity.analysisFailed
+                )
             }
         }
 
-    /**
-     * One-shot lookup for a set of file IDs.
-     * amplitude is now correctly mapped from the entity.
-     */
     override suspend fun getBpmForAudios(audioFileIds: List<Long>): Map<Long, BpmInfo> =
         bpmCacheDao.getBpmForAudios(audioFileIds).associate { entity ->
-            entity.audioFileId to
-                    BpmInfo(
-                        bpm              = entity.bpm,
-                        firstBeatMs      = entity.firstBeatMs,
-                        amplitude        = entity.amplitude,
-                        waveformEnvelope = entity.waveformEnvelope,
-                        analysisFailed   = entity.analysisFailed
-                    )
+            entity.audioFileId to BpmInfo(
+                bpm              = entity.bpm,
+                firstBeatMs      = entity.firstBeatMs,
+                amplitude        = entity.amplitude,
+                waveformEnvelope = entity.waveformEnvelope,
+                analysisFailed   = entity.analysisFailed
+            )
         }
 
     override fun enqueueBpmAnalysis(playlistId: Long, songs: List<AudioFile>) {
-        val request = BpmAnalysisWorker.buildRequest(songs)
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            BpmAnalysisWorker.TAG_PREFIX + playlistId,
-            ExistingWorkPolicy.KEEP,
-            request
-        )
-    }
+        if (songs.isEmpty()) return
 
-    // ── Custom Cue Points ─────────────────────────────────────────────────────
+        val requests    = BpmAnalysisWorker.buildRequests(songs)
+        val workManager = WorkManager.getInstance(context)
+        val uniqueName  = BpmAnalysisWorker.TAG_PREFIX + playlistId
+
+        if (requests.size == 1) {
+            // Single chunk
+            workManager.enqueueUniqueWork(
+                uniqueName,
+                ExistingWorkPolicy.KEEP,
+                requests.first()
+            )
+        } else {
+            // Multiple chunks — chain them so they run sequentially.
+            // Sequential execution avoids hammering the CPU with parallel
+            // BPM analysis on large playlists (e.g. 256-track "Unknown Artist").
+            var continuation = workManager.beginUniqueWork(
+                uniqueName,
+                ExistingWorkPolicy.KEEP,
+                requests.first()
+            )
+            requests.drop(1).forEach { request ->
+                continuation = continuation.then(request)
+            }
+            continuation.enqueue()
+        }
+    }
 
     override suspend fun updateCustomCueIn(audioFileId: Long, cueInMs: Long) {
         bpmCacheDao.updateCustomCueIn(audioFileId, cueInMs)

@@ -14,20 +14,24 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.engfred.musicplayer.core.domain.repository.LibraryRepository
 import com.engfred.musicplayer.feature_dj_mix.data.local.dao.BpmCacheDao
-import com.engfred.musicplayer.feature_dj_mix.data.local.entity.BpmCacheEntity
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
 
 /**
- * Scans the entire device library for songs with no BPM cache entry and analyses
- * them in the background.
+ * Scans the entire device library for songs with no BPM cache entry and delegates
+ * the actual analysis to [BpmAnalysisWorker] via chained WorkManager requests.
+ *
+ * This worker intentionally does NO analysis itself — it only discovers uncached
+ * tracks and enqueues them. This ensures doWork() completes almost instantly and
+ * is never killed by the OS's 10-minute background execution limit, regardless of
+ * library size.
  *
  * Uses [LibraryRepository] (defined in :core) instead of ContentResolverDataSource
  * (which lives in :features:library) to avoid a cross-feature dependency.
  *
- * Safe to enqueue repeatedly — already-cached tracks (success or tombstone) are
- * skipped, so re-runs only process the delta.
+ * Safe to enqueue repeatedly — [BpmAnalysisWorker] skips tracks that are already
+ * cached (success or tombstone), so re-runs only process the delta.
  */
 @HiltWorker
 class GlobalBpmScanWorker @AssistedInject constructor(
@@ -35,12 +39,15 @@ class GlobalBpmScanWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val libraryRepository: LibraryRepository,
     private val bpmCacheDao: BpmCacheDao,
-    private val bpmAnalyzer: BpmAnalyzer
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
         private const val TAG = "GlobalBpmScanWorker"
         const val WORK_NAME = "global_bpm_scan"
+
+        // Unique name for the chunk chain so it doesn't collide with
+        // playlist-specific BpmAnalysisWorker chains (which use "bpm_analysis_<playlistId>").
+        private const val CHUNK_WORK_NAME = "global_bpm_scan_chunks"
 
         fun enqueue(context: Context, policy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP) {
             val request = OneTimeWorkRequestBuilder<GlobalBpmScanWorker>()
@@ -53,6 +60,7 @@ class GlobalBpmScanWorker @AssistedInject constructor(
     }
 
     override suspend fun doWork(): Result {
+        // ── 1. Permission check ───────────────────────────────────────────────
         val perm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
             Manifest.permission.READ_MEDIA_AUDIO
         else
@@ -63,54 +71,56 @@ class GlobalBpmScanWorker @AssistedInject constructor(
             return Result.failure()
         }
 
+        // ── 2. Load full library ──────────────────────────────────────────────
         val allFiles = libraryRepository.getAllAudioFiles().first()
         if (allFiles.isEmpty()) {
             Log.d(TAG, "No audio files found on device")
             return Result.success()
         }
 
+        // ── 3. Filter to uncached tracks ──────────────────────────────────────
+        // A track is considered cached if a BpmCacheEntity exists for it, whether
+        // the analysis succeeded or it was tombstoned (analysisFailed = true).
+        // Re-analysing tombstoned tracks is intentionally skipped here; a future
+        // "retry failed" flow can handle that separately.
         val uncached = allFiles.filter { bpmCacheDao.getBpmForAudio(it.id) == null }
         Log.d(TAG, "${uncached.size} of ${allFiles.size} files need BPM analysis")
 
-        if (uncached.isEmpty()) return Result.success()
-
-        var analysed = 0
-        var failed = 0
-
-        for (audioFile in uncached) {
-            // Re-check in case a concurrent playlist-specific worker already cached this
-            if (bpmCacheDao.getBpmForAudio(audioFile.id) != null) continue
-
-            val result = bpmAnalyzer.analyzeBpm(audioFile.uri)
-            if (result != null) {
-                bpmCacheDao.insertBpm(
-                    BpmCacheEntity(
-                        audioFileId      = audioFile.id,
-                        bpm              = result.bpm,
-                        analyzedAt       = System.currentTimeMillis(),
-                        firstBeatMs      = result.firstBeatMs,
-                        amplitude        = result.amplitude,
-                        waveformEnvelope = result.waveformEnvelope,
-                        analysisFailed   = false
-                    )
-                )
-                analysed++
-                Log.d(TAG, "[$analysed] Cached BPM ${result.bpm} for '${audioFile.title}'")
-            } else {
-                bpmCacheDao.insertBpm(
-                    BpmCacheEntity(
-                        audioFileId    = audioFile.id,
-                        bpm            = 0f,
-                        analyzedAt     = System.currentTimeMillis(),
-                        analysisFailed = true
-                    )
-                )
-                failed++
-                Log.w(TAG, "Analysis failed for '${audioFile.title}' — tombstone inserted")
-            }
+        if (uncached.isEmpty()) {
+            Log.d(TAG, "All tracks already cached — nothing to do")
+            return Result.success()
         }
 
-        Log.d(TAG, "Global scan complete: $analysed analysed, $failed failed")
+        // ── 4. Delegate to BpmAnalysisWorker chunks ───────────────────────────
+        // buildRequests() splits uncached into groups of 40 and returns one
+        // OneTimeWorkRequest per group. Each chunk is well under WorkManager's
+        // 10 KB Data limit and finishes long before the 10-minute execution cap.
+        val requests = BpmAnalysisWorker.buildRequests(uncached)
+        val workManager = WorkManager.getInstance(context)
+
+        if (requests.size == 1) {
+            workManager.enqueueUniqueWork(
+                CHUNK_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                requests.first()
+            )
+        } else {
+            // Chain so chunks run sequentially — avoids hammering the CPU with
+            // parallel BPM analysis on very large libraries.
+            var chain = workManager.beginUniqueWork(
+                CHUNK_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                requests.first()
+            )
+            requests.drop(1).forEach { request ->
+                chain = chain.then(request)
+            }
+            chain.enqueue()
+        }
+
+        Log.d(TAG, "Enqueued ${requests.size} BpmAnalysisWorker chunk(s) for ${uncached.size} tracks")
+
+        // doWork() returns immediately; the real work happens inside BpmAnalysisWorker.
         return Result.success()
     }
 }
