@@ -1,18 +1,34 @@
 package com.engfred.musicplayer.feature_settings.presentation.screens
 
 import android.annotation.SuppressLint
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.*
+import androidx.compose.material.icons.rounded.AudioFile
+import androidx.compose.material.icons.rounded.Brush
+import androidx.compose.material.icons.rounded.Equalizer
+import androidx.compose.material.icons.rounded.Widgets
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -25,7 +41,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.engfred.musicplayer.core.domain.model.AudioFileTypeFilter
 import com.engfred.musicplayer.core.domain.model.AudioPreset
-import com.engfred.musicplayer.core.domain.model.PlayerLayout
 import com.engfred.musicplayer.core.domain.model.WidgetBackgroundMode
 import com.engfred.musicplayer.core.ui.theme.AppThemeType
 import com.engfred.musicplayer.feature_settings.presentation.components.AppVersionSection
@@ -49,22 +64,17 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                // Removed horizontal padding so interactive rows can bleed edge-to-edge
                 .padding(top = innerPadding.calculateTopPadding() + 16.dp, bottom = 48.dp),
-            // Reduced from 32dp to 0dp. We will handle spacing explicitly for perfect grouping.
-            verticalArrangement = Arrangement.spacedBy(0.dp)
+            verticalArrangement = Arrangement.spacedBy(32.dp) // Generous spacing between major sections
         ) {
-
-            // --- Animated Error Banner ---
-            AnimatedVisibility(
-                visible = uiState.error != null,
-                enter = expandVertically(),
-                exit = shrinkVertically()
-            ) {
+            // Error message if any
+            if (uiState.error != null) {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(12.dp),
+                        .padding(horizontal = 24.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = MaterialTheme.colorScheme.errorContainer
                 ) {
                     Text(
@@ -76,13 +86,7 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // ==========================================
-            // SECTION 1: CUSTOMIZATION & APPEARANCE
-            // ==========================================
-            SettingsHeader(title = "Appearance & Layout")
-
+            // Theme Section
             SettingsSection(
                 title = "App Theme",
                 subtitle = "Choose a look that suits you",
@@ -93,30 +97,42 @@ fun SettingsScreen(
                 onSelect = { viewModel.onEvent(SettingsEvent.UpdateTheme(it)) }
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
 
-            // RESCUED: Player Layout Selection!
-            uiState.selectedPlayerLayout?.let { currentLayout ->
-                SettingsSection(
-                    title = "Now Playing Style",
-                    subtitle = "Customize the main player interface",
-                    icon = Icons.Rounded.DashboardCustomize,
-                    items = PlayerLayout.entries,
-                    selectedItem = currentLayout,
-                    displayName = { it.name.replace("_", " ").lowercase().replaceFirstChar { c -> c.titlecase() } },
-                    onSelect = { viewModel.onEvent(SettingsEvent.UpdatePlayerLayout(it)) }
+            // Preferences / Toggles Section
+            Column(modifier = Modifier.fillMaxWidth()) {
+                FlatToggleRow(
+                    title = "Audio File Types",
+                    subtitle = "Turn off to show only MP3 files in your library.",
+                    icon = Icons.Rounded.AudioFile,
+                    isChecked = uiState.audioFileTypeFilter == AudioFileTypeFilter.ALL,
+                    onCheckedChange = { isChecked ->
+                        val newFilter = if (isChecked) AudioFileTypeFilter.ALL else AudioFileTypeFilter.MP3_ONLY
+                        viewModel.onEvent(SettingsEvent.UpdateAudioFileTypeFilter(newFilter))
+                    }
+                )
+
+                FlatToggleRow(
+                    title = "Widget Background",
+                    subtitle = "Let the home screen widget follow system light/dark mode.",
+                    icon = Icons.Rounded.Widgets,
+                    isChecked = uiState.widgetBackgroundMode == WidgetBackgroundMode.THEME_AWARE,
+                    onCheckedChange = { isChecked ->
+                        val newMode = if (isChecked) WidgetBackgroundMode.THEME_AWARE else WidgetBackgroundMode.STATIC
+                        viewModel.onEvent(SettingsEvent.UpdateWidgetBackgroundMode(newMode, context))
+                    }
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 24.dp))
-            Spacer(modifier = Modifier.height(24.dp))
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
 
-            // ==========================================
-            // SECTION 2: AUDIO & LIBRARY
-            // ==========================================
-            SettingsHeader(title = "Audio & Library")
-
+            // Audio Preset Section
             SettingsSection(
                 title = "Audio Preset",
                 subtitle = "Select an equalizer preset for playback",
@@ -127,63 +143,16 @@ fun SettingsScreen(
                 onSelect = { viewModel.onEvent(SettingsEvent.UpdateAudioPreset(it)) }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.weight(1f, fill = false).height(32.dp))
 
-            FlatToggleRow(
-                title = "Audio File Types",
-                subtitle = "Turn off to show only MP3 files in your library.",
-                icon = Icons.Rounded.AudioFile,
-                isChecked = uiState.audioFileTypeFilter == AudioFileTypeFilter.ALL,
-                onCheckedChange = { isChecked ->
-                    val newFilter = if (isChecked) AudioFileTypeFilter.ALL else AudioFileTypeFilter.MP3_ONLY
-                    viewModel.onEvent(SettingsEvent.UpdateAudioFileTypeFilter(newFilter))
-                }
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 24.dp))
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // ==========================================
-            // SECTION 3: SYSTEM & INTEGRATION
-            // ==========================================
-            SettingsHeader(title = "System Integration")
-
-            FlatToggleRow(
-                title = "Dynamic Widget Background",
-                subtitle = "Let the home screen widget follow system light/dark mode.",
-                icon = Icons.Rounded.Widgets,
-                isChecked = uiState.widgetBackgroundMode == WidgetBackgroundMode.THEME_AWARE,
-                onCheckedChange = { isChecked ->
-                    val newMode = if (isChecked) WidgetBackgroundMode.THEME_AWARE else WidgetBackgroundMode.STATIC
-                    viewModel.onEvent(SettingsEvent.UpdateWidgetBackgroundMode(newMode, context))
-                }
-            )
-
-            Spacer(modifier = Modifier.weight(1f, fill = false).height(48.dp))
-
-            // App Version Footer
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            // App Version
+            Box(modifier = Modifier.padding(horizontal = 24.dp)) {
                 AppVersionSection(
-                    copyrightText = "© 2026 Deepcode Innovations",
+                    copyrightText = "© 2026 Engineer Fred", // Updated to current year ;)
                 )
             }
         }
     }
-}
-
-/**
- * Clean reusable header for grouping settings sections
- */
-@Composable
-private fun SettingsHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
-    )
 }
 
 /**
@@ -200,24 +169,17 @@ private fun FlatToggleRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // Clickable applied before padding ensures the ripple hits the screen edges
             .clickable { onCheckedChange(!isChecked) }
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Soft background for icons makes them look more premium
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp)
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp)
+        )
 
         Spacer(modifier = Modifier.width(16.dp))
 
@@ -241,7 +203,7 @@ private fun FlatToggleRow(
 
         Switch(
             checked = isChecked,
-            onCheckedChange = null // Handled by row click for larger touch target
+            onCheckedChange = onCheckedChange
         )
     }
 }
