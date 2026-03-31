@@ -206,7 +206,6 @@ fun DjMixScreen(
                             isPlaying         = uiState.isPlaying,
                             timeToNextMixMs   = uiState.timeToNextMixMs,
                             nextTrack         = uiState.nextTrack,
-                            onAbortCrossfade  = { viewModel.onEvent(DjMixEvent.AbortCrossfade) },
                             modifier          = Modifier.padding(horizontal = 24.dp)
                         )
                     }
@@ -250,13 +249,6 @@ fun DjMixScreen(
                         analysisFailed     = uiState.bpmCache[song.id]?.analysisFailed == true,
                         isCurrent          = song.id == uiState.currentTrack?.id,
                         isPlayed           = song.id in uiState.playedTrackIds && song.id != uiState.currentTrack?.id,
-                        onClick            = {
-                            viewModel.onEvent(DjMixEvent.JumpToTrack(song))
-                            // Optional: Scroll to top when manually picking a song too!
-                            coroutineScope.launch {
-                                lazyListState.animateScrollToItem(0)
-                            }
-                        }
                     )
                 }
             }

@@ -36,7 +36,6 @@ fun SmartQueueItem(
     song: AudioFile,
     bpm: Float?,
     isCurrent: Boolean,
-    onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isPlayed: Boolean = false,
     analysisFailed: Boolean = false
@@ -49,7 +48,6 @@ fun SmartQueueItem(
             .fillMaxWidth()
             .alpha(if (isPlayed && !isCurrent) 0.45f else 1f)
             .background(bgColor)
-            .clickable(onClick = onClick)
     ) {
         if (isCurrent) {
             Box(

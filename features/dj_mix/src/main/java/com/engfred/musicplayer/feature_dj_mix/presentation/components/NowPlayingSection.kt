@@ -82,7 +82,6 @@ fun NowPlayingSection(
     isPlaying: Boolean,
     timeToNextMixMs: Long? = null,
     nextTrack: AudioFile? = null,
-    onAbortCrossfade: () -> Unit,
 ) {
     val primaryColor    = MaterialTheme.colorScheme.primary
     val urgentColor     = Color(0xFFEF5350)
@@ -337,18 +336,6 @@ fun NowPlayingSection(
                     color      = strategyColor,
                     trackColor = strategyColor.copy(alpha = 0.15f)
                 )
-                TextButton(
-                    onClick        = onAbortCrossfade,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    modifier       = Modifier.padding(start = 8.dp)
-                ) {
-                    Text(
-                        text       = "✕ ABORT",
-                        style      = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color      = strategyColor.copy(alpha = 0.8f)
-                    )
-                }
             }
         }
     }

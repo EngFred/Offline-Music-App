@@ -127,6 +127,20 @@ class DjMixViewModel @Inject constructor(
                 }
             }
 
+            DjMixEvent.MixNow -> crossfadeEngine.triggerMixNow()
+
+            // ── Settings Updates ──────────────────────────────────────────────
+
+            is DjMixEvent.ToggleRealMixMode -> {
+                val s = _uiState.value.settings.copy(isRealMixMode = event.enabled)
+                crossfadeEngine.isRealMixMode = event.enabled
+                _uiState.update { it.copy(settings = s) }
+                djSessionManager.updateSettings(s)
+                viewModelScope.launch { settingsRepository.updateDjRealMixMode(event.enabled) }
+            }
+
+            DjMixEvent.AbortCrossfade -> crossfadeEngine.abortCurrentCrossfade()
+
             is DjMixEvent.ToggleAutoSampler -> {
                 val s = _uiState.value.settings.copy(autoSamplerEnabled = event.enabled)
                 samplerEngine.isAutoSamplerEnabled = event.enabled
