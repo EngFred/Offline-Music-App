@@ -63,33 +63,6 @@ class DjSessionManager @Inject constructor(
         Log.d(TAG, "markTrackPlayed: $trackId | history=${playHistory.size} canSkipBack=${_canSkipBack.value}")
     }
 
-    /**
-     * Navigates one step back in play history.
-     *
-     * Contract:
-     * • Removes the current track (tail) from history.
-     * • Removes the previous track (new tail) from history.
-     * • Returns the previous [AudioFile] so the caller can start playback.
-     * • The caller must call [markTrackPlayed] with the returned track's ID to
-     * restore it as the new tail — same pattern as [JumpToTrack].
-     *
-     * Returns null if history has fewer than 2 entries (nothing to go back to).
-     */
-    @Synchronized
-    fun popPreviousTrack(): AudioFile? {
-        if (playHistory.size < 2) {
-            Log.d(TAG, "popPreviousTrack: history too short (${playHistory.size}) — no-op")
-            return null
-        }
-        playHistory.removeLast()                    // discard current
-        val previousId = playHistory.removeLast()   // extract previous (caller re-adds it)
-        _canSkipBack.value = playHistory.size >= 2
-
-        val track = _smartQueue.value.find { it.id == previousId }
-        Log.d(TAG, "popPreviousTrack: → previousId=$previousId found=${track?.title} | history=${playHistory.size}")
-        return track
-    }
-
     @Synchronized
     fun resetPlayHistory(keepCurrentId: Long? = null) {
         playHistory.clear()

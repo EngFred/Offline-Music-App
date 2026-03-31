@@ -22,20 +22,10 @@ import kotlin.math.roundToInt
 
 @Composable
 fun ControlsSection(
-    crossfadeDurationSec: Int,
-    bpmTolerance: Float,
     isRealMixMode: Boolean,
-    maxTrackDurationSec: Int,
-    useManualMaxDuration: Boolean,
-    loopQueue: Boolean,
     autoSamplerEnabled: Boolean,
     sampleVolume: Float,
-    onCrossfadeDurationChanged: (Int) -> Unit,
-    onBpmToleranceChanged: (Float) -> Unit,
     onToggleRealMixMode: (Boolean) -> Unit,
-    onToggleManualMaxDuration: (Boolean) -> Unit,
-    onMaxDurationChanged: (Int) -> Unit,
-    onToggleLoopQueue: (Boolean) -> Unit,
     onToggleAutoSampler: (Boolean) -> Unit,
     onSampleVolumeChanged: (Float) -> Unit,
     modifier: Modifier = Modifier
@@ -53,67 +43,7 @@ fun ControlsSection(
             onCheckedChange = onToggleRealMixMode
         )
 
-        if (isRealMixMode) {
-            PremiumToggleRow(
-                title = "Manual Mix Point",
-                subtitle = if (useManualMaxDuration)
-                    "You choose when to trigger the mix"
-                else
-                    "Mixes at the halfway point (adjusted for song start offset)",
-                isChecked = useManualMaxDuration,
-                onCheckedChange = onToggleManualMaxDuration
-            )
-
-            if (useManualMaxDuration) {
-                SliderWithLabel(
-                    label = "Playtime Limit",
-                    valueLabel = "${maxTrackDurationSec / 60}m ${maxTrackDurationSec % 60}s",
-                    value = maxTrackDurationSec.toFloat(),
-                    valueRange = 60f..300f,
-                    steps = 24,
-                    onValueChange = { onMaxDurationChanged(it.toInt()) }
-                )
-            }
-        }
-
         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-
-        // ── Loop ──────────────────────────────────────────────────────────────
-//        PremiumToggleRow(
-//            title = "Loop Session",
-//            subtitle = "When the last track ends, loop back to the start",
-//            isChecked = loopQueue,
-//            onCheckedChange = onToggleLoopQueue
-//        )
-//
-//        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-
-//        // ── Blend / BPM ───────────────────────────────────────────────────────
-//        SliderWithLabel(
-//            label = "Blend Length",
-//            valueLabel = "$crossfadeDurationSec SEC",
-//            value = crossfadeDurationSec.toFloat(),
-//            valueRange = 2f..12f,
-//            steps = 9,
-//            description = "How long the two tracks overlap during a mix",
-//            onValueChange = { onCrossfadeDurationChanged(it.toInt()) }
-//        )
-//
-//        SliderWithLabel(
-//            label = "Mix Tightness",
-//            valueLabel = "±${bpmTolerance.toInt()} BPM",
-//            value = bpmTolerance,
-//            valueRange = 5f..20f,
-//            steps = 14,
-//            description = when {
-//                bpmTolerance <= 8f  -> "Strict — only very similar BPMs mix together"
-//                bpmTolerance <= 14f -> "Balanced — most tracks will mix smoothly"
-//                else                -> "Flexible — any two tracks can mix, may sound rough"
-//            },
-//            onValueChange = onBpmToleranceChanged
-//        )
-//
-//        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
 
         // ── Sampler ───────────────────────────────────────────────────────────
         PremiumToggleRow(

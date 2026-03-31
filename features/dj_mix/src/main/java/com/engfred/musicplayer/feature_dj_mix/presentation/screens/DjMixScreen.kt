@@ -286,18 +286,8 @@ fun DjMixScreen(
                 )
 
                 ControlsSection(
-                    crossfadeDurationSec = uiState.settings.crossfadeDurationSec,
-                    bpmTolerance         = uiState.settings.bpmTolerance,
                     isRealMixMode        = uiState.settings.isRealMixMode,
-                    maxTrackDurationSec  = uiState.settings.maxTrackDurationSec,
-                    useManualMaxDuration = uiState.settings.useManualMaxDuration,
-                    loopQueue            = uiState.settings.loopQueue,
-                    onCrossfadeDurationChanged = { viewModel.onEvent(DjMixEvent.UpdateCrossfadeDuration(it)) },
-                    onBpmToleranceChanged      = { viewModel.onEvent(DjMixEvent.UpdateBpmTolerance(it)) },
                     onToggleRealMixMode        = { viewModel.onEvent(DjMixEvent.ToggleRealMixMode(it)) },
-                    onToggleManualMaxDuration  = { viewModel.onEvent(DjMixEvent.ToggleManualMaxDuration(it)) },
-                    onMaxDurationChanged       = { viewModel.onEvent(DjMixEvent.UpdateMaxTrackDuration(it)) },
-                    onToggleLoopQueue          = { viewModel.onEvent(DjMixEvent.ToggleLoopQueue(it)) },
                     autoSamplerEnabled         = uiState.settings.autoSamplerEnabled,
                     sampleVolume               = uiState.settings.sampleVolume,
                     onToggleAutoSampler        = { viewModel.onEvent(DjMixEvent.ToggleAutoSampler(it)) },

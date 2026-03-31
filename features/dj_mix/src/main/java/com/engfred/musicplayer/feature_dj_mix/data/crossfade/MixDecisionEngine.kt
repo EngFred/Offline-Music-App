@@ -28,7 +28,7 @@ class MixDecisionEngine @Inject constructor(
 
         // ── Tuning Block: Crossfade Duration Multipliers ─────────────────────
         private const val TRANSPARENT_MULT = 0.20f        // 🔥 Super fast transparent cut
-        private const val SMOOTH_MULT = 0.40f             // 🔥 Tight, punchy smooth fade
+        private const val SMOOTH_MULT = 0.20f             // 🔥 Tight, punchy smooth fade
         private const val POWER_MIX_MULT = 1.40f
         private const val HARMONIC_MULT = 0.80f
         private const val WIDE_TRANSITION_MULT = 1.60f

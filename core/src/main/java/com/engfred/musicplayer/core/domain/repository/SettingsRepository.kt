@@ -32,17 +32,7 @@ interface SettingsRepository {
     suspend fun updateLastScanTimestamp(timestamp: Long)
 
     // ── DJ Mix ────────────────────────────────────────────────────────────
-    suspend fun updateDjCrossfadeDuration(seconds: Int)
-    suspend fun updateDjBpmTolerance(tolerance: Float)
     suspend fun updateDjRealMixMode(enabled: Boolean)
-    suspend fun updateDjMaxTrackDuration(seconds: Int)
-    suspend fun updateDjLoopQueue(enabled: Boolean)
-
-    /**
-     * Persists the toggle between "mix at halfway" (default) and
-     * "mix after manual max duration".
-     */
-    suspend fun updateDjManualMaxDuration(enabled: Boolean)
 
     // ── Mix of the Day ────────────────────────────────────────────────────────
     suspend fun getLastMixOfTheDayTimestamp(): Long

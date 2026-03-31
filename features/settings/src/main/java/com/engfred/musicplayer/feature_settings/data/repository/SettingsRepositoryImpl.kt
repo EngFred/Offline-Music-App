@@ -53,13 +53,7 @@ class SettingsRepositoryImpl @Inject constructor(
         private val LAST_SCAN_TIMESTAMP           = longPreferencesKey("last_scan_timestamp")
 
         // ── DJ Mix ────────────────────────────────────────────────────────────
-        // Write paths and keys for the DJ Mix settings module
-        private val CROSSFADE_DURATION_SEC = intPreferencesKey("dj_crossfade_duration_sec")
-        private val BPM_TOLERANCE          = floatPreferencesKey("dj_bpm_tolerance")
         private val DJ_REAL_MIX_MODE       = booleanPreferencesKey("dj_real_mix_mode")
-        private val DJ_MAX_TRACK_DUR_SEC   = intPreferencesKey("dj_max_track_dur_sec")
-        private val DJ_LOOP_QUEUE          = booleanPreferencesKey("dj_loop_queue")
-        private val DJ_MANUAL_MAX_DURATION = booleanPreferencesKey("dj_manual_max_duration")
         private val DJ_AUTO_SAMPLER        = booleanPreferencesKey("dj_auto_sampler")
         private val DJ_SAMPLE_VOLUME       = floatPreferencesKey("dj_sample_volume")
 
@@ -113,12 +107,7 @@ class SettingsRepositoryImpl @Inject constructor(
                     audioPreset          = selectedAudioPreset,
                     widgetBackgroundMode = widgetMode,
                     djMixPlaylistFilter  = djMixFilter,
-                    crossfadeDurationSec = preferences[CROSSFADE_DURATION_SEC] ?: 5,
-                    bpmTolerance         = preferences[BPM_TOLERANCE] ?: 10f,
                     isRealMixMode        = preferences[DJ_REAL_MIX_MODE] ?: true,
-                    maxTrackDurationSec  = preferences[DJ_MAX_TRACK_DUR_SEC] ?: 146,
-                    loopQueue            = preferences[DJ_LOOP_QUEUE] ?: false,
-                    useManualMaxDuration = preferences[DJ_MANUAL_MAX_DURATION] ?: false,
                     autoSamplerEnabled   = preferences[DJ_AUTO_SAMPLER] ?: true,
                     sampleVolume         = preferences[DJ_SAMPLE_VOLUME] ?: 1f
                 )
@@ -230,32 +219,8 @@ class SettingsRepositoryImpl @Inject constructor(
 
     // ── DJ Mix Settings Updates ───────────────────────────────────────────────
 
-    override suspend fun updateDjCrossfadeDuration(seconds: Int) {
-        dataStore.edit { it[CROSSFADE_DURATION_SEC] = seconds }
-    }
-
-    override suspend fun updateDjBpmTolerance(tolerance: Float) {
-        dataStore.edit { it[BPM_TOLERANCE] = tolerance }
-    }
-
     override suspend fun updateDjRealMixMode(enabled: Boolean) {
         dataStore.edit { it[DJ_REAL_MIX_MODE] = enabled }
-    }
-
-    override suspend fun updateDjMaxTrackDuration(seconds: Int) {
-        dataStore.edit { it[DJ_MAX_TRACK_DUR_SEC] = seconds }
-    }
-
-    override suspend fun updateDjLoopQueue(enabled: Boolean) {
-        dataStore.edit { it[DJ_LOOP_QUEUE] = enabled }
-    }
-
-    /**
-     * Persists the toggle between "mix at halfway" (default) and
-     * "mix after manual max duration".
-     */
-    override suspend fun updateDjManualMaxDuration(enabled: Boolean) {
-        dataStore.edit { it[DJ_MANUAL_MAX_DURATION] = enabled }
     }
 
     override suspend fun updateDjAutoSampler(enabled: Boolean) {
