@@ -52,16 +52,10 @@
 -dontwarn androidx.media3.**
 
 # Your custom AudioProcessor implementations
--keep class com.engfred.musicplayer.feature_dj_mix.data.crossfade.RubberBandAudioProcessor { *; }
 -keep class com.engfred.musicplayer.feature_dj_mix.data.crossfade.WaveformCaptureAudioProcessor { *; }
 -keep class com.engfred.musicplayer.feature_dj_mix.data.crossfade.DrcSuppressingMediaCodecAdapterFactory { *; }
 
-# ── 7. JNI — RubberBand (rubberband_processor.cpp) ───────────────────
--keepclasseswithmembernames class com.engfred.musicplayer.feature_dj_mix.data.crossfade.RubberBandAudioProcessor {
-    native <methods>;
-}
-
-# ── 8. JNI — aubio BPM bridge (aubio_bridge.c) ───────────────────────
+# ── 7. JNI — aubio BPM bridge (aubio_bridge.c) ───────────────────────
 # Covers whatever Kotlin class in data.bpm declares the native methods.
 -keepclasseswithmembernames class com.engfred.musicplayer.feature_dj_mix.data.bpm.** {
     native <methods>;
@@ -87,40 +81,40 @@
     @dagger.assisted.AssistedInject <init>(...);
 }
 
-# ── 9. FFmpeg-kit ─────────────────────────────────────────────────────
+# ── 8. FFmpeg-kit ─────────────────────────────────────────────────────
 -keep class com.arthenica.** { *; }
 -keep class io.github.maitrungduc1410.** { *; }
 -dontwarn com.arthenica.**
 -dontwarn io.github.maitrungduc1410.**
 
-# ── 10. DataStore Preferences ────────────────────────────────────────
+# ── 9. DataStore Preferences ────────────────────────────────────────
 # You use datastore-preferences (NOT proto DataStore) — no protobuf rule needed.
 -dontwarn androidx.datastore.**
 
-# ── 11. Coil / Landscapist ───────────────────────────────────────────
+# ── 10. Coil / Landscapist ───────────────────────────────────────────
 -keep class coil.** { *; }
 -keep class com.skydoves.landscapist.** { *; }
 -dontwarn coil.**
 -dontwarn com.skydoves.**
 
-# ── 12. Reorderable ──────────────────────────────────────────────────
+# ── 11. Reorderable ──────────────────────────────────────────────────
 -keep class sh.calvin.reorderable.** { *; }
 -dontwarn sh.calvin.**
 
-# ── 13. Domain models & DJ Mix state ─────────────────────────────────
+# ── 12. Domain models & DJ Mix state ─────────────────────────────────
 -keep class com.engfred.musicplayer.core.domain.model.** { *; }
 -keep class com.engfred.musicplayer.feature_dj_mix.domain.** { *; }
 -keep class com.engfred.musicplayer.feature_dj_mix.data.crossfade.CrossfadeEngineState { *; }
 -keep class com.engfred.musicplayer.feature_dj_mix.data.crossfade.MixStrategy { *; }
 -keep class com.engfred.musicplayer.feature_dj_mix.data.crossfade.MixDecision { *; }
 
-# ── 14. Enums ────────────────────────────────────────────────────────
+# ── 13. Enums ────────────────────────────────────────────────────────
 -keepclassmembers enum * {
     public static **[] values();
     public static ** valueOf(java.lang.String);
 }
 
-# ── 15. Parcelable / Serializable ────────────────────────────────────
+# ── 14. Parcelable / Serializable ────────────────────────────────────
 -keepclassmembers class * implements android.os.Parcelable {
     public static final android.os.Parcelable$Creator CREATOR;
 }
@@ -132,7 +126,7 @@
     java.lang.Object readResolve();
 }
 
-# ── 16. Misc suppression ─────────────────────────────────────────────
+# ── 15. Misc suppression ─────────────────────────────────────────────
 -dontwarn sun.misc.**
 -dontwarn java.lang.invoke.**
 -dontwarn org.conscrypt.**

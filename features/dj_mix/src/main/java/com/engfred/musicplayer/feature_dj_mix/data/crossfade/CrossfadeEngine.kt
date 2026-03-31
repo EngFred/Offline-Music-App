@@ -44,7 +44,7 @@ import kotlin.math.sin
 
 /**
  * Dual-[ExoPlayer] DJ crossfade engine with BPM-aware mix strategy selection.
- * Uses ExoPlayer's built-in Sonic Audio Processor for native tempo stretching.
+ * Pure volume-based crossfading without tempo stretching.
  *
  * 🚨 THREAD SAFETY 🚨
  * ALL ExoPlayer method calls (play, pause, getAudioSessionId, etc) MUST be executed
@@ -181,7 +181,7 @@ class CrossfadeEngine @Inject constructor(
         playerB = buildExoPlayer(attrs, handleAudioFocus = false, isPlayerA = false)
 
         isInitialized = true
-        Log.i(TAG, "[LIFECYCLE] CrossfadeEngine Initialized (DrcSuppression=ACTIVE, NativeStretch=ACTIVE)")
+        Log.i(TAG, "[LIFECYCLE] CrossfadeEngine Initialized (DrcSuppression=ACTIVE)")
     }
 
     @OptIn(UnstableApi::class)
@@ -402,7 +402,7 @@ class CrossfadeEngine @Inject constructor(
             } else 1.0f
             val primaryBaseVolume = currentTrackBaseVolume
 
-            // ── 1. Prepare Secondary & Apply Native Stretch ────────────────────────────
+            // ── 1. Prepare Secondary ────────────────────────────
             val alreadyPrebuffered = prebufferedTrackId == nextTrack.id
             withContext(Dispatchers.Main) {
                 if (!alreadyPrebuffered) {
@@ -414,13 +414,7 @@ class CrossfadeEngine @Inject constructor(
                 } else {
                     prebufferedTrackId = null
                 }
-
-                if (decision.shouldTempoSync && decision.stretchRatio != 1.0) {
-                    // ExoPlayer Native Stretch: speed is adjusted without shifting pitch
-                    secondaryRef.playbackParameters = PlaybackParameters(decision.stretchRatio.toFloat(), 1.0f)
-                } else {
-                    secondaryRef.playbackParameters = PlaybackParameters.DEFAULT
-                }
+                secondaryRef.playbackParameters = PlaybackParameters.DEFAULT
             }
 
             // ── 2. Wait for READY ──────────────────────────────────────────────────────
@@ -591,13 +585,6 @@ class CrossfadeEngine @Inject constructor(
             }
 
             Log.i(TAG, "[MIXER] Swap Complete → Next Track: '${nextTrack.title}'")
-
-            // Clear tempo stretch from the now-paused primary player
-            if (decision.shouldTempoSync && decision.stretchRatio != 1.0) {
-                withContext(Dispatchers.Main) {
-                    try { primaryRef.playbackParameters = PlaybackParameters.DEFAULT } catch (e: Exception) {}
-                }
-            }
 
             pendingNextTrack?.let { pending ->
                 pendingNextTrack = null

@@ -27,8 +27,8 @@ class MixDecisionEngine @Inject constructor(
         private const val TAG = "MixDecisionEngine"
 
         // ── Tuning Block: Crossfade Duration Multipliers ─────────────────────
-        private const val TRANSPARENT_MULT = 0.70f
-        private const val SMOOTH_MULT = 1.00f
+        private const val TRANSPARENT_MULT = 0.20f        // 🔥 Super fast transparent cut
+        private const val SMOOTH_MULT = 0.40f             // 🔥 Tight, punchy smooth fade
         private const val POWER_MIX_MULT = 1.40f
         private const val HARMONIC_MULT = 0.80f
         private const val WIDE_TRANSITION_MULT = 1.60f
@@ -43,17 +43,13 @@ class MixDecisionEngine @Inject constructor(
 
         // ── Tuning Block: Bass-Kill Triggers (BASE values) ───────────────────
         // These are further adjusted by energy in real time.
-        private const val BASS_KILL_TRANSPARENT = 0.65f
-        private const val BASS_KILL_SMOOTH      = 0.45f
+        private const val BASS_KILL_TRANSPARENT = 0.15f
+        private const val BASS_KILL_SMOOTH      = 0.15f
         private const val BASS_KILL_POWER_MIX   = 0.32f
         private const val BASS_KILL_HARMONIC    = 0.55f
         private const val BASS_KILL_WIDE_TRANSITION = 0.25f
 
-        private const val HIGH_ENERGY_THRESHOLD = 0.55f   // K-weighted RMS amplitude → "bass-heavy"
-
-        // RubberBand stretch bounds
-        private const val MAX_STRETCH_RATIO = 1.33
-        private const val MIN_STRETCH_RATIO = 0.75
+        private const val HIGH_ENERGY_THRESHOLD = 0.55f
     }
 
     /**
@@ -94,11 +90,9 @@ class MixDecisionEngine @Inject constructor(
         val effectiveDurationMs = (userCrossfadeDurationMs * durationMult)
             .toLong().coerceIn(MIN_CROSSFADE_MS, MAX_CROSSFADE_MS)
 
-        val shouldTempoSync = isBpmValid && (strategy == MixStrategy.SMOOTH || strategy == MixStrategy.POWER_MIX)
-
-        val stretchRatio: Double = if (shouldTempoSync) {
-            (incomingBpm / outgoingBpm).toDouble().coerceIn(MIN_STRETCH_RATIO, MAX_STRETCH_RATIO)
-        } else 1.0
+        // 🔥 Force tempo sync OFF — pure volume crossfading only
+        val shouldTempoSync = false
+        val stretchRatio = 1.0
 
         // ── ENERGY-AWARE BASS KILL (this is the secret sauce for heavy beats) ──
         val avgEnergy = (outgoingAmplitude + incomingAmplitude) / 2f
@@ -112,7 +106,8 @@ class MixDecisionEngine @Inject constructor(
             MixStrategy.HARMONIC -> BASS_KILL_HARMONIC
             MixStrategy.WIDE_TRANSITION -> BASS_KILL_WIDE_TRANSITION
         }
-        val bassKillThreshold = (baseBassKill + energyAdjustment).coerceIn(0.20f, 0.85f)
+
+        val bassKillThreshold = (baseBassKill + energyAdjustment).coerceIn(0.10f, 0.85f)
 
         val djNote = buildString {
             append("[DJ DECISION] ${strategy.name}: ")
@@ -124,18 +119,13 @@ class MixDecisionEngine @Inject constructor(
                 if (isHarmonic) append(" | ★ HARMONIC")
             }
             append(" | fade=${effectiveDurationMs}ms")
-            if (shouldTempoSync && stretchRatio != 1.0) {
-                val speed = 1.0 / stretchRatio
-                append(" | RubberBand stretch=${stretchRatio.fmt3()} (×${speed.fmt3()})")
-            } else {
-                append(" | NO tempo-sync")
-            }
+            append(" | NO tempo-sync")
             append(" | bass kill at ${(bassKillThreshold * 100).toInt()}%")
             if (isHighEnergy) append(" 🔥 HIGH ENERGY (bass-heavy)")
             append("\n ↳ ")
             when (strategy) {
-                MixStrategy.TRANSPARENT -> append("Silky smooth — nothing to hide.")
-                MixStrategy.SMOOTH -> append("Standard club technique — RubberBand stretch.")
+                MixStrategy.TRANSPARENT -> append("Silky smooth, fast cut — nothing to hide.")
+                MixStrategy.SMOOTH -> append("Standard club technique — fast cut.")
                 MixStrategy.POWER_MIX -> append("Early bass kill gives incoming track space to breathe.")
                 MixStrategy.HARMONIC -> append("Half/double-time — harmonic lock does the work.")
                 MixStrategy.WIDE_TRANSITION -> append("Energy valley technique — the BPM jump IS the moment.")
@@ -157,15 +147,6 @@ class MixDecisionEngine @Inject constructor(
         )
     }
 
-    /**
-     * Finds the bass equalizer band by inspecting each band's frequency range via
-     * [android.media.audiofx.Equalizer.getBandFreqRange], which returns millihertz values.
-     * Returns the band whose upper limit is lowest and ≤ 300 Hz (300 000 mHz).
-     * Falls back to band 0 if nothing qualifies so the kill always applies something.
-     *
-     * This avoids the broken assumption that band 0 is always bass — on many Samsung,
-     * Xiaomi, and other OEM devices, the band ordering differs from the Pixel baseline.
-     */
     fun findBassBandIndex(eq: android.media.audiofx.Equalizer): Short? {
         val bandCount = eq.numberOfBands.toInt()
         if (bandCount == 0) return null
@@ -184,11 +165,10 @@ class MixDecisionEngine @Inject constructor(
         Log.d(TAG, "findBassBandIndex: bestBand=$bestBand lowestUpperMhz=$lowestUpperMhz")
         return when {
             bestBand >= 0 && lowestUpperMhz <= BASS_UPPER_LIMIT_MHZ -> bestBand.toShort()
-            bestBand >= 0 -> bestBand.toShort() // fallback: lowest band available
+            bestBand >= 0 -> bestBand.toShort()
             else          -> 0.toShort()
         }
     }
 
     private fun Float.fmt() = String.format("%.1f", this)
-    private fun Double.fmt3() = String.format("%.3f", this)
 }
