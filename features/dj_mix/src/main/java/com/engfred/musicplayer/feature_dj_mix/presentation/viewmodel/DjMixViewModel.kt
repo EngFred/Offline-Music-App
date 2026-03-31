@@ -145,70 +145,6 @@ class DjMixViewModel @Inject constructor(
                 }
             }
 
-            // ── Custom Cue Point UI Actions ───────────────────────────────────
-
-            is DjMixEvent.SetCustomCueIn -> {
-                val currentTrackId = _uiState.value.currentTrack?.id ?: return
-                val positionMs = crossfadeEngine.state.value.currentPositionMs
-                viewModelScope.launch { djMixRepository.updateCustomCueIn(currentTrackId, positionMs) }
-            }
-
-            is DjMixEvent.SetCustomMixOut -> {
-                val currentTrackId = _uiState.value.currentTrack?.id ?: return
-                val positionMs = crossfadeEngine.state.value.currentPositionMs
-                viewModelScope.launch { djMixRepository.updateCustomMixOut(currentTrackId, positionMs) }
-            }
-
-            is DjMixEvent.ClearCustomCues -> {
-                val currentTrackId = _uiState.value.currentTrack?.id ?: return
-                viewModelScope.launch { djMixRepository.clearCustomCues(currentTrackId) }
-            }
-
-            // ── Queue ordering ────────────────────────────────────────────────
-
-            DjMixEvent.ShuffleQueue -> {
-                if (_uiState.value.isAnalyzing) return
-                val shuffled = _uiState.value.smartQueue.shuffled()
-                _uiState.update { it.copy(smartQueue = shuffled, isQueueUserOrdered = true) }
-                djSessionManager.updateSmartQueue(shuffled)
-                updateNextTrackPreview()
-            }
-
-            DjMixEvent.SortByBpm -> {
-                if (_uiState.value.isAnalyzing) return
-                val cache = _uiState.value.bpmCache
-                val sorted = _uiState.value.smartQueue.sortedWith(
-                    compareBy(
-                        { cache[it.id]?.analysisFailed == true },
-                        { if (cache[it.id]?.analysisFailed == true) 0f else cache[it.id]?.bpm ?: Float.MAX_VALUE }
-                    )
-                )
-                _uiState.update { it.copy(smartQueue = sorted, isQueueUserOrdered = true) }
-                djSessionManager.updateSmartQueue(sorted)
-                updateNextTrackPreview()
-            }
-
-            is DjMixEvent.MoveTrack -> {
-                if (_uiState.value.isAnalyzing) return
-                val current = _uiState.value.smartQueue.toMutableList()
-                if (event.fromIndex !in current.indices || event.toIndex !in current.indices) return
-                val item = current.removeAt(event.fromIndex)
-                current.add(event.toIndex, item)
-                _uiState.update { it.copy(smartQueue = current, isQueueUserOrdered = true) }
-                djSessionManager.updateSmartQueue(current)
-                updateNextTrackPreview()
-            }
-
-            is DjMixEvent.RemoveTrack -> {
-                val id = event.audioFile.id
-                if (id == _uiState.value.currentTrack?.id) return // Don't remove currently playing
-                rawPlaylistSongs = rawPlaylistSongs.filter { it.id != id }
-                val updated = _uiState.value.smartQueue.filter { it.id != id }
-                _uiState.update { it.copy(smartQueue = updated, isQueueUserOrdered = true) }
-                djSessionManager.updateSmartQueue(updated)
-                updateNextTrackPreview()
-            }
-
             // ── Settings Updates ──────────────────────────────────────────────
             is DjMixEvent.UpdateCrossfadeDuration -> {
                 val s = _uiState.value.settings.copy(crossfadeDurationSec = event.seconds)
@@ -395,17 +331,14 @@ class DjMixViewModel @Inject constructor(
                     val cachedBpmInfo = _uiState.value.bpmCache[currentTrackId]
 
                     val isNewlyAnalyzed = freshBpmInfo != null && cachedBpmInfo == null && !freshBpmInfo.analysisFailed
-                    val cuePointsChanged = freshBpmInfo != null && cachedBpmInfo != null &&
-                            (freshBpmInfo.customCueInMs != cachedBpmInfo.customCueInMs ||
-                                    freshBpmInfo.customMixOutMs != cachedBpmInfo.customMixOutMs)
 
-                    if (isNewlyAnalyzed || cuePointsChanged) {
+                    if (isNewlyAnalyzed) {
                         crossfadeEngine.updateCurrentBpmInfo(
                             bpm              = freshBpmInfo!!.bpm,
-                            firstBeatMs      = freshBpmInfo.customCueInMs ?: freshBpmInfo.firstBeatMs,
+                            firstBeatMs      = freshBpmInfo.firstBeatMs,
                             amplitude        = freshBpmInfo.amplitude,
                             waveformEnvelope = freshBpmInfo.waveformEnvelope,
-                            mixOutMs         = freshBpmInfo.customMixOutMs
+                            mixOutMs         = null
                         )
                     }
                 }
@@ -464,17 +397,17 @@ class DjMixViewModel @Inject constructor(
 
         crossfadeEngine.updateCurrentBpmInfo(
             bpm              = bpmInfo.bpm,
-            firstBeatMs      = bpmInfo.customCueInMs ?: bpmInfo.firstBeatMs,
+            firstBeatMs      = bpmInfo.firstBeatMs,
             amplitude        = bpmInfo.amplitude,
             waveformEnvelope = bpmInfo.waveformEnvelope,
-            mixOutMs         = bpmInfo.customMixOutMs
+            mixOutMs         = null
         )
     }
 
     private fun rebuildSmartQueue(
         bpmCache: Map<Long, BpmInfo> = _uiState.value.bpmCache
     ) {
-        if (_uiState.value.isQueueUserOrdered) return
+        // Removed early return for isQueueUserOrdered — the algorithm is fully in charge now.
         if (rawPlaylistSongs.isEmpty()) return
         rebuildJob?.cancel()
         rebuildJob = viewModelScope.launch {

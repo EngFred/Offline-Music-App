@@ -28,10 +28,6 @@ data class BpmCacheEntity(
     val amplitude: Float = 0f,
     val waveformEnvelope: FloatArray = FloatArray(0),
     val analysisFailed: Boolean = false,
-
-    // ── User Overrides ──
-    val customCueInMs: Long? = null,
-    val customMixOutMs: Long? = null
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -42,9 +38,7 @@ data class BpmCacheEntity(
                 firstBeatMs == other.firstBeatMs &&
                 amplitude == other.amplitude &&
                 waveformEnvelope.contentEquals(other.waveformEnvelope) &&
-                analysisFailed == other.analysisFailed &&
-                customCueInMs == other.customCueInMs &&
-                customMixOutMs == other.customMixOutMs
+                analysisFailed == other.analysisFailed
     }
 
     override fun hashCode(): Int {
@@ -55,8 +49,6 @@ data class BpmCacheEntity(
         result = 31 * result + amplitude.hashCode()
         result = 31 * result + waveformEnvelope.contentHashCode()
         result = 31 * result + analysisFailed.hashCode()
-        result = 31 * result + (customCueInMs?.hashCode() ?: 0)
-        result = 31 * result + (customMixOutMs?.hashCode() ?: 0)
         return result
     }
 }

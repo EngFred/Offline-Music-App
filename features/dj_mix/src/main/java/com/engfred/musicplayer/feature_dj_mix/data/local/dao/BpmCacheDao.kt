@@ -43,20 +43,6 @@ interface BpmCacheDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBpms(entities: List<BpmCacheEntity>)
 
-    /** Updates the custom Cue In point for a specific track. */
-    @Query("UPDATE bpm_cache SET customCueInMs = :cueInMs WHERE audioFileId = :audioFileId")
-    suspend fun updateCustomCueIn(audioFileId: Long, cueInMs: Long)
-
-    /** Updates the custom Mix Out point for a specific track. */
-    @Query("UPDATE bpm_cache SET customMixOutMs = :mixOutMs WHERE audioFileId = :audioFileId")
-    suspend fun updateCustomMixOut(audioFileId: Long, mixOutMs: Long)
-
-    /** Clears both user-defined cue points, restoring the track to AI control. */
-    @Query("UPDATE bpm_cache SET customCueInMs = NULL, customMixOutMs = NULL WHERE audioFileId = :audioFileId")
-    suspend fun clearCustomCues(audioFileId: Long)
-
-    // ── Cleanup ───────────────────────────────────────────────────────────────
-
     @Query("DELETE FROM bpm_cache WHERE audioFileId = :audioFileId")
     suspend fun deleteBpm(audioFileId: Long)
 

@@ -37,15 +37,6 @@ class DjSessionManager @Inject constructor(
     val settings: StateFlow<DjMixSettings> = _settings.asStateFlow()
 
     // ── Play history (ordered) ────────────────────────────────────────────────
-    //
-    // Replaced the unordered MutableSet with an ordered ArrayDeque so we can
-    // navigate backwards. Invariant: the tail of the deque is always the ID of
-    // the track currently playing. All mutations are @Synchronized so they are
-    // safe to call from Service and ViewModel coroutines on different threads.
-    //
-    // canSkipBack is true whenever there are ≥ 2 entries (current + at least one
-    // previous). It is exposed as a StateFlow so the UI can reactively enable /
-    // disable the skip-back button without polling.
 
     private val playHistory: ArrayDeque<Long> = ArrayDeque()
 
@@ -160,7 +151,7 @@ class DjSessionManager @Inject constructor(
 
     fun getTrackTransitionInfo(audioFile: AudioFile): Triple<Long, Float, Float> {
         val info = _bpmCache.value[audioFile.id]
-        val cueInMs = info?.customCueInMs ?: info?.firstBeatMs ?: 0L
+        val cueInMs = info?.firstBeatMs ?: 0L
         return Triple(cueInMs, info?.bpm ?: 0f, info?.amplitude ?: 0f)
     }
 }

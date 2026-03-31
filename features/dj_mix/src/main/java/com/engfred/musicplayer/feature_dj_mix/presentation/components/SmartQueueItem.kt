@@ -37,7 +37,6 @@ fun SmartQueueItem(
     bpm: Float?,
     isCurrent: Boolean,
     onClick: () -> Unit,
-    onRemove: () -> Unit,
     modifier: Modifier = Modifier,
     isPlayed: Boolean = false,
     analysisFailed: Boolean = false
@@ -132,22 +131,6 @@ fun SmartQueueItem(
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.20f)
                 )
-            }
-
-            if (!isCurrent) {
-                IconButton(
-                    onClick  = onRemove,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector        = Icons.Rounded.Close,
-                        contentDescription = "Remove from queue",
-                        tint               = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.28f),
-                        modifier           = Modifier.size(15.dp)
-                    )
-                }
-            } else {
-                Spacer(modifier = Modifier.size(36.dp))
             }
         }
     }

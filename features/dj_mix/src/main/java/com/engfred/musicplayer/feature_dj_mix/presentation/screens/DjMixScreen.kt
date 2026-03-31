@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
@@ -25,7 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import com.engfred.musicplayer.feature_dj_mix.data.service.DjMixService
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.BpmAnalysisSection
@@ -139,25 +138,6 @@ fun DjMixScreen(
                             contentDescription = "Play/Pause"
                         )
                     }
-
-//                    // ── LOGIC FIX: Only show "MIX NOW" if a next track exists ──
-//                    if (uiState.isPlaying && uiState.nextTrack != null) {
-//                        FloatingActionButton(
-//                            onClick        = { viewModel.onEvent(DjMixEvent.MixNow) },
-//                            containerColor = MaterialTheme.colorScheme.primary,
-//                            contentColor   = MaterialTheme.colorScheme.onPrimary,
-//                            shape          = RoundedCornerShape(percent = 50)
-//                        ) {
-//                            Row(
-//                                modifier          = Modifier.padding(horizontal = 20.dp),
-//                                verticalAlignment = Alignment.CenterVertically
-//                            ) {
-//                                Icon(Icons.Rounded.AutoAwesome, "Mix Now")
-//                                Spacer(Modifier.width(8.dp))
-//                                Text("MIX NOW", fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-//                            }
-//                        }
-//                    }
                 }
             } else if (uiState.smartQueue.isNotEmpty()) {
                 // Initial "Start Mix" FAB when nothing is playing yet
@@ -226,12 +206,7 @@ fun DjMixScreen(
                             isPlaying         = uiState.isPlaying,
                             timeToNextMixMs   = uiState.timeToNextMixMs,
                             nextTrack         = uiState.nextTrack,
-                            customCueInMs     = bpmInfo?.customCueInMs,
-                            customMixOutMs    = bpmInfo?.customMixOutMs,
                             onAbortCrossfade  = { viewModel.onEvent(DjMixEvent.AbortCrossfade) },
-                            onSetCueIn        = { viewModel.onEvent(DjMixEvent.SetCustomCueIn) },
-                            onSetMixOut       = { viewModel.onEvent(DjMixEvent.SetCustomMixOut) },
-                            onClearCues       = { viewModel.onEvent(DjMixEvent.ClearCustomCues) },
                             modifier          = Modifier.padding(horizontal = 24.dp)
                         )
                     }
@@ -281,8 +256,7 @@ fun DjMixScreen(
                             coroutineScope.launch {
                                 lazyListState.animateScrollToItem(0)
                             }
-                        },
-                        onRemove           = { viewModel.onEvent(DjMixEvent.RemoveTrack(song)) }
+                        }
                     )
                 }
             }

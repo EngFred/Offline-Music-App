@@ -52,7 +52,12 @@ android {
 
     buildFeatures {
         compose = true
+        mlModelBinding = true
     }
+
+//    androidResources {
+//        noCompress += "tflite"
+//    }
 
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.composeBom.get()
@@ -123,7 +128,12 @@ dependencies {
 
     implementation(libs.androidx.media)
 
-    implementation("sh.calvin.reorderable:reorderable:2.4.3")
+//    implementation("sh.calvin.reorderable:reorderable:2.4.3")
+
+
+    // TensorFlow Lite — mix point detection
+//    implementation(libs.tensorflow.lite)
+//    implementation(libs.tensorflow.lite.select.tf.ops)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

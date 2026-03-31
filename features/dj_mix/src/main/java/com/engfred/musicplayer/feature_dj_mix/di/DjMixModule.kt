@@ -54,8 +54,7 @@ abstract class DjMixModule {
                     DjMixDatabase.MIGRATION_1_2,
                     DjMixDatabase.MIGRATION_2_3,
                     DjMixDatabase.MIGRATION_3_4,
-                    DjMixDatabase.MIGRATION_4_5,
-                    DjMixDatabase.MIGRATION_5_6
+                    DjMixDatabase.MIGRATION_4_5
                 )
                 .build()
 

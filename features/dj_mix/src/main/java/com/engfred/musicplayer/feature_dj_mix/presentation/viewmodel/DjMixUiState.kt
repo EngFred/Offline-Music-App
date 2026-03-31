@@ -24,19 +24,8 @@ data class DjMixUiState(
     val isLoading: Boolean = true,
     val error: String? = null,
     val timeToNextMixMs: Long? = null,
-
-    // ── Feature 1: Failed BPM visibility ─────────────────────────────────────
     val analysisFailedCount: Int = 0,
-
-    // ── Feature 2: Manual queue ordering ─────────────────────────────────────
-    val isQueueUserOrdered: Boolean = false,
-
-    // ── Feature 3: Skip back ──────────────────────────────────────────────────
     val canSkipBack: Boolean = false,
-
-    // ── Track History Synchronization ────────────────────────────────────────
     val playedTrackIds: Set<Long> = emptySet(),
-
-    // ── Next track preview ────────────────────────────────────────────────────
     val nextTrack: AudioFile? = null
 )

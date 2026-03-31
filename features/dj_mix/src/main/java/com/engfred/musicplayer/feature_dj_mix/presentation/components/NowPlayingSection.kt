@@ -82,12 +82,7 @@ fun NowPlayingSection(
     isPlaying: Boolean,
     timeToNextMixMs: Long? = null,
     nextTrack: AudioFile? = null,
-    customCueInMs: Long? = null,
-    customMixOutMs: Long? = null,
     onAbortCrossfade: () -> Unit,
-    onSetCueIn: () -> Unit,
-    onSetMixOut: () -> Unit,
-    onClearCues: () -> Unit
 ) {
     val primaryColor    = MaterialTheme.colorScheme.primary
     val urgentColor     = Color(0xFFEF5350)

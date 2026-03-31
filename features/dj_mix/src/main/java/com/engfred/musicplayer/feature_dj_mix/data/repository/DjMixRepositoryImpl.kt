@@ -28,7 +28,7 @@ class DjMixRepositoryImpl @Inject constructor(
                     firstBeatMs      = entity.firstBeatMs,
                     amplitude        = entity.amplitude,
                     waveformEnvelope = entity.waveformEnvelope,
-                    analysisFailed   = entity.analysisFailed
+                    analysisFailed   = entity.analysisFailed,
                 )
             }
         }
@@ -40,7 +40,7 @@ class DjMixRepositoryImpl @Inject constructor(
                 firstBeatMs      = entity.firstBeatMs,
                 amplitude        = entity.amplitude,
                 waveformEnvelope = entity.waveformEnvelope,
-                analysisFailed   = entity.analysisFailed
+                analysisFailed   = entity.analysisFailed,
             )
         }
 
@@ -51,38 +51,16 @@ class DjMixRepositoryImpl @Inject constructor(
         val workManager = WorkManager.getInstance(context)
         val uniqueName  = BpmAnalysisWorker.TAG_PREFIX + playlistId
 
-        if (requests.size == 1) {
-            // Single chunk
-            workManager.enqueueUniqueWork(
-                uniqueName,
-                ExistingWorkPolicy.KEEP,
-                requests.first()
-            )
-        } else {
-            // Multiple chunks — chain them so they run sequentially.
-            // Sequential execution avoids hammering the CPU with parallel
-            // BPM analysis on large playlists (e.g. 256-track "Unknown Artist").
-            var continuation = workManager.beginUniqueWork(
-                uniqueName,
-                ExistingWorkPolicy.KEEP,
-                requests.first()
-            )
-            requests.drop(1).forEach { request ->
-                continuation = continuation.then(request)
-            }
-            continuation.enqueue()
+        // Always chain — never enqueue single requests independently.
+        // This forces sequential execution even after a process restart.
+        var continuation = workManager.beginUniqueWork(
+            uniqueName,
+            ExistingWorkPolicy.KEEP,
+            requests.first()
+        )
+        requests.drop(1).forEach { request ->
+            continuation = continuation.then(request)
         }
-    }
-
-    override suspend fun updateCustomCueIn(audioFileId: Long, cueInMs: Long) {
-        bpmCacheDao.updateCustomCueIn(audioFileId, cueInMs)
-    }
-
-    override suspend fun updateCustomMixOut(audioFileId: Long, mixOutMs: Long) {
-        bpmCacheDao.updateCustomMixOut(audioFileId, mixOutMs)
-    }
-
-    override suspend fun clearCustomCues(audioFileId: Long) {
-        bpmCacheDao.clearCustomCues(audioFileId)
+        continuation.enqueue()
     }
 }
