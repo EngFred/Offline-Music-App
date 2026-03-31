@@ -12,11 +12,10 @@ import java.nio.ByteOrder
 import kotlin.math.abs
 
 /**
- * 🚨 CRITICAL AUDIO PIPELINE COMPONENT 🚨
- * * Zero-Allocation AudioStretcher bridging ExoPlayer to native RubberBand C++.
- * Always use `replaceOutputBuffer(size)` to allocate bytes. Never instantiate
- * ByteBuffers manually during playback. The ExoPlayer AudioSink holds references
- * to these buffers; manual allocation causes terrible screeching noise and GC pauses.
+ * 🚨 PRO-GRADE AUDIO PIPELINE 🚨
+ * Zero-Copy AudioStretcher bridging ExoPlayer to native RubberBand C++.
+ * Uses direct memory access with exact byte offsets to prevent JNI bottlenecks
+ * and dead-memory reads.
  */
 @OptIn(UnstableApi::class)
 class RubberBandAudioProcessor : AudioProcessor {
@@ -30,7 +29,6 @@ class RubberBandAudioProcessor : AudioProcessor {
     private var nativeHandle: Long = 0L
     private var configuredFormat: AudioFormat = AudioFormat.NOT_SET
 
-    // Diagnostic tool: Checks if DRC Suppressor is failing (should only equal 1)
     private var configureCallCount = 0
 
     @Volatile private var pendingRatio: Double = 1.0
@@ -39,12 +37,8 @@ class RubberBandAudioProcessor : AudioProcessor {
     private var inputEnded = false
     private var streamEnded = false
 
-    // ExoPlayer BaseAudioProcessor memory pattern
     private var buffer: ByteBuffer = AudioProcessor.EMPTY_BUFFER
     private var outputBuffer: ByteBuffer = AudioProcessor.EMPTY_BUFFER
-
-    // Re-used float array to prevent allocations during JNI handoff
-    private var inputFloats = FloatArray(0)
 
     fun setTimeRatio(ratio: Double) { pendingRatio = ratio.coerceIn(0.5, 2.0) }
     fun resetRatio() { pendingRatio = 1.0 }
@@ -68,8 +62,6 @@ class RubberBandAudioProcessor : AudioProcessor {
         configuredFormat = inputAudioFormat
         inputEnded = false
         streamEnded = false
-        appliedRatio = 1.0
-        pendingRatio = 1.0
 
         Log.i(TAG, "[SETUP] RubberBand Configured (Call #$configureCallCount)")
         return inputAudioFormat
@@ -81,29 +73,23 @@ class RubberBandAudioProcessor : AudioProcessor {
         if (nativeHandle == 0L || !inputBuffer.hasRemaining()) return
         applyPendingRatio()
 
-        // Bypass Mode - Direct memory copy, avoids JNI overhead and phase issues
-        if (abs(appliedRatio - 1.0) < RATIO_THRESHOLD) {
-            val bytes = inputBuffer.remaining()
-            val outBuf = replaceOutputBuffer(bytes)
-            outBuf.put(inputBuffer)
-            outBuf.flip()
+        val byteOffset = inputBuffer.position()
+        val byteLimit = inputBuffer.limit()
+        val bytesAvailable = byteLimit - byteOffset
+
+        val ch = configuredFormat.channelCount
+        val frameCount = bytesAvailable / (ch * 2)
+
+        if (frameCount == 0) {
+            inputBuffer.position(byteLimit)
             return
         }
 
-        val ch = configuredFormat.channelCount
-        val shortCount = inputBuffer.remaining() / 2
-        val frameCount = shortCount / ch
-        if (frameCount == 0) { inputBuffer.position(inputBuffer.limit()); return }
+        // Pass raw memory + the exact byte offset directly to C++
+        nativeProcess(nativeHandle, inputBuffer, byteOffset, frameCount, false)
 
-        // Reuse FloatArray to prevent GC pauses
-        if (inputFloats.size < shortCount) inputFloats = FloatArray(shortCount)
-
-        inputBuffer.order(ByteOrder.LITTLE_ENDIAN)
-        for (i in 0 until shortCount) {
-            inputFloats[i] = inputBuffer.getShort() / 32768f
-        }
-
-        nativeProcess(nativeHandle, inputFloats, frameCount, false)
+        // Mark buffer as completely consumed by ExoPlayer
+        inputBuffer.position(byteLimit)
         drainNative()
     }
 
@@ -112,17 +98,15 @@ class RubberBandAudioProcessor : AudioProcessor {
         inputEnded = true
         applyPendingRatio()
 
-        if (abs(appliedRatio - 1.0) >= RATIO_THRESHOLD) {
-            nativeProcess(nativeHandle, FloatArray(0), 0, true)
-            drainNative()
-        }
+        // Tell C++ to flush its latency buffers
+        nativeProcess(nativeHandle, null, 0, 0, true)
+        drainNative()
     }
 
     override fun getOutput(): ByteBuffer {
         val out = outputBuffer
         outputBuffer = AudioProcessor.EMPTY_BUFFER
 
-        // Signal EOS once ExoPlayer drains the last buffer
         if (inputEnded && out === AudioProcessor.EMPTY_BUFFER) {
             streamEnded = true
         }
@@ -165,16 +149,23 @@ class RubberBandAudioProcessor : AudioProcessor {
 
     private fun drainNative() {
         if (nativeHandle == 0L) return
-        val avail = nativeAvailable(nativeHandle)
-        if (avail > 0) {
-            val floats = nativeRetrieve(nativeHandle, avail) ?: return
-            val bytes = floats.size * 2
-            val outBuf = replaceOutputBuffer(bytes)
+        val availFrames = nativeAvailable(nativeHandle)
 
-            for (f in floats) {
-                outBuf.putShort((f.coerceIn(-1f, 1f) * 32767f).toInt().toShort())
+        if (availFrames > 0) {
+            val ch = configuredFormat.channelCount
+            val requiredBytes = availFrames * ch * 2
+            val outBuf = replaceOutputBuffer(requiredBytes)
+
+            // Pass the allocated memory space to C++ to fill directly
+            val framesRetrieved = nativeRetrieve(nativeHandle, outBuf, availFrames)
+
+            if (framesRetrieved > 0) {
+                outBuf.position(0)
+                outBuf.limit(framesRetrieved * ch * 2)
+            } else {
+                outBuf.position(0)
+                outBuf.limit(0)
             }
-            outBuf.flip()
         }
     }
 
@@ -190,9 +181,10 @@ class RubberBandAudioProcessor : AudioProcessor {
 
     private external fun nativeCreate(sampleRate: Int, channels: Int): Long
     private external fun nativeSetTimeRatio(handle: Long, ratio: Double)
-    private external fun nativeProcess(handle: Long, input: FloatArray, frameCount: Int, isFinal: Boolean)
+    // Signature updated to include byteOffset
+    private external fun nativeProcess(handle: Long, inputBuffer: ByteBuffer?, byteOffset: Int, frameCount: Int, isFinal: Boolean)
     private external fun nativeAvailable(handle: Long): Int
-    private external fun nativeRetrieve(handle: Long, frameCount: Int): FloatArray?
+    private external fun nativeRetrieve(handle: Long, outputBuffer: ByteBuffer, maxFrames: Int): Int
     private external fun nativeReset(handle: Long)
     private external fun nativeDelete(handle: Long)
     private external fun nativePrewarm(handle: Long)

@@ -7,6 +7,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.UnstableApi
@@ -43,16 +44,12 @@ import kotlin.math.sin
 
 /**
  * Dual-[ExoPlayer] DJ crossfade engine with BPM-aware mix strategy selection.
+ * Uses ExoPlayer's built-in Sonic Audio Processor for native tempo stretching.
  *
  * 🚨 THREAD SAFETY 🚨
  * ALL ExoPlayer method calls (play, pause, getAudioSessionId, etc) MUST be executed
  * inside `withContext(Dispatchers.Main)`. Calling them on a background coroutine
  * throws IllegalStateException and crashes the app.
- *
- * Architecture Notes:
- * - Layer 1 Protection: Custom Processors use Zero-Allocation to prevent BT HAL freezing.
- * - Layer 2 Protection: `performSameTrackRecoveryOnSecondary` acts as an OS-level fallback
- * if an OEM Bluetooth stack permanently hangs the primary AudioTrack.
  */
 @UnstableApi
 @Singleton
@@ -84,8 +81,6 @@ class CrossfadeEngine @Inject constructor(
     // ── Players & Processors ──────────────────────────────────────────────────
     private var playerA: ExoPlayer? = null
     private var playerB: ExoPlayer? = null
-    private var processorA: RubberBandAudioProcessor? = null
-    private var processorB: RubberBandAudioProcessor? = null
     private var waveformProcessorA: WaveformCaptureAudioProcessor? = null
     private var waveformProcessorB: WaveformCaptureAudioProcessor? = null
 
@@ -93,8 +88,6 @@ class CrossfadeEngine @Inject constructor(
 
     private fun primaryPlayer()            = if (isPrimaryA) playerA            else playerB
     private fun secondaryPlayer()          = if (isPrimaryA) playerB            else playerA
-    private fun primaryProcessor()         = if (isPrimaryA) processorA         else processorB
-    private fun secondaryProcessor()       = if (isPrimaryA) processorB         else processorA
     private fun primaryWaveformProcessor() = if (isPrimaryA) waveformProcessorA else waveformProcessorB
 
     // ── Public State ──────────────────────────────────────────────────────────
@@ -165,7 +158,7 @@ class CrossfadeEngine @Inject constructor(
             lastRequestedTrackId     = null; lastPrebufferRequestedId = null
             pendingNextTrack         = null; prebufferedTrackId = null
             isPrebufferingInProgress = false
-            playerA = null; playerB = null; processorA = null; processorB = null
+            playerA = null; playerB = null
             waveformProcessorA = null; waveformProcessorB = null
             _state.value             = CrossfadeEngineState()
             waveformSmoothed.fill(0f)
@@ -176,17 +169,8 @@ class CrossfadeEngine @Inject constructor(
             lastPlaybackStartMs = 0L; stallRecoveryCount = 0
         }
 
-        try {
-            processorA = RubberBandAudioProcessor()
-            processorB = RubberBandAudioProcessor()
-            waveformProcessorA = WaveformCaptureAudioProcessor()
-            waveformProcessorB = WaveformCaptureAudioProcessor()
-        } catch (e: UnsatisfiedLinkError) {
-            Log.e(TAG, "[LIFECYCLE] RubberBand native lib unavailable — tempo-sync disabled", e)
-            processorA = null; processorB = null
-            waveformProcessorA = WaveformCaptureAudioProcessor()
-            waveformProcessorB = WaveformCaptureAudioProcessor()
-        }
+        waveformProcessorA = WaveformCaptureAudioProcessor()
+        waveformProcessorB = WaveformCaptureAudioProcessor()
 
         val attrs = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -197,7 +181,7 @@ class CrossfadeEngine @Inject constructor(
         playerB = buildExoPlayer(attrs, handleAudioFocus = false, isPlayerA = false)
 
         isInitialized = true
-        Log.i(TAG, "[LIFECYCLE] CrossfadeEngine Initialized (DrcSuppression=ACTIVE)")
+        Log.i(TAG, "[LIFECYCLE] CrossfadeEngine Initialized (DrcSuppression=ACTIVE, NativeStretch=ACTIVE)")
     }
 
     @OptIn(UnstableApi::class)
@@ -207,8 +191,7 @@ class CrossfadeEngine @Inject constructor(
         isPlayerA: Boolean
     ): ExoPlayer {
         val processors: Array<AudioProcessor> = listOfNotNull(
-            if (isPlayerA) waveformProcessorA else waveformProcessorB,
-            if (isPlayerA) processorA         else processorB
+            if (isPlayerA) waveformProcessorA else waveformProcessorB
         ).toTypedArray()
 
         val drcFactory = DrcSuppressingMediaCodecAdapterFactory()
@@ -251,8 +234,6 @@ class CrossfadeEngine @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "[LIFECYCLE] Error releasing players", e)
             } finally {
-                processorA?.reset(); processorA = null
-                processorB?.reset(); processorB = null
                 waveformProcessorA?.reset(); waveformProcessorA = null
                 waveformProcessorB?.reset(); waveformProcessorB = null
                 isInitialized = false
@@ -290,11 +271,15 @@ class CrossfadeEngine @Inject constructor(
         engineScope.launch {
             withContext(Dispatchers.Main) {
                 playerB?.pause(); playerB?.clearMediaItems(); playerB?.volume = 0f
+                playerB?.playbackParameters = PlaybackParameters.DEFAULT
 
                 val primary = playerA ?: return@withContext
                 primary.stop(); primary.clearMediaItems()
                 primary.setMediaItem(MediaItem.fromUri(audioFile.uri))
-                primary.volume = 1f; primary.prepare(); primary.play()
+                primary.volume = 1f
+                primary.playbackParameters = PlaybackParameters.DEFAULT
+                primary.prepare()
+                primary.play()
             }
 
             postCrossfadeGuardUntilMs = System.currentTimeMillis() + 5_000L
@@ -352,6 +337,7 @@ class CrossfadeEngine @Inject constructor(
                     isPrebufferingInProgress = false; return@withContext
                 }
                 secondary.stop(); secondary.clearMediaItems()
+                secondary.playbackParameters = PlaybackParameters.DEFAULT
                 secondary.setMediaItem(MediaItem.fromUri(audioFile.uri))
                 secondary.volume = 0f; secondary.prepare()
                 if (firstBeatMs > 0L) secondary.seekTo(firstBeatMs)
@@ -379,92 +365,135 @@ class CrossfadeEngine @Inject constructor(
     // ═════════════════════════════════════════════════════════════════════════
 
     private suspend fun executeCrossfade(
-        nextTrack: AudioFile, firstBeatMs: Long = 0L, nextBpm: Float = 0f, nextAmplitude: Float = 0f
+        nextTrack: AudioFile,
+        firstBeatMs: Long = 0L,
+        nextBpm: Float = 0f,
+        nextAmplitude: Float = 0f
     ) {
-        val primaryRef   = primaryPlayer()
+        val primaryRef = primaryPlayer()
         val secondaryRef = secondaryPlayer()
         if (primaryRef == null || secondaryRef == null) return
+
         abortCrossfade = false
 
-        val decision = mixDecisionEngine.computeMixDecision(currentTrackBpm, nextBpm, crossfadeDurationMs)
+        // ── DJ BRAIN: Energy-aware decision ──────────────────────────────────────────
+        val decision = mixDecisionEngine.computeMixDecision(
+            currentTrackBpm,
+            nextBpm,
+            crossfadeDurationMs,
+            currentTrackAmplitude,
+            nextAmplitude
+        )
+
         Log.i(TAG, "[MIXER] ${decision.djNote}")
 
-        _state.update { it.copy(isCrossfading = true, crossfadeProgressFraction = 0f, currentMixStrategy = decision.strategy) }
+        _state.update {
+            it.copy(
+                isCrossfading = true,
+                crossfadeProgressFraction = 0f,
+                currentMixStrategy = decision.strategy
+            )
+        }
 
         var bassKillEq: android.media.audiofx.Equalizer? = null
-
         try {
-            val secondaryBaseVolume = if (nextAmplitude > 0f) (0.15f / nextAmplitude).coerceIn(0.2f, 1.0f) else 1.0f
+            val secondaryBaseVolume = if (nextAmplitude > 0f) {
+                (0.15f / nextAmplitude).coerceIn(0.2f, 1.0f)
+            } else 1.0f
             val primaryBaseVolume = currentTrackBaseVolume
 
-            // ── 1. Prepare Secondary ──
+            // ── 1. Prepare Secondary & Apply Native Stretch ────────────────────────────
             val alreadyPrebuffered = prebufferedTrackId == nextTrack.id
             withContext(Dispatchers.Main) {
                 if (!alreadyPrebuffered) {
-                    secondaryRef.stop(); secondaryRef.clearMediaItems()
+                    secondaryRef.stop()
+                    secondaryRef.clearMediaItems()
                     secondaryRef.setMediaItem(MediaItem.fromUri(nextTrack.uri))
-                    secondaryRef.volume = 0f; secondaryRef.prepare()
+                    secondaryRef.volume = 0f
+                    secondaryRef.prepare()
                 } else {
                     prebufferedTrackId = null
                 }
+
                 if (decision.shouldTempoSync && decision.stretchRatio != 1.0) {
-                    secondaryProcessor()?.setTimeRatio(decision.stretchRatio)
+                    // ExoPlayer Native Stretch: speed is adjusted without shifting pitch
+                    secondaryRef.playbackParameters = PlaybackParameters(decision.stretchRatio.toFloat(), 1.0f)
+                } else {
+                    secondaryRef.playbackParameters = PlaybackParameters.DEFAULT
                 }
             }
 
-            // ── 2. Wait for READY ──
-            var waitMs = 0L; var ready = false
+            // ── 2. Wait for READY ──────────────────────────────────────────────────────
+            var waitMs = 0L
+            var ready = false
             while (waitMs < 3000L) {
-                ready = withContext(Dispatchers.Main) { secondaryRef.playbackState == Player.STATE_READY && secondaryRef.currentMediaItem != null }
+                ready = withContext(Dispatchers.Main) {
+                    secondaryRef.playbackState == Player.STATE_READY && secondaryRef.currentMediaItem != null
+                }
                 if (ready) break
-                delay(100L); waitMs += 100L
+                delay(100L)
+                waitMs += 100L
             }
 
-            // ── 3. Clamp Seek ──
+            // ── 3. PHASE-ALIGNED SEEK ──────────────────────────────────────────────────
             val safeFirstBeatMs: Long = withContext(Dispatchers.Main) {
                 val secDuration = secondaryRef.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-                if (secDuration > 0L && firstBeatMs > 0L) {
+                if (secDuration <= 0L || firstBeatMs <= 0L || currentTrackBpm <= 0f || nextBpm <= 0f) {
+                    firstBeatMs
+                } else {
+                    val primaryPos = primaryRef.currentPosition
+                    val outgoingBeatLenMs = 60_000f / currentTrackBpm
+                    val primaryPhaseMs = ((primaryPos - currentTrackFirstBeatMs)
+                        .coerceAtLeast(0L) % outgoingBeatLenMs.toLong() + outgoingBeatLenMs.toLong()) % outgoingBeatLenMs.toLong()
+
+                    val incomingBeatLenMs = 60_000f / nextBpm
+                    val phaseFraction = primaryPhaseMs.toFloat() / outgoingBeatLenMs
+                    val sourcePhaseMs = (phaseFraction * incomingBeatLenMs).toLong()
+
+                    var targetSeek = firstBeatMs + sourcePhaseMs
+
                     val minRemaining = decision.effectiveCrossfadeDurationMs * 2
-                    val maxSafe      = (secDuration - minRemaining).coerceAtLeast(0L)
-                    firstBeatMs.coerceAtMost(maxSafe)
-                } else firstBeatMs
-            }
-            if (safeFirstBeatMs > 0L) withContext(Dispatchers.Main) { secondaryRef.seekTo(safeFirstBeatMs) }
+                    val maxSafe = (secDuration - minRemaining).coerceAtLeast(0L)
+                    targetSeek = targetSeek.coerceAtMost(maxSafe).coerceAtLeast(0L)
 
-            // ── 4. Start Muted ──
+                    targetSeek
+                }
+            }
+
+            if (safeFirstBeatMs > 0L) {
+                withContext(Dispatchers.Main) {
+                    secondaryRef.seekTo(safeFirstBeatMs)
+                }
+            }
+
+            // ── 4. Start Muted ─────────────────────────────────────────────────────────
             withContext(Dispatchers.Main) {
-                try { secondaryRef.volume = 0f; secondaryRef.play() }
-                catch (e: Exception) { Log.e(TAG, "[MIXER] Secondary play failed", e) }
+                try {
+                    secondaryRef.volume = 0f
+                    secondaryRef.play()
+                } catch (e: Exception) {
+                    Log.e(TAG, "[MIXER] Secondary play failed", e)
+                }
             }
 
-            var playWaitMs = 0L; var secondaryIsPlaying = false
+            var playWaitMs = 0L
+            var secondaryIsPlaying = false
             while (!secondaryIsPlaying && playWaitMs < 1000L) {
-                delay(100L); playWaitMs += 100L
+                delay(100L)
+                playWaitMs += 100L
                 secondaryIsPlaying = withContext(Dispatchers.Main) { secondaryRef.isPlaying }
             }
 
-            // ── 5. Equal-Power Ramp & Bass Kill ──
-            //
-            // 🔧 FIX: Capture the REAL current volume of the primary player before the
-            // fade loop begins. On the first-ever crossfade, startPlayback sets
-            // player.volume = 1f, while currentTrackBaseVolume is e.g. 0.42f (auto-gain
-            // normalised). Using primaryBaseVolume directly as the start point caused an
-            // immediate 1.0 → 0.42 jump on frame 1 — the audible "track dying and
-            // resurrecting" artefact. Subsequent crossfades were fine because after every
-            // swap the new primary was already playing at secondaryBaseVolume ≈ its own
-            // currentTrackBaseVolume, so no jump occurred.
-            //
-            // By reading the live volume here, we always fade smoothly from wherever
-            // the player actually is, regardless of normalisation state.
+            // ── 5. Equal-Power Ramp + Energy-Aware Bass Kill ───────────────────────────
             val primaryStartVolume = withContext(Dispatchers.Main) { primaryRef.volume }
-
             val stepDelayMs = (decision.effectiveCrossfadeDurationMs / FADE_STEPS).coerceAtLeast(16L)
             var bassKillApplied = false
 
             for (step in 1..FADE_STEPS) {
                 if (!engineScope.isActive || abortCrossfade) break
+
                 val progress = step.toFloat() / FADE_STEPS
-                val angle    = progress * (PI.toFloat() / 2f)
+                val angle = progress * (PI.toFloat() / 2f)
 
                 if (!bassKillApplied && progress >= decision.bassKillThresholdFraction) {
                     bassKillApplied = true
@@ -478,71 +507,96 @@ class CrossfadeEngine @Inject constructor(
                                     eq.enabled = true
                                     eq.setBandLevel(bassIndex, eq.bandLevelRange[0])
                                     bassKillEq = eq
-                                    Log.d(TAG, "[MIXER] Bass kill applied at ${(progress * 100).toInt()}%")
+                                    Log.d(TAG, "[MIXER] Bass kill applied at ${(progress * 100).toInt()}% 🔥")
                                 } else eq.release()
                             }
-                        } catch (e: Exception) { Log.w(TAG, "[MIXER] Bass kill EQ failed: ${e.message}") }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "[MIXER] Bass kill EQ failed: ${e.message}")
+                        }
                     }
                 }
 
                 withContext(Dispatchers.Main) {
-                    // 🔧 FIX: fade OUT from primaryStartVolume (real current volume),
-                    // not from primaryBaseVolume (normalised target that may differ).
-                    primaryRef.volume   = cos(angle) * primaryStartVolume
+                    primaryRef.volume = cos(angle) * primaryStartVolume
                     secondaryRef.volume = sin(angle) * secondaryBaseVolume
                 }
                 _state.update { it.copy(crossfadeProgressFraction = sin(angle)) }
                 delay(stepDelayMs)
             }
 
-            // ── 6. Abort Check ──
+            // ── 6. Abort Check ─────────────────────────────────────────────────────────
             if (abortCrossfade) {
-                secondaryProcessor()?.resetRatio()
                 withContext(Dispatchers.Main) {
-                    // 🔧 FIX: restore to where we started, not to the normalised target.
+                    secondaryRef.playbackParameters = PlaybackParameters.DEFAULT
                     primaryRef.volume = primaryStartVolume
-                    try { secondaryRef.pause(); secondaryRef.volume = 0f } catch (e: Exception) {}
+                    try {
+                        secondaryRef.pause()
+                        secondaryRef.volume = 0f
+                    } catch (e: Exception) {}
                 }
                 abortCrossfade = false
                 _state.update { it.copy(isCrossfading = false, crossfadeProgressFraction = 0f) }
                 return
             }
 
-            // ── 7. Swap Players ──
+            // ── 7. Swap Players ────────────────────────────────────────────────────────
             withContext(Dispatchers.Main) {
                 try {
                     primaryRef.pause()
-                    primaryRef.volume = primaryBaseVolume  // safe: player is paused, resets for reuse
-                    if (secondaryRef.isPlaying) { secondaryRef.volume = secondaryBaseVolume }
+                    primaryRef.volume = primaryBaseVolume
+                    if (secondaryRef.isPlaying) {
+                        secondaryRef.volume = secondaryBaseVolume
+                    }
                 } catch (e: Exception) {}
             }
 
             val swapped = withContext(Dispatchers.Main) {
-                if (secondaryRef.isPlaying) { isPrimaryA = !isPrimaryA; true } else false
+                if (secondaryRef.isPlaying) {
+                    isPrimaryA = !isPrimaryA
+                    true
+                } else false
             }
 
             if (!swapped) {
-                withContext(Dispatchers.Main) { try { primaryRef.volume = primaryBaseVolume; primaryRef.play() } catch (e: Exception) {} }
+                withContext(Dispatchers.Main) {
+                    try {
+                        primaryRef.volume = primaryBaseVolume
+                        primaryRef.play()
+                    } catch (e: Exception) {}
+                }
                 _state.update { it.copy(isCrossfading = false, crossfadeProgressFraction = 0f) }
                 return
             }
 
-            withContext(Dispatchers.Main) { try { primaryPlayer()?.play() } catch (e: Exception) {} }
+            withContext(Dispatchers.Main) {
+                try { primaryPlayer()?.play() } catch (e: Exception) {}
+            }
 
-            // ── 8. Reset State ──
+            // ── 8. Reset State ─────────────────────────────────────────────────────────
             lastPlaybackStartMs = System.currentTimeMillis()
-            stallRecoveryCount  = 0
-            lastRequestedTrackId      = null
-            prebufferedTrackId        = null
-            lastPrebufferRequestedId  = null
-            currentTrackMixOutMs      = null
+            stallRecoveryCount = 0
+            lastRequestedTrackId = null
+            prebufferedTrackId = null
+            lastPrebufferRequestedId = null
+            currentTrackMixOutMs = null
             postCrossfadeGuardUntilMs = System.currentTimeMillis() + decision.effectiveCrossfadeDurationMs
 
-            _state.update { it.copy(currentTrack = nextTrack, isPlaying = true, isCrossfading = false, crossfadeProgressFraction = 0f) }
-            Log.i(TAG, "[MIXER] Swap Complete -> Next Track: '${nextTrack.title}'")
+            _state.update {
+                it.copy(
+                    currentTrack = nextTrack,
+                    isPlaying = true,
+                    isCrossfading = false,
+                    crossfadeProgressFraction = 0f
+                )
+            }
 
+            Log.i(TAG, "[MIXER] Swap Complete → Next Track: '${nextTrack.title}'")
+
+            // Clear tempo stretch from the now-paused primary player
             if (decision.shouldTempoSync && decision.stretchRatio != 1.0) {
-                withContext(Dispatchers.Main) { try { primaryProcessor()?.resetRatio() } catch (e: Exception) {} }
+                withContext(Dispatchers.Main) {
+                    try { primaryRef.playbackParameters = PlaybackParameters.DEFAULT } catch (e: Exception) {}
+                }
             }
 
             pendingNextTrack?.let { pending ->
@@ -551,8 +605,13 @@ class CrossfadeEngine @Inject constructor(
             }
 
         } finally {
-            if (_state.value.isCrossfading) _state.update { it.copy(isCrossfading = false, crossfadeProgressFraction = 0f) }
-            try { bassKillEq?.release(); bassKillEq = null } catch (e: Exception) {}
+            if (_state.value.isCrossfading) {
+                _state.update { it.copy(isCrossfading = false, crossfadeProgressFraction = 0f) }
+            }
+            try {
+                bassKillEq?.release()
+                bassKillEq = null
+            } catch (e: Exception) {}
         }
     }
 
@@ -560,11 +619,6 @@ class CrossfadeEngine @Inject constructor(
     // L2 FALLBACK: BLUETOOTH STALL RECOVERY
     // ═════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Layer 2 Protection against Android BT HAL freezes.
-     * Loads the stalled track onto the secondary player to obtain a fresh AudioTrack
-     * session that joins the already-warm Bluetooth pipeline.
-     */
     private suspend fun performSameTrackRecoveryOnSecondary(track: AudioFile) {
         val frozenPrimary  = primaryPlayer()
         val freshSecondary = secondaryPlayer()
@@ -583,6 +637,7 @@ class CrossfadeEngine @Inject constructor(
             freshSecondary.stop()
             freshSecondary.clearMediaItems()
             freshSecondary.setMediaItem(MediaItem.fromUri(track.uri))
+            freshSecondary.playbackParameters = PlaybackParameters.DEFAULT
             freshSecondary.volume = 0f
             freshSecondary.prepare()
         }
@@ -695,7 +750,6 @@ class CrossfadeEngine @Inject constructor(
                     position >= mixAt && remaining > crossfadeDurationMs
                 } else false
 
-                // ── 1. Pre-buffer request ──
                 if (inPrebufferZone && !_state.value.isCrossfading && prebufferedTrackId == null && !isPrebufferingInProgress) {
                     val id = _state.value.currentTrack?.id
                     if (id != null && id != lastPrebufferRequestedId) {
@@ -704,7 +758,6 @@ class CrossfadeEngine @Inject constructor(
                     }
                 }
 
-                // ── 2. Crossfade Trigger ──
                 val shouldTrigger = playing && !_state.value.isCrossfading && !postGuardActive && duration > 0L &&
                         (customMixOut || ((inTriggerZone || isMaxTime) && isOnBeat && (isAtPhrase || mustTrigger)))
 
@@ -717,7 +770,6 @@ class CrossfadeEngine @Inject constructor(
                     }
                 }
 
-                // ── 3. Stall Detector (L2 Guard) ──
                 val startupGracePassed = System.currentTimeMillis() - lastPlaybackStartMs > STALL_STARTUP_GRACE_MS
                 val stallCandidate = playing && position == 0L && duration > 0L && !_state.value.isCrossfading && startupGracePassed
 
@@ -753,7 +805,6 @@ class CrossfadeEngine @Inject constructor(
                     }
                 }
 
-                // ── 4. State update ──
                 val timeToNextMixMs: Long? = when {
                     _state.value.isCrossfading   -> null
                     !playing || duration <= 0L   -> null
