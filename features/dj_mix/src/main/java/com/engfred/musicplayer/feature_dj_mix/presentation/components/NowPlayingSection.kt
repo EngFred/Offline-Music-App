@@ -34,23 +34,28 @@ import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.feature_dj_mix.data.crossfade.MixStrategy
 import kotlin.math.max
 
-// Strategy UI Mapping
+// ── Strategy UI Mapping ───────────────────────────────────────────────────────
+//
+// [TEST BUILD] Only HARMONIC and WIDE_TRANSITION branches are active.
+// TRANSPARENT / SMOOTH / POWER_MIX branches are COMMENTED OUT.
+// To restore: un-comment the [STRATEGY TEST] when-branches below.
+
 val MixStrategy.uiLabel: String
     get() = when (this) {
-        MixStrategy.TRANSPARENT     -> "TRANSPARENT BLEND"
-        MixStrategy.SMOOTH          -> "SMOOTH SYNC"
-        MixStrategy.POWER_MIX       -> "POWER MIX"
-        MixStrategy.HARMONIC        -> "HARMONIC DROP"
-        MixStrategy.WIDE_TRANSITION -> "ENERGY VALLEY"
+        // MixStrategy.TRANSPARENT     -> "TRANSPARENT BLEND"  // [STRATEGY TEST]
+        // MixStrategy.SMOOTH          -> "SMOOTH SYNC"         // [STRATEGY TEST]
+        // MixStrategy.POWER_MIX       -> "POWER MIX"           // [STRATEGY TEST]
+        MixStrategy.HARMONIC         -> "HARMONIC DROP"
+        MixStrategy.WIDE_TRANSITION  -> "ENERGY VALLEY"
     }
 
 val MixStrategy.themeColor: Color
     get() = when (this) {
-        MixStrategy.TRANSPARENT     -> Color(0xFF0288D1)
-        MixStrategy.SMOOTH          -> Color(0xFF388E3C)
-        MixStrategy.POWER_MIX       -> Color(0xFFF57C00)
-        MixStrategy.HARMONIC        -> Color(0xFF8E24AA)
-        MixStrategy.WIDE_TRANSITION -> Color(0xFFD32F2F)
+        // MixStrategy.TRANSPARENT     -> Color(0xFF0288D1)  // [STRATEGY TEST]
+        // MixStrategy.SMOOTH          -> Color(0xFF388E3C)  // [STRATEGY TEST]
+        // MixStrategy.POWER_MIX       -> Color(0xFFF57C00)  // [STRATEGY TEST]
+        MixStrategy.HARMONIC         -> Color(0xFF8E24AA)
+        MixStrategy.WIDE_TRANSITION  -> Color(0xFFD32F2F)
     }
 
 @Composable

@@ -16,7 +16,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,6 +29,44 @@ import javax.inject.Singleton
  * 2. MANUAL — the DJ Mix UI exposes a pad grid; tapping a pad calls
  *             [triggerSample] directly.
  *
+ * ── TEST BUILD ────────────────────────────────────────────────────────────────
+ * Decision space is reduced to HARMONIC + WIDE_TRANSITION only.
+ * TRANSPARENT / SMOOTH / POWER_MIX auto-trigger branches are COMMENTED OUT.
+ *
+ * Orphaned samples (previously only triggered by the removed strategies) have
+ * been redistributed:
+ *   • Promoted to manual pads in SampleId (isManual = true) — always tappable.
+ *   • WHITE_NOISE_UP and IMPACT_HIT added as extra mid triggers for HARMONIC.
+ *   • RISER_SWEEP added as an extra mid trigger for WIDE_TRANSITION.
+ *   • AIR_HORN promoted to WIDE_TRANSITION drop (was SMOOTH/POWER_MIX drop).
+ *
+ * To restore full 5-strategy behaviour:
+ *   1. Un-comment all [STRATEGY TEST] blocks here.
+ *   2. Un-comment MixStrategy entries in CrossfadeModels.kt.
+ *   3. Un-comment decision branches in MixDecisionEngine.kt.
+ *   4. Revert isManual = false on synthesized samples in SampleId.kt.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * ── Auto-trigger map (TEST BUILD — 2 strategies) ─────────────────────────────
+ *
+ *  Strategy          │ On START       │ Mid 1               │ Mid 2               │ On DROP
+ *  ──────────────────┼────────────────┼─────────────────────┼─────────────────────┼──────────
+ *  HARMONIC          │ REWIND_SWEEP   │ WHITE_NOISE_UP (40%)│ IMPACT_HIT    (70%) │ CROWD_HEY
+ *  WIDE_TRANSITION   │ SIREN          │ RISER_SWEEP    (30%)│ STUTTER_HIT   (45%) │ AIR_HORN
+ *  ─────────────────────────────────────────────────────────────────────────────────────────
+ *  Session start     │ AIR_HORN (once, fired by DjMixService on first play)
+ *
+ * ── Original auto-trigger map (FULL 5-strategy — for reference) ──────────────
+ *
+ *  Strategy          │ On START        │ Mid                       │ On DROP
+ *  ──────────────────┼─────────────────┼───────────────────────────┼────────────────────
+ *  TRANSPARENT       │ DJ_SCRATCH      │ —                         │ — (silence = effect)
+ *  SMOOTH            │ RISER_SWEEP     │ STUTTER_HIT    (50%)      │ AIR_HORN
+ *  POWER_MIX         │ WHITE_NOISE_UP  │ IMPACT_HIT     (35%)      │ AIR_HORN
+ *  HARMONIC          │ REWIND_SWEEP    │ —                         │ CROWD_HEY
+ *  WIDE_TRANSITION   │ SIREN           │ STUTTER_HIT    (45%)      │ CROWD_HEY
+ *  ─────────────────────────────────────────────────────────────────────────────────────────
+ *
  * ── Architecture notes ───────────────────────────────────────────────────────
  * - [SoundPool] pre-decodes all audio to raw PCM at load time, so each
  *   [triggerSample] fires in < 10 ms — fast enough to feel "live".
@@ -39,35 +76,6 @@ import javax.inject.Singleton
  * - [SamplerEngine] is a @Singleton; call [initialize] from [DjMixService.onCreate]
  *   and [release] from [DjMixService.releaseAndStop] / [DjMixService.onDestroy].
  * - Call [onSessionStarted] from [DjMixService] when the first track begins playing.
- *
- * ── Auto-trigger map (every strategy has full coverage) ──────────────────────
- *
- *  Strategy          │ On crossfade START  │ Mid-mix (fraction)       │ On DROP (complete)
- *  ──────────────────┼─────────────────────┼──────────────────────────┼────────────────────
- *  TRANSPARENT       │ DJ_SCRATCH          │ —                        │ — (silence = effect)
- *  SMOOTH            │ RISER_SWEEP         │ STUTTER_HIT   (50%)      │ AIR_HORN
- *  POWER_MIX         │ WHITE_NOISE_UP      │ IMPACT_HIT    (35%)      │ AIR_HORN
- *  HARMONIC          │ REWIND_SWEEP        │ —                        │ CROWD_HEY
- *  WIDE_TRANSITION   │ SIREN               │ STUTTER_HIT   (45%)      │ CROWD_HEY
- *  ────────────────────────────────────────────────────────────────────────────────────────
- *  Session start     │ AIR_HORN (once — fired via [onSessionStarted])
- *
- * ── DJ reasoning ─────────────────────────────────────────────────────────────
- * TRANSPARENT: Perfect beatmatch — a quick scratch says "I see you" without drama.
- *              No drop sound needed; the seamless blend IS the drop.
- *
- * SMOOTH: Riser builds anticipation. Stutter at the midpoint pumps energy during
- *         the bass-kill gap. Air horn celebrates the clean landing.
- *
- * POWER_MIX: White noise sweeps in aggression. Impact hit at bass-kill threshold
- *            punches the crowd as low-end drops out. Air horn at the drop.
- *
- * HARMONIC: A downward rewind sweep primes the ear for the tempo shift —
- *           "time is bending". Crowd Hey at landing celebrates the harmonic lock.
- *
- * WIDE_TRANSITION: Siren announces the energy valley (>15 BPM jump = dramatic moment).
- *                  Stutter at mid fills the silence when both tracks feel disconnected.
- *                  Crowd Hey at drop rewards the crowd for surviving the valley.
  */
 @UnstableApi
 @Singleton
@@ -79,14 +87,24 @@ class SamplerEngine @Inject constructor(
 
     companion object {
         private const val TAG         = "SamplerEngine"
-        private const val MAX_STREAMS = 6 // bumped to allow session-horn + mid + drop overlap
+        private const val MAX_STREAMS = 6
 
-        // Per-strategy mid-crossfade trigger thresholds (fraction of crossfade progress).
-        // These intentionally differ from the bass-kill EQ thresholds in MixDecisionEngine
-        // — the sampler fires at a musically optimal moment, the EQ at a technical one.
-        private const val MID_FRACTION_SMOOTH          = 0.50f // halfway — peak energy build
-        private const val MID_FRACTION_POWER_MIX       = 0.35f // matches BASS_KILL_POWER_MIX
-        private const val MID_FRACTION_WIDE_TRANSITION = 0.45f // just before energy valley nadir
+        // ── Per-strategy mid-crossfade trigger thresholds ─────────────────────
+        // These intentionally differ from the bass-kill EQ thresholds in
+        // MixDecisionEngine — the sampler fires at a musically optimal moment,
+        // the EQ at a technical one.
+
+        // [TEST BUILD] SMOOTH / POWER_MIX thresholds kept for reference only.
+        // private const val MID_FRACTION_SMOOTH          = 0.50f  // [STRATEGY TEST]
+        // private const val MID_FRACTION_POWER_MIX       = 0.35f  // [STRATEGY TEST]
+
+        // HARMONIC mid triggers (new in test build)
+        private const val MID_FRACTION_HARMONIC_1       = 0.40f  // WHITE_NOISE_UP — builds tension
+        private const val MID_FRACTION_HARMONIC_2       = 0.70f  // IMPACT_HIT     — punch at lock moment
+
+        // WIDE_TRANSITION mid triggers (RISER_SWEEP added; STUTTER_HIT kept at original fraction)
+        private const val MID_FRACTION_WIDE_TRANSITION_1 = 0.30f  // RISER_SWEEP  — builds during valley
+        private const val MID_FRACTION_WIDE_TRANSITION_2 = 0.45f  // STUTTER_HIT  — fills energy valley nadir
 
         private const val SESSION_HORN_POLL_MS    = 20L
         private const val SESSION_HORN_TIMEOUT_MS = 600L
@@ -119,10 +137,15 @@ class SamplerEngine @Inject constructor(
     @Volatile private var isReleased    = false
 
     /**
-     * Guards against firing the mid-crossfade sampler more than once per transition.
-     * Reset to false each time isCrossfading flips true → false → true.
+     * Tracks which mid-crossfade thresholds have already fired for the current
+     * crossfade transition. Cleared each time isCrossfading flips false → true.
+     *
+     * Replaces the original single [midTriggerFiredForCurrentCrossfade] boolean now
+     * that each strategy can have multiple mid triggers at different fractions.
+     * Accessed only from within the sequential [observerJob] coroutine — no
+     * synchronisation needed.
      */
-    @Volatile private var midTriggerFiredForCurrentCrossfade = false
+    private val firedMidThresholds = mutableSetOf<Float>()
 
     val isReady: Boolean get() = isInitialized && !isReleased
 
@@ -138,7 +161,7 @@ class SamplerEngine @Inject constructor(
             isReleased    = false
             soundIds.clear()
             loadedSounds.clear()
-            midTriggerFiredForCurrentCrossfade = false
+            firedMidThresholds.clear()
         }
 
         val audioAttrs = AudioAttributes.Builder()
@@ -282,37 +305,36 @@ class SamplerEngine @Inject constructor(
      *
      * Fix: fast-path plays immediately if already decoded (all launches after the first).
      * Slow-path polls loadedSounds every SESSION_HORN_POLL_MS until the asset is ready
-     * or SESSION_HORN_TIMEOUT_MS elapses. Typical slow-path wait: 20-40ms (1-2 poll
-     * cycles after the decoder finishes).
+     * or SESSION_HORN_TIMEOUT_MS elapses. Typical slow-path wait: 20-40ms.
      */
     fun onSessionStarted() {
         if (isReleased || !isAutoSamplerEnabled) return
 
-        // Fast path: already loaded - play immediately (common on all launches after first).
+        // Fast path: already loaded — play immediately.
         val soundId = soundIds[SampleId.AIR_HORN]
         if (soundId != null && soundId in loadedSounds) {
             triggerSample(SampleId.AIR_HORN)
-            Log.d(TAG, "onSessionStarted: AIR_HORN fired immediately - DJ Mix is live")
+            Log.d(TAG, "onSessionStarted: AIR_HORN fired immediately — DJ Mix is live")
             return
         }
 
-        // Slow path: decoder hasn't finished yet - wait and retry.
-        Log.d(TAG, "onSessionStarted: AIR_HORN not decoded yet - waiting (slow path)")
+        // Slow path: decoder hasn't finished yet — wait and retry.
+        Log.d(TAG, "onSessionStarted: AIR_HORN not decoded yet — waiting (slow path)")
         samplerScope.launch {
             val startMs = System.currentTimeMillis()
             val sid     = soundIds[SampleId.AIR_HORN] ?: run {
-                Log.w(TAG, "onSessionStarted: AIR_HORN has no soundId - asset load may have failed")
+                Log.w(TAG, "onSessionStarted: AIR_HORN has no soundId — asset load may have failed")
                 return@launch
             }
             while (!isReleased) {
                 if (sid in loadedSounds) {
                     triggerSample(SampleId.AIR_HORN)
                     Log.d(TAG, "onSessionStarted: AIR_HORN fired after " +
-                            "${System.currentTimeMillis() - startMs}ms wait - DJ Mix is live")
+                            "${System.currentTimeMillis() - startMs}ms wait — DJ Mix is live")
                     return@launch
                 }
                 if (System.currentTimeMillis() - startMs > SESSION_HORN_TIMEOUT_MS) {
-                    Log.w(TAG, "onSessionStarted: AIR_HORN timed out after ${SESSION_HORN_TIMEOUT_MS}ms - skipping")
+                    Log.w(TAG, "onSessionStarted: AIR_HORN timed out after ${SESSION_HORN_TIMEOUT_MS}ms — skipping")
                     return@launch
                 }
                 delay(SESSION_HORN_POLL_MS)
@@ -329,11 +351,11 @@ class SamplerEngine @Inject constructor(
      * at three lifecycle points per crossfade:
      *
      *  1. **START**  — isCrossfading flips false → true
-     *  2. **MID**    — crossfadeProgressFraction crosses the per-strategy threshold
-     *                  (only for SMOOTH, POWER_MIX, WIDE_TRANSITION)
+     *  2. **MID**    — crossfadeProgressFraction crosses any per-strategy threshold
+     *                  (each strategy now supports multiple mid triggers)
      *  3. **DROP**   — isCrossfading flips true → false AND currentTrack.id changed
      *
-     * [midTriggerFiredForCurrentCrossfade] ensures the mid-sample fires exactly once
+     * [firedMidThresholds] ensures each threshold fires exactly once per transition
      * even if the state flow emits rapidly around the threshold value.
      */
     private fun startAutoTriggerObserver() {
@@ -349,21 +371,26 @@ class SamplerEngine @Inject constructor(
 
                 // ── 1. Crossfade just STARTED ─────────────────────────────────
                 if (previous?.isCrossfading == false && current.isCrossfading) {
-                    midTriggerFiredForCurrentCrossfade = false
+                    firedMidThresholds.clear()
                     onCrossfadeStarted(current.currentMixStrategy)
                 }
 
-                // ── 2. Mid-crossfade threshold crossed ────────────────────────
-                if (current.isCrossfading && !midTriggerFiredForCurrentCrossfade) {
-                    val midTrigger = midTriggerFor(current.currentMixStrategy)
-                    if (midTrigger != null) {
-                        val prevFraction = previous?.crossfadeProgressFraction ?: 0f
-                        val currFraction = current.crossfadeProgressFraction
-                        if (prevFraction < midTrigger.first && currFraction >= midTrigger.first) {
-                            midTriggerFiredForCurrentCrossfade = true
-                            triggerSample(midTrigger.second)
-                            Log.d(TAG, "Auto: mid-mix [${current.currentMixStrategy}] @ " +
-                                    "${(midTrigger.first * 100).toInt()}% → ${midTrigger.second.name}")
+                // ── 2. Mid-crossfade thresholds crossed ───────────────────────
+                // Each strategy can now declare multiple (threshold, sample) pairs.
+                if (current.isCrossfading) {
+                    val midTriggers = midTriggersFor(current.currentMixStrategy)
+                    val prevFraction = previous?.crossfadeProgressFraction ?: 0f
+                    val currFraction = current.crossfadeProgressFraction
+
+                    for ((threshold, sample) in midTriggers) {
+                        if (threshold !in firedMidThresholds
+                            && prevFraction < threshold
+                            && currFraction >= threshold
+                        ) {
+                            firedMidThresholds.add(threshold)
+                            triggerSample(sample)
+                            Log.d(TAG, "Auto: mid-mix [${current.currentMixStrategy}] " +
+                                    "@ ${(threshold * 100).toInt()}% → ${sample.name}")
                         }
                     }
                 }
@@ -378,56 +405,85 @@ class SamplerEngine @Inject constructor(
     }
 
     /**
-     * Returns the (threshold fraction, sample) pair for strategies that have a
-     * mid-crossfade trigger, or null for strategies that do not.
+     * Returns the ordered list of (threshold fraction, sample) pairs that should
+     * auto-fire during the crossfade body for the given [strategy].
+     *
+     * An empty list means no mid-crossfade triggers for that strategy.
+     *
+     * [TEST BUILD] Each active strategy now has TWO mid triggers to make full
+     * use of the sample library that was previously spread across 5 strategies.
+     *
+     * [STRATEGY TEST] Original single-trigger branches preserved in comments below.
+     * To restore: replace this function body with the original single-pair returns.
      */
-    private fun midTriggerFor(strategy: MixStrategy): Pair<Float, SampleId>? = when (strategy) {
-        MixStrategy.SMOOTH          -> MID_FRACTION_SMOOTH          to SampleId.STUTTER_HIT
-        MixStrategy.POWER_MIX       -> MID_FRACTION_POWER_MIX       to SampleId.IMPACT_HIT
-        MixStrategy.WIDE_TRANSITION -> MID_FRACTION_WIDE_TRANSITION to SampleId.STUTTER_HIT
-        MixStrategy.TRANSPARENT,
-        MixStrategy.HARMONIC        -> null
+    private fun midTriggersFor(strategy: MixStrategy): List<Pair<Float, SampleId>> = when (strategy) {
+
+        MixStrategy.HARMONIC -> listOf(
+            MID_FRACTION_HARMONIC_1 to SampleId.WHITE_NOISE_UP,  // 40% — filter sweep builds tension
+            MID_FRACTION_HARMONIC_2 to SampleId.IMPACT_HIT       // 70% — kick-punch as harmonic lock hits
+        )
+        // [STRATEGY TEST] Original HARMONIC had no mid trigger:
+        // MixStrategy.HARMONIC -> null / emptyList()
+
+        MixStrategy.WIDE_TRANSITION -> listOf(
+            MID_FRACTION_WIDE_TRANSITION_1 to SampleId.RISER_SWEEP,  // 30% — riser builds through valley
+            MID_FRACTION_WIDE_TRANSITION_2 to SampleId.STUTTER_HIT   // 45% — stutter fills energy nadir
+        )
+        // [STRATEGY TEST] Original WIDE_TRANSITION had one mid trigger:
+        // MixStrategy.WIDE_TRANSITION -> listOf(0.45f to SampleId.STUTTER_HIT)
+
+        // [STRATEGY TEST] Commented out — strategies not in active decision path.
+        // MixStrategy.TRANSPARENT     -> emptyList()
+        // MixStrategy.SMOOTH          -> listOf(MID_FRACTION_SMOOTH    to SampleId.STUTTER_HIT)
+        // MixStrategy.POWER_MIX       -> listOf(MID_FRACTION_POWER_MIX to SampleId.IMPACT_HIT)
     }
 
     // ── Lifecycle callbacks ───────────────────────────────────────────────────
 
+    /**
+     * Fires the start-of-crossfade sample for the given strategy.
+     *
+     * [TEST BUILD] Only HARMONIC and WIDE_TRANSITION are active.
+     * Original full-matrix branches preserved in comments below.
+     */
     private fun onCrossfadeStarted(strategy: MixStrategy) {
         val sample = when (strategy) {
-            // Quick scratch: subtle professional acknowledgment of the beatmatch.
-            MixStrategy.TRANSPARENT     -> SampleId.DJ_SCRATCH
+            // [STRATEGY TEST] Commented out — strategies not in active decision path.
+            // MixStrategy.TRANSPARENT     -> SampleId.DJ_SCRATCH    // subtle scratch: "I see you"
+            // MixStrategy.SMOOTH          -> SampleId.RISER_SWEEP   // rising sweep: "something's coming"
+            // MixStrategy.POWER_MIX       -> SampleId.WHITE_NOISE_UP // aggressive noise sweep in
 
-            // Classic rising sweep: tells the crowd "something's coming".
-            MixStrategy.SMOOTH          -> SampleId.RISER_SWEEP
-
-            // Aggressive white noise sweep in: primes the ear for the power mix.
-            MixStrategy.POWER_MIX       -> SampleId.WHITE_NOISE_UP
-
-            // Downward vinyl brake: "time is shifting" — perfect for half/double-time.
-            MixStrategy.HARMONIC        -> SampleId.REWIND_SWEEP
+            // Downward vinyl brake: "time is shifting" — primes the ear for harmonic transition.
+            MixStrategy.HARMONIC         -> SampleId.REWIND_SWEEP
 
             // Siren: announces the energy valley — the BPM jump IS the moment.
-            MixStrategy.WIDE_TRANSITION -> SampleId.SIREN
+            MixStrategy.WIDE_TRANSITION  -> SampleId.SIREN
         }
         triggerSample(sample)
         Log.d(TAG, "Auto: crossfade started [${strategy.name}] → ${sample.name}")
     }
 
+    /**
+     * Fires the drop (end-of-crossfade) sample for the given strategy.
+     *
+     * [TEST BUILD] Only HARMONIC and WIDE_TRANSITION are active.
+     * AIR_HORN promoted from SMOOTH/POWER_MIX drop → WIDE_TRANSITION drop.
+     * Original full-matrix branches preserved in comments below.
+     */
     private fun onDropCompleted(strategy: MixStrategy) {
-        val sample = when (strategy) {
-            // Seamless blend — silence respects the transparency. No drop sound needed.
-            MixStrategy.TRANSPARENT     -> null
-
-            // Air horn: classic crowd-pleaser on a clean SMOOTH landing.
-            MixStrategy.SMOOTH          -> SampleId.AIR_HORN
-
-            // Air horn: rewards the crowd after the bass-kill power mix.
-            MixStrategy.POWER_MIX       -> SampleId.AIR_HORN
+        val sample: SampleId = when (strategy) {
+            // [STRATEGY TEST] Commented out — strategies not in active decision path.
+            // MixStrategy.TRANSPARENT     -> null               // silence respects the blend
+            // MixStrategy.SMOOTH          -> SampleId.AIR_HORN  // classic crowd-pleaser on clean landing
+            // MixStrategy.POWER_MIX       -> SampleId.AIR_HORN  // rewards crowd after bass-kill power mix
 
             // Crowd Hey: celebrates the harmonic lock — the crowd earned this.
-            MixStrategy.HARMONIC        -> SampleId.CROWD_HEY
+            MixStrategy.HARMONIC         -> SampleId.CROWD_HEY
 
-            // Crowd Hey: payoff after surviving the wide-transition energy valley.
-            MixStrategy.WIDE_TRANSITION -> SampleId.CROWD_HEY
+            // Air Horn: [TEST BUILD] promoted from SMOOTH/POWER_MIX drop.
+            // Payoff after surviving the wide-transition energy valley.
+            // [STRATEGY TEST] Original was SampleId.CROWD_HEY — restore if preferred.
+            MixStrategy.WIDE_TRANSITION  -> SampleId.AIR_HORN
         } ?: return
 
         triggerSample(sample)
