@@ -60,6 +60,9 @@ class SettingsRepositoryImpl @Inject constructor(
         private val LAST_MIX_OF_THE_DAY_TIMESTAMP = longPreferencesKey("last_mix_of_the_day_timestamp")
 
         private val DJ_MIX_PLAYLIST_FILTER = stringPreferencesKey("dj_mix_playlist_filter")
+
+        private val LAST_UPDATE_CHECK_TIMESTAMP = longPreferencesKey("last_update_check_timestamp")
+        private val SNOOZED_UPDATE_VERSION      = stringPreferencesKey("snoozed_update_version")
     }
 
     override fun getAppSettings(): Flow<AppSettings> {
@@ -241,5 +244,19 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun updateDjMixPlaylistFilter(filter: DjMixPlaylistFilter) {
         dataStore.edit { it[DJ_MIX_PLAYLIST_FILTER] = filter.name }
+    }
+
+    override suspend fun getLastUpdateCheckTimestamp(): Long =
+        dataStore.data.first()[LAST_UPDATE_CHECK_TIMESTAMP] ?: 0L
+
+    override suspend fun updateLastUpdateCheckTimestamp(timestamp: Long) {
+        dataStore.edit { it[LAST_UPDATE_CHECK_TIMESTAMP] = timestamp }
+    }
+
+    override suspend fun getSnoozedUpdateVersion(): String =
+        dataStore.data.first()[SNOOZED_UPDATE_VERSION] ?: ""
+
+    override suspend fun updateSnoozedUpdateVersion(version: String) {
+        dataStore.edit { it[SNOOZED_UPDATE_VERSION] = version }
     }
 }

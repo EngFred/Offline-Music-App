@@ -26,10 +26,12 @@ import com.engfred.musicplayer.core.domain.ActivePlayerRegistry
 import com.engfred.musicplayer.core.domain.model.AppSettings
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.model.AutomaticPlaylistType
+import com.engfred.musicplayer.core.domain.model.UpdateInfo
 import com.engfred.musicplayer.core.domain.repository.LibraryRepository
 import com.engfred.musicplayer.core.domain.repository.PlaybackController
 import com.engfred.musicplayer.core.domain.repository.PlaybackState
 import com.engfred.musicplayer.core.domain.repository.SettingsRepository
+import com.engfred.musicplayer.core.domain.usecases.CheckForUpdateUseCase
 import com.engfred.musicplayer.core.domain.usecases.PermissionHandlerUseCase
 import com.engfred.musicplayer.core.ui.theme.AppThemeType
 import com.engfred.musicplayer.core.ui.theme.MusicPlayerAppTheme
@@ -43,6 +45,8 @@ import com.engfred.musicplayer.helpers.IntentPermissionHelper
 import com.engfred.musicplayer.helpers.PlaybackQueueHelper
 import com.engfred.musicplayer.navigation.AppDestinations
 import com.engfred.musicplayer.navigation.AppNavHost
+import com.engfred.musicplayer.update.UpdateCheckWorker
+import com.engfred.musicplayer.update.UpdateDialog
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -66,6 +70,8 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var activePlayerRegistry: ActivePlayerRegistry
     @Inject lateinit var djSessionManager: DjSessionManager
 
+    @Inject lateinit var checkForUpdateUseCase: CheckForUpdateUseCase
+
     private var externalPlaybackUri by mutableStateOf<Uri?>(null)
     private var pendingPlaybackUri: Uri? = null
     private var lastHandledUriString: String? = null
@@ -83,6 +89,10 @@ class MainActivity : ComponentActivity() {
     private var mixOfTheDayPlaylistId by mutableLongStateOf(AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID)
 
     private val uiScope get() = lifecycleScope
+
+    // Update dialog state
+    private var updateInfo by mutableStateOf<UpdateInfo?>(null)
+    private var showUpdateDialog by mutableStateOf(false)
 
     @UnstableApi
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,6 +115,17 @@ class MainActivity : ComponentActivity() {
         }
 
         scheduleBackgroundScan()
+
+//        // ── TEMPORARY: force update dialog for UI testing — REMOVE BEFORE RELEASE ──
+//        uiScope.launch {
+//            updateInfo = UpdateInfo(
+//                latestVersion = "99.9.9",
+//                releaseNotes  = "Introducing DJ Auto-Mix!\nTurn your playlist into a seamless DJ set.\n\nPro-Level Transitions with custom Full Energy volume curve.\n\nGenius Drop Mixes for smooth automatic transitions.",
+//                downloadUrl   = "https://github.com/EngFred/Offline-Music-App/releases",
+//                htmlUrl       = "https://github.com/EngFred/Offline-Music-App/releases"
+//            )
+//            showUpdateDialog = true
+//        }
 
         uiScope.launch {
             try {
@@ -151,6 +172,28 @@ class MainActivity : ComponentActivity() {
                 checkIntentForNewMusic(intent)
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed to prepare playing queue: ${t.message}")
+            }
+        }
+
+        // ── On-launch update check (throttled to once per 24 h) ──────────────────────
+        uiScope.launch {
+            try {
+                val lastCheck = settingsRepository.getLastUpdateCheckTimestamp()
+                val now       = System.currentTimeMillis()
+                val oneDayMs  = 24L * 60 * 60 * 1000
+                if (now - lastCheck > oneDayMs) {
+                    settingsRepository.updateLastUpdateCheckTimestamp(now)
+                    val info = checkForUpdateUseCase(BuildConfig.VERSION_NAME)
+                    if (info != null) {
+                        val snoozed = settingsRepository.getSnoozedUpdateVersion()
+                        if (info.latestVersion != snoozed) {
+                            updateInfo      = info
+                            showUpdateDialog = true
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "On-launch update check failed: ${t.message}")
             }
         }
 
@@ -352,6 +395,32 @@ class MainActivity : ComponentActivity() {
                         externalPlaybackUri = null
                     }
                 }
+
+                // ── Update dialog ─────────────────────────────────────────────────────────────
+                val currentUpdateInfo = updateInfo
+                if (showUpdateDialog && currentUpdateInfo != null) {
+                    UpdateDialog(
+                        updateInfo    = currentUpdateInfo,
+                        onDownload    = {
+                            // User tapped Download — dismiss and clear snooze for this version
+                            showUpdateDialog = false
+                            updateInfo = null
+                        },
+                        onRemindLater = {
+                            // Snooze this version so the dialog doesn't reappear until a newer one
+                            showUpdateDialog = false
+                            uiScope.launch {
+                                settingsRepository.updateSnoozedUpdateVersion(
+                                    currentUpdateInfo.latestVersion
+                                )
+                            }
+                            updateInfo = null
+                        },
+                        onDismiss = {
+                            showUpdateDialog = false
+                        }
+                    )
+                }
             }
         }
     }
@@ -386,6 +455,7 @@ class MainActivity : ComponentActivity() {
             workRequest
         )
         MixOfTheDayWorker.schedule(this)
+        UpdateCheckWorker.schedule(this)
     }
 
     private suspend fun checkIntentForNewMusic(intent: Intent?) {
@@ -429,6 +499,21 @@ class MainActivity : ComponentActivity() {
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error handling incoming intent: ${e.message}", e)
+        }
+
+        // ── Notification tap: force an immediate update check ────────────────────
+        if (intent?.getBooleanExtra("SHOW_UPDATE_DIALOG", false) == true) {
+            uiScope.launch {
+                try {
+                    val info = checkForUpdateUseCase(BuildConfig.VERSION_NAME)
+                    if (info != null) {
+                        updateInfo      = info
+                        showUpdateDialog = true
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Notification-triggered update check failed: ${t.message}")
+                }
+            }
         }
     }
 

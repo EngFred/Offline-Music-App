@@ -42,4 +42,11 @@ interface SettingsRepository {
     suspend fun updateDjSampleVolume(volume: Float)
 
     suspend fun updateDjMixPlaylistFilter(filter: DjMixPlaylistFilter)
+
+    // ── App update ────────────────────────────────────────────────────────────────
+    suspend fun getLastUpdateCheckTimestamp(): Long
+    suspend fun updateLastUpdateCheckTimestamp(timestamp: Long)
+    /** The version string the user last dismissed ("" if never). */
+    suspend fun getSnoozedUpdateVersion(): String
+    suspend fun updateSnoozedUpdateVersion(version: String)
 }

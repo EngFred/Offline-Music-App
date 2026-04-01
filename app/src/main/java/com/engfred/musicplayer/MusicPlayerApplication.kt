@@ -22,6 +22,7 @@ class MusicPlayerApplication : Application(), Configuration.Provider, ImageLoade
 
     companion object {
         const val NEW_MUSIC_CHANNEL_ID = "new_music_channel"
+        const val UPDATE_CHANNEL_ID    = "app_update_channel"
     }
 
     override fun onCreate() {
@@ -62,16 +63,26 @@ class MusicPlayerApplication : Application(), Configuration.Provider, ImageLoade
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "New Music Updates"
-            val descriptionText = "Notifications when new music is found on device"
-            val importance = NotificationManager.IMPORTANCE_DEFAULT
+            val notificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            val channel = NotificationChannel(NEW_MUSIC_CHANNEL_ID, name, importance).apply {
-                description = descriptionText
-            }
+            // new music scan channel
+            notificationManager.createNotificationChannel(
+                NotificationChannel(
+                    NEW_MUSIC_CHANNEL_ID,
+                    "New Music Updates",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply { description = "Notifications when new music is found on device" }
+            )
 
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            // app update channel
+            notificationManager.createNotificationChannel(
+                NotificationChannel(
+                    UPDATE_CHANNEL_ID,
+                    "App Updates",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply { description = "Notifications when a new version of the app is available" }
+            )
         }
     }
 }
