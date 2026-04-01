@@ -36,7 +36,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -76,7 +76,6 @@ fun VinylSection(
         label         = "countdown_arc"
     )
 
-    // Vinyl rotation
     val rotation = remember { Animatable(0f) }
     LaunchedEffect(isPlaying) {
         if (isPlaying) {
@@ -91,8 +90,6 @@ fun VinylSection(
     }
 
     Box(modifier = modifier.size(188.dp), contentAlignment = Alignment.Center) {
-
-        // Countdown arc ring drawn behind the vinyl
         Canvas(modifier = Modifier.fillMaxSize()) {
             val strokeWidth = 5.dp.toPx()
             val inset       = strokeWidth / 2f
@@ -123,7 +120,6 @@ fun VinylSection(
             }
         }
 
-        // The vinyl disc itself — rotates
         Box(
             modifier = Modifier
                 .size(174.dp)
@@ -132,19 +128,25 @@ fun VinylSection(
                 .graphicsLayer { rotationZ = rotation.value },
             contentAlignment = Alignment.Center
         ) {
-            if (albumArtUri != null) {
-                AsyncImage(
-                    model              = albumArtUri,
-                    contentDescription = "Album Art",
-                    contentScale       = ContentScale.Crop,
-                    modifier           = Modifier.fillMaxSize().clip(CircleShape)
-                )
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.15f)))
-            } else {
-                FallbackVinylArt(accentColor = primaryColor)
-            }
+            SubcomposeAsyncImage(
+                model = albumArtUri,
+                contentDescription = "Album Art",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                loading = { FallbackVinylArt(accentColor = primaryColor) },
+                error = { FallbackVinylArt(accentColor = primaryColor) }
+            )
 
-            // Center hole
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f))
+                        )
+                    )
+            )
+
             Box(
                 modifier = Modifier
                     .size(28.dp)
@@ -161,18 +163,14 @@ fun FallbackVinylArt(
     modifier: Modifier = Modifier,
     accentColor: Color = Color(0xFFBB86FC)
 ) {
-    val onAccent = Color.White
-
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val maxRadius = size.width / 2f
             val cx = center.x
             val cy = center.y
 
-            // ── 1. Outer vinyl base ───────────────────────────────────────────
             drawCircle(color = Color(0xFF1A1A1A), radius = maxRadius)
 
-            // ── 2. Subtle grooves (lighter than before so they're visible) ────
             for (i in 2..10) {
                 drawCircle(
                     color  = Color.White.copy(alpha = 0.06f),
@@ -181,17 +179,12 @@ fun FallbackVinylArt(
                 )
             }
 
-            // ── 3. Sweep sheen — strong enough to see rotate ──────────────────
             drawCircle(
                 brush = Brush.sweepGradient(
                     colorStops = arrayOf(
-                        0.00f to Color.Transparent,
-                        0.10f to Color.White.copy(alpha = 0.00f),
-                        0.22f to Color.White.copy(alpha = 0.18f),   // bright sector
-                        0.30f to Color.White.copy(alpha = 0.04f),
+                        0.22f to Color.White.copy(alpha = 0.18f),
                         0.50f to Color.Transparent,
-                        0.72f to Color.White.copy(alpha = 0.10f),   // secondary shimmer
-                        0.80f to Color.White.copy(alpha = 0.02f),
+                        0.72f to Color.White.copy(alpha = 0.10f),
                         1.00f to Color.Transparent
                     ),
                     center = center
@@ -199,13 +192,9 @@ fun FallbackVinylArt(
                 radius = maxRadius
             )
 
-            // ── 4. Label circle ───────────────────────────────────────────────
             val labelRadius = maxRadius * 0.42f
             drawCircle(color = accentColor.copy(alpha = 0.90f), radius = labelRadius)
 
-            // ── 5. STRONG half-dark arc — the PRIMARY rotation cue ────────────
-            // alpha = 0.55f makes a clearly visible dark/light split on the label.
-            // As the disc spins, this "dark side" sweeps visibly around the label.
             drawArc(
                 color      = Color.Black.copy(alpha = 0.55f),
                 startAngle = 0f,
@@ -215,9 +204,6 @@ fun FallbackVinylArt(
                 size       = Size(labelRadius * 2f, labelRadius * 2f)
             )
 
-            // ── 6. Accent stripe — the SECONDARY rotation cue ─────────────────
-            // A bright radial line from center toward label edge, like a record stripe.
-            // Drawn at a fixed angle in local space; sweeps with every rotation tick.
             val stripeAngleRad = Math.toRadians(45.0).toFloat()
             val stripeEnd = Offset(
                 x = cx + labelRadius * 0.88f * cos(stripeAngleRad),
@@ -230,24 +216,13 @@ fun FallbackVinylArt(
                 strokeWidth = 2.5.dp.toPx(),
                 cap         = StrokeCap.Round
             )
-
-            // ── 7. Inner ring on label ────────────────────────────────────────
-            drawCircle(
-                color  = Color.White.copy(alpha = 0.25f),
-                radius = labelRadius * 0.82f,
-                style  = Stroke(width = 1.dp.toPx())
-            )
         }
 
-        // ── 8. Offset icon — orbits as vinyl spins ────────────────────────────
-        // Placed at top-left quadrant to complement the stripe at bottom-right.
         Icon(
-            imageVector        = Icons.Rounded.MusicNote,
+            imageVector = Icons.Rounded.MusicNote,
             contentDescription = null,
-            tint               = onAccent.copy(alpha = 0.85f),
-            modifier           = Modifier
-                .offset(x = (-14).dp, y = (-14).dp)
-                .size(22.dp)
+            tint = Color.White.copy(alpha = 0.85f),
+            modifier = Modifier.offset(x = (-14).dp, y = (-14).dp).size(22.dp)
         )
     }
 }

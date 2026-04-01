@@ -27,7 +27,7 @@ sealed class AppDestinations(val route: String) {
 
     data object CreatePlaylist : AppDestinations("create_playlist")
 
-    /** DJ Mix screen — entered from PlaylistDetailScreen for user-created playlists,
+    /** Auto Mix screen — entered from PlaylistDetailScreen for user-created playlists,
      *  OR from DjMixLauncherScreen when navigated via the bottom nav bar. */
     data object DjMix : AppDestinations("dj_mix/{playlistId}") {
         fun createRoute(playlistId: Long) = "dj_mix/$playlistId"

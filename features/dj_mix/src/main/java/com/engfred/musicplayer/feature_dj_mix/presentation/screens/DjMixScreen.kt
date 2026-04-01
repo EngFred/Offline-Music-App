@@ -68,7 +68,6 @@ fun DjMixScreen(
     val lazyListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Creates the deep, emotional background extraction feel using the current theme's primary color
     val backgroundBrush = Brush.verticalGradient(
         colors = listOf(
             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
@@ -117,34 +116,24 @@ fun DjMixScreen(
                 )
             )
         },
-        floatingActionButtonPosition = FabPosition.Center, // Centers all FABs at the bottom
+        floatingActionButtonPosition = FabPosition.Center,
         floatingActionButton = {
             if (uiState.currentTrack != null) {
-                // Currently Playing Controls
-                Row(
-                    modifier = Modifier.padding(bottom = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                FloatingActionButton(
+                    onClick        = { viewModel.onEvent(DjMixEvent.PlayPause) },
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor   = MaterialTheme.colorScheme.onSurfaceVariant,
+                    shape          = RoundedCornerShape(percent = 50)
                 ) {
-                    // Persistent Play/Pause FAB
-                    FloatingActionButton(
-                        onClick        = { viewModel.onEvent(DjMixEvent.PlayPause) },
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor   = MaterialTheme.colorScheme.onSurfaceVariant,
-                        shape          = RoundedCornerShape(percent = 50)
-                    ) {
-                        Icon(
-                            imageVector = if (uiState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = "Play/Pause"
-                        )
-                    }
+                    Icon(
+                        imageVector = if (uiState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = "Play/Pause"
+                    )
                 }
             } else if (uiState.smartQueue.isNotEmpty()) {
-                // Initial "Start Mix" FAB when nothing is playing yet
                 ExtendedFloatingActionButton(
                     onClick = {
                         viewModel.onEvent(DjMixEvent.PlayPause)
-                        // Scroll to the top when the mix starts
                         coroutineScope.launch {
                             lazyListState.animateScrollToItem(0)
                         }
@@ -172,7 +161,7 @@ fun DjMixScreen(
                 modifier       = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     top    = paddingValues.calculateTopPadding() + 16.dp,
-                    bottom = 120.dp // Padding for FABs
+                    bottom = 120.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(32.dp)
             ) {
@@ -191,11 +180,10 @@ fun DjMixScreen(
 
                 uiState.currentTrack?.let { track ->
                     item(key = "now_playing") {
-                        val bpmInfo = uiState.bpmCache[track.id]
                         NowPlayingSection(
                             trackTitle        = track.title,
                             trackArtist       = track.artist ?: "Unknown Artist",
-                            bpm               = bpmInfo?.bpm?.takeIf { bpmInfo.analysisFailed != true },
+                            bpm               = uiState.bpmCache[track.id]?.bpm?.takeIf { uiState.bpmCache[track.id]?.analysisFailed != true },
                             positionMs        = uiState.currentPositionMs,
                             durationMs        = uiState.currentDurationMs,
                             isCrossfading     = uiState.isCrossfading,
@@ -213,9 +201,7 @@ fun DjMixScreen(
 
                 item(key = "queue_header") {
                     Row(
-                        modifier          = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 8.dp),
+                        modifier          = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -226,8 +212,6 @@ fun DjMixScreen(
                             color         = MaterialTheme.colorScheme.primary
                         )
                         Spacer(Modifier.weight(1f))
-
-                        Spacer(Modifier.width(4.dp))
                         Text(
                             text       = "${uiState.smartQueue.size} TRACKS",
                             style      = MaterialTheme.typography.labelMedium,
@@ -244,8 +228,7 @@ fun DjMixScreen(
                     SmartQueueItem(
                         position           = index + 1,
                         song               = song,
-                        bpm                = uiState.bpmCache[song.id]?.bpm
-                            ?.takeIf { uiState.bpmCache[song.id]?.analysisFailed != true },
+                        bpm                = uiState.bpmCache[song.id]?.bpm?.takeIf { uiState.bpmCache[song.id]?.analysisFailed != true },
                         analysisFailed     = uiState.bpmCache[song.id]?.analysisFailed == true,
                         isCurrent          = song.id == uiState.currentTrack?.id,
                         isPlayed           = song.id in uiState.playedTrackIds && song.id != uiState.currentTrack?.id,
@@ -255,7 +238,6 @@ fun DjMixScreen(
         }
     }
 
-    // ── DJ Settings Bottom Sheet ──────────────────────────────────────────────
     if (showSettingsSheet) {
         ModalBottomSheet(
             onDismissRequest = { showSettingsSheet = false },
@@ -264,9 +246,7 @@ fun DjMixScreen(
             dragHandle = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp)
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)
             ) {
                 Text(
                     text = "MIX SETTINGS",
@@ -279,11 +259,11 @@ fun DjMixScreen(
 
                 ControlsSection(
                     isRealMixMode        = uiState.settings.isRealMixMode,
-                    onToggleRealMixMode        = { viewModel.onEvent(DjMixEvent.ToggleRealMixMode(it)) },
-                    autoSamplerEnabled         = uiState.settings.autoSamplerEnabled,
-                    sampleVolume               = uiState.settings.sampleVolume,
-                    onToggleAutoSampler        = { viewModel.onEvent(DjMixEvent.ToggleAutoSampler(it)) },
-                    onSampleVolumeChanged      = { viewModel.onEvent(DjMixEvent.UpdateSampleVolume(it)) },
+                    onToggleRealMixMode  = { viewModel.onEvent(DjMixEvent.ToggleRealMixMode(it)) },
+                    autoSamplerEnabled   = uiState.settings.autoSamplerEnabled,
+                    sampleVolume         = uiState.settings.sampleVolume,
+                    onToggleAutoSampler  = { viewModel.onEvent(DjMixEvent.ToggleAutoSampler(it)) },
+                    onSampleVolumeChanged = { viewModel.onEvent(DjMixEvent.UpdateSampleVolume(it)) },
                 )
                 Spacer(modifier = Modifier.height(48.dp))
             }

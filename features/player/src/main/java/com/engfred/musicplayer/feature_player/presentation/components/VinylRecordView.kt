@@ -25,6 +25,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
+import coil.compose.SubcomposeAsyncImage
 import com.skydoves.landscapist.ImageOptions
 import com.skydoves.landscapist.coil.CoilImage
 import kotlinx.coroutines.delay
@@ -177,7 +178,6 @@ fun AnimatedAura(
         }
     }
 }
-
 @Composable
 fun VinylDisk(
     modifier: Modifier = Modifier,
@@ -213,20 +213,13 @@ fun VinylDisk(
             .clip(CircleShape)
             .background(
                 brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFF1A1A1A),
-                        Color(0xFF0D0D0D)
-                    )
+                    colors = listOf(Color(0xFF1A1A1A), Color(0xFF0D0D0D))
                 )
             )
             .border(
                 width = 1.5.dp,
                 brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF404040),
-                        Color(0xFF2A2A2A),
-                        Color(0xFF404040)
-                    )
+                    colors = listOf(Color(0xFF404040), Color(0xFF2A2A2A), Color(0xFF404040))
                 ),
                 shape = CircleShape
             )
@@ -236,11 +229,11 @@ fun VinylDisk(
             },
         contentAlignment = Alignment.Center
     ) {
+        // ── Vinyl Grooves & Sheen ────────────────────────────────────────────
         Canvas(modifier = Modifier.fillMaxSize()) {
             val center = Offset(size.width / 2, size.height / 2)
             val radius = size.minDimension / 2
 
-            // Enhanced grooves with varying depth
             for (i in 1..20) {
                 val grooveRadius = radius * (0.3f + (i * 0.03f))
                 val opacity = (0.15f + (i % 3) * 0.05f)
@@ -252,7 +245,6 @@ fun VinylDisk(
                 )
             }
 
-            // Dynamic sheen effect
             rotate(degrees = -45f, pivot = center) {
                 drawRect(
                     brush = Brush.linearGradient(
@@ -271,28 +263,28 @@ fun VinylDisk(
             }
         }
 
-        // Album art with better styling
-        CoilImage(
-            imageModel = { albumArtUri },
+        // ── Subcompose Image Loading ─────────────────────────────────────────
+        SubcomposeAsyncImage(
+            model = albumArtUri,
+            contentDescription = "Album Art",
+            contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxSize(0.42f)
                 .shadow(8.dp, CircleShape)
                 .clip(CircleShape)
                 .border(3.dp, Color(0xFF2A2A2A), CircleShape),
-            imageOptions = ImageOptions(contentScale = ContentScale.Crop)
+            loading = { FallbackVinylArt() },
+            error = { FallbackVinylArt() }
         )
 
-        // Center spindle with gradient
+        // ── Center Spindle ───────────────────────────────────────────────────
         Box(
             modifier = Modifier
                 .size(14.dp)
                 .clip(CircleShape)
                 .background(
                     brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFFF0F0F0),
-                            Color(0xFFC0C0C0)
-                        )
+                        colors = listOf(Color(0xFFF0F0F0), Color(0xFFC0C0C0))
                     )
                 )
                 .border(1.5.dp, Color(0xFF1A1A1A), CircleShape)

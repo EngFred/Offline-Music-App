@@ -3,6 +3,7 @@ package com.engfred.musicplayer.feature_dj_mix.presentation.screens
 import android.net.Uri
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +30,8 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -280,89 +284,115 @@ private fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
+private fun PlaylistPlaceholder(
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                // Using a subtle tonal surface color instead of a random gradient
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.MusicNote, // The universal music note placeholder
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+            modifier = Modifier.size(28.dp)
+        )
+    }
+}
+
+@Composable
 private fun PlaylistRow(
     playlist: Playlist,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val artUri: Uri? = playlist.customArtUri ?: playlist.songs.firstOrNull()?.albumArtUri
+    val hasValidImage = artUri != null && artUri.path?.isNotEmpty() == true
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-        tonalElevation = 1.dp
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+        tonalElevation = 2.dp
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
-                contentAlignment = Alignment.Center
+            Surface(
+                modifier = Modifier.size(60.dp),
+                shape = RoundedCornerShape(12.dp),
+                shadowElevation = 4.dp
             ) {
-                if (artUri != null) {
-                    AsyncImage(
+                if (hasValidImage) {
+                    // Use SubcomposeAsyncImage to allow Composable error states
+                    coil.compose.SubcomposeAsyncImage(
                         model = artUri,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        error = {
+                            PlaylistPlaceholder() // Now this will work!
+                        },
+                        loading = {
+                            // Optional: Show placeholder while loading
+                            PlaylistPlaceholder()
+                        }
                     )
+                } else {
+                    PlaylistPlaceholder()
                 }
-                Icon(
-                    imageVector = playlist.type.toIcon(),
-                    contentDescription = null,
-                    tint = if (artUri != null)
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0f)
-                    else
-                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-                    modifier = Modifier.size(24.dp)
-                )
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(16.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = playlist.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = "${playlist.songs.size} tracks",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
-
-            FilledTonalButton(
+            Button(
                 onClick = onClick,
-                shape = RoundedCornerShape(percent = 50),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFE600E6),
+                    contentColor = Color.White
+                ),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                modifier = Modifier.height(36.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.PlayArrow,
+                    imageVector = Icons.Rounded.AutoAwesome,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(14.dp)
                 )
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "MIX",
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 0.5.sp,
-                    style = MaterialTheme.typography.labelMedium
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 1.sp
+                    )
                 )
             }
         }
