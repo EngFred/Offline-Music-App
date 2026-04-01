@@ -17,7 +17,6 @@ import androidx.room.PrimaryKey
  * 3 — added amplitude
  * 4 — added waveformEnvelope
  * 5 — added analysisFailed
- * 6 — added customCueInMs and customMixOutMs                          ← NEW
  */
 @Entity(tableName = "bpm_cache")
 data class BpmCacheEntity(

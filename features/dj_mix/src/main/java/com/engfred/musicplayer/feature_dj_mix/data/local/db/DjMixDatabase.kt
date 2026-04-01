@@ -9,18 +9,9 @@ import com.engfred.musicplayer.feature_dj_mix.data.local.converter.FloatArrayTyp
 import com.engfred.musicplayer.feature_dj_mix.data.local.dao.BpmCacheDao
 import com.engfred.musicplayer.feature_dj_mix.data.local.entity.BpmCacheEntity
 
-/**
- * Version history:
- * 1 — initial schema (bpm_cache table)
- * 2 — added firstBeatMs column
- * 3 — added amplitude column
- * 4 — added waveformEnvelope column (real PCM-derived amplitude envelope)
- * 5 — added analysisFailed
- * 6 — added customCueInMs and customMixOutMs
- */
 @Database(
     entities = [BpmCacheEntity::class],
-    version = 6,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(FloatArrayTypeConverter::class)

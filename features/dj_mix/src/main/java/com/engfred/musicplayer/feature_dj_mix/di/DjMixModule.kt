@@ -56,6 +56,7 @@ abstract class DjMixModule {
                     DjMixDatabase.MIGRATION_3_4,
                     DjMixDatabase.MIGRATION_4_5
                 )
+                .fallbackToDestructiveMigration(true)
                 .build()
 
         @Provides

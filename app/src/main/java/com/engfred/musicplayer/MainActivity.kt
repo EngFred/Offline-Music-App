@@ -182,8 +182,8 @@ class MainActivity : ComponentActivity() {
                 val now       = System.currentTimeMillis()
                 val oneDayMs  = 24L * 60 * 60 * 1000
                 if (now - lastCheck > oneDayMs) {
-                    settingsRepository.updateLastUpdateCheckTimestamp(now)
                     val info = checkForUpdateUseCase(BuildConfig.VERSION_NAME)
+                    settingsRepository.updateLastUpdateCheckTimestamp(now)
                     if (info != null) {
                         val snoozed = settingsRepository.getSnoozedUpdateVersion()
                         if (info.latestVersion != snoozed) {
