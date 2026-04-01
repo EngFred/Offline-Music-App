@@ -9,6 +9,10 @@
 
 <br />
 
+## Test APK
+A test APK is available for download via the GitHub Releases section.
+👉 You can find the latest build under **Releases** on this repository to try out the app without building it locally.
+
 **Music** is a fully offline, modern, modularized music player built with **Kotlin** and **Jetpack Compose**. 
 
 Designed with **Clean Architecture** principles, it features a robust audio engine powered by **Media3 (ExoPlayer)**, seamless modular navigation, and advanced features like audio trimming and tag editing. This project serves as a showcase for modern Android development best practices.
