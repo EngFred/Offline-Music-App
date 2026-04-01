@@ -9,11 +9,6 @@
 
 <br />
 
-[![Download APK](https://img.shields.io/badge/Download%20APK-v2.5.3-success?style=for-the-badge&logo=android&logoColor=white)](https://github.com/EngFred/Offline-Music-App/releases/download/v2.5.3/Music_v2.5.3.apk)
-![Size](https://img.shields.io/badge/Size-23.1_MB-blue?style=for-the-badge)
-
----
-
 **Music** is a fully offline, modern, modularized music player built with **Kotlin** and **Jetpack Compose**. 
 
 Designed with **Clean Architecture** principles, it features a robust audio engine powered by **Media3 (ExoPlayer)**, seamless modular navigation, and advanced features like audio trimming and tag editing. This project serves as a showcase for modern Android development best practices.
@@ -74,6 +69,7 @@ include(":features:playlist")
 include(":features:settings")
 include(":features:trim")
 include(":features:edit")
+include(":features:dj_mix")
 ```
 
 ---
@@ -142,19 +138,10 @@ features/
  │   └─ presentation/
  ├─ playlist/
  ├─ settings/
+ ├─ edit/
+ ├─ dj_mix/
  └─ trim/
 ```
 
 Each feature follows the same `data/domain/presentation` pattern. Keeping public interfaces in `domain` and implementation details in `data`.
 
----
-
-## Contact
-
-For questions or collaboration reach me at:
-
-Email: engfred88@gmail.com
-
-WhatsApp: 0754348118
-
-LinkedIn: https://www.linkedin.com/in/fred-omongole-a5943b2b0/
