@@ -53,10 +53,10 @@ import kotlin.math.sin
  *
  * ── Continuous Play Mode (isRealMixMode = false) ──────────────────────────────
  * When Auto-Mix is OFF the engine runs in "Continuous Play" mode:
- *  • Crossfade still executes (equal-power fade, bass-kill EQ, BPM-aware duration).
- *  • First-beat seeking is SKIPPED — incoming tracks start from position 0.
- *  • Prebuffering skips the firstBeatMs seek for the same reason.
- *  • Sampler suppression is handled upstream (DjMixService / DjMixViewModel).
+ * • Crossfade still executes (equal-power fade, bass-kill EQ, BPM-aware duration).
+ * • First-beat seeking is SKIPPED — incoming tracks start from position 0.
+ * • Prebuffering skips the firstBeatMs seek for the same reason.
+ * • Sampler suppression is handled upstream (DjMixService / DjMixViewModel).
  * Everything else (position monitoring, waveform) is unchanged.
  */
 @UnstableApi
@@ -181,7 +181,7 @@ class CrossfadeEngine @Inject constructor(
         playerB = buildExoPlayer(attrs, handleAudioFocus = false, isPlayerA = false)
 
         isInitialized = true
-        Log.i(TAG, "[LIFECYCLE] CrossfadeEngine Initialized (DrcSuppression=ACTIVE)")
+        Log.i(TAG, "[LIFECYCLE] CrossfadeEngine Initialized")
     }
 
     @OptIn(UnstableApi::class)
@@ -194,8 +194,6 @@ class CrossfadeEngine @Inject constructor(
             if (isPlayerA) waveformProcessorA else waveformProcessorB
         ).toTypedArray()
 
-        val drcFactory = DrcSuppressingMediaCodecAdapterFactory()
-
         val renderersFactory = object : DefaultRenderersFactory(context) {
             override fun buildAudioSink(
                 context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean
@@ -207,7 +205,7 @@ class CrossfadeEngine @Inject constructor(
                 eventListener: AudioRendererEventListener, out: ArrayList<androidx.media3.exoplayer.Renderer>
             ) {
                 out.add(MediaCodecAudioRenderer(
-                    context, drcFactory, mediaCodecSelector, enableDecoderFallback,
+                    context, mediaCodecSelector, enableDecoderFallback,
                     eventHandler, eventListener, audioSink
                 ))
             }

@@ -53,7 +53,6 @@
 
 # Your custom AudioProcessor implementations
 -keep class com.engfred.musicplayer.feature_dj_mix.data.crossfade.WaveformCaptureAudioProcessor { *; }
--keep class com.engfred.musicplayer.feature_dj_mix.data.crossfade.DrcSuppressingMediaCodecAdapterFactory { *; }
 
 # ── 7. JNI — aubio BPM bridge (aubio_bridge.c) ───────────────────────
 # Covers whatever Kotlin class in data.bpm declares the native methods.
