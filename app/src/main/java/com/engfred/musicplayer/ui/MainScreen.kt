@@ -40,7 +40,7 @@ import com.engfred.musicplayer.core.ui.components.MiniPlayer
 import com.engfred.musicplayer.core.ui.components.PlayShuffleBar
 import com.engfred.musicplayer.core.util.TextUtils.formatCount
 import com.engfred.musicplayer.core.util.TextUtils.pluralize
-import com.engfred.musicplayer.feature_dj_mix.presentation.screens.DjMixLauncherScreen
+import com.engfred.musicplayer.feature_dj_mix.presentation.screens.MixStudioLauncherScreen
 import com.engfred.musicplayer.feature_library.presentation.screens.LibraryScreen
 import com.engfred.musicplayer.feature_playlist.presentation.screens.PlaylistsScreen
 import com.engfred.musicplayer.feature_settings.presentation.screens.SettingsScreen
@@ -234,7 +234,7 @@ fun MainScreen(
             }
             // ── DJ Mix Launcher tab ───────────────────────────────────────────
             composable(AppDestinations.BottomNavItem.DjMix.baseRoute) {
-                DjMixLauncherScreen(
+                MixStudioLauncherScreen(
                     onPlaylistSelected = onDjMixPlaylistSelected,
                 )
             }

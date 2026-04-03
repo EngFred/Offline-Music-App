@@ -2,10 +2,10 @@ package com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel
 
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.feature_dj_mix.data.crossfade.MixStrategy
-import com.engfred.musicplayer.feature_dj_mix.domain.model.DjMixSettings
+import com.engfred.musicplayer.feature_dj_mix.domain.model.MixStudioSettings
 import com.engfred.musicplayer.feature_dj_mix.domain.repository.BpmInfo
 
-data class DjMixUiState(
+data class MixStudioUiState(
     val playlistName: String = "",
     val totalSongs: Int = 0,
     val smartQueue: List<AudioFile> = emptyList(),
@@ -20,12 +20,27 @@ data class DjMixUiState(
     val crossfadeProgressFraction: Float = 0f,
     val currentMixStrategy: MixStrategy = MixStrategy.HARMONIC,
     val waveform: List<Float> = emptyList(),
-    val settings: DjMixSettings = DjMixSettings(),
+    val settings: MixStudioSettings = MixStudioSettings(),
     val isLoading: Boolean = true,
     val error: String? = null,
     val timeToNextMixMs: Long? = null,
     val analysisFailedCount: Int = 0,
     val canSkipBack: Boolean = false,
     val playedTrackIds: Set<Long> = emptySet(),
-    val nextTrack: AudioFile? = null
+    val nextTrack: AudioFile? = null,
+
+    // ── Analysis-in-progress dialog ───────────────────────────────────────────
+
+    /**
+     * True while the "BPM analysis still in progress" confirmation dialog is visible.
+     * Set to true when the user taps START MIX during an active analysis pass.
+     */
+    val showAnalysisDialog: Boolean = false,
+
+    /**
+     * True when the user chose "Auto-Start When Ready" from the analysis dialog.
+     * The mix will start automatically the moment [analysisProgress] reaches 1.0.
+     * Cleared as soon as the auto-start fires (or if the user presses START MIX again).
+     */
+    val pendingAutoStartAfterAnalysis: Boolean = false,
 )

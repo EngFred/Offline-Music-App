@@ -18,13 +18,13 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class DjMixLauncherViewModel @Inject constructor(
+class MixStudioLauncherViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
     private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(DjMixLauncherUiState())
-    val uiState: StateFlow<DjMixLauncherUiState> = _uiState.asStateFlow()
+    private val _uiState = MutableStateFlow(MixStudioLauncherUiState())
+    val uiState: StateFlow<MixStudioLauncherUiState> = _uiState.asStateFlow()
 
     init {
         observeData()
@@ -39,7 +39,7 @@ class DjMixLauncherViewModel @Inject constructor(
             // Require strictly more than 2 tracks
             val mixable = allPlaylists.filter { it.songs.size > 2 }
 
-            DjMixLauncherUiState(
+            MixStudioLauncherUiState(
                 isLoading = false,
                 automaticPlaylists = mixable.filter { it.isAutomatic },
                 userPlaylists = mixable.filter { !it.isAutomatic },

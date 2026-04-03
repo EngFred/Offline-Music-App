@@ -1,8 +1,6 @@
 package com.engfred.musicplayer.navigation
 
 import android.content.Context
-import android.content.Intent
-import android.widget.Toast
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
@@ -13,7 +11,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
-import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -21,7 +18,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.engfred.musicplayer.core.domain.model.AudioFile
-import com.engfred.musicplayer.feature_dj_mix.presentation.screens.DjMixScreen
+import com.engfred.musicplayer.feature_dj_mix.presentation.screens.MixStudioScreen
 import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.DjMixArgs
 import com.engfred.musicplayer.feature_trim.presentation.TrimScreen
 import com.engfred.musicplayer.feature_edit.presentation.screen.EditScreen
@@ -170,7 +167,7 @@ fun AppNavHost(
                 slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(400))
             }
         ) {
-            DjMixScreen(onNavigateBack = { rootNavController.navigateUp() })
+            MixStudioScreen(onNavigateBack = { rootNavController.navigateUp() })
         }
 
         composable(

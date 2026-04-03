@@ -2,7 +2,7 @@ package com.engfred.musicplayer.feature_dj_mix.domain
 
 import android.util.Log
 import com.engfred.musicplayer.core.domain.model.AudioFile
-import com.engfred.musicplayer.feature_dj_mix.domain.model.DjMixSettings
+import com.engfred.musicplayer.feature_dj_mix.domain.model.MixStudioSettings
 import com.engfred.musicplayer.feature_dj_mix.domain.repository.BpmInfo
 import com.engfred.musicplayer.feature_dj_mix.domain.usecases.GetSmartNextTrackUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,8 +33,8 @@ class DjSessionManager @Inject constructor(
     private val _bpmCache = MutableStateFlow<Map<Long, BpmInfo>>(emptyMap())
     val bpmCache: StateFlow<Map<Long, BpmInfo>> = _bpmCache.asStateFlow()
 
-    private val _settings = MutableStateFlow(DjMixSettings())
-    val settings: StateFlow<DjMixSettings> = _settings.asStateFlow()
+    private val _settings = MutableStateFlow(MixStudioSettings())
+    val settings: StateFlow<MixStudioSettings> = _settings.asStateFlow()
 
     // ── Play history (ordered) ────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ class DjSessionManager @Inject constructor(
 
     fun updateSmartQueue(queue: List<AudioFile>) { _smartQueue.value = queue }
     fun updateBpmCache(cache: Map<Long, BpmInfo>) { _bpmCache.value = cache }
-    fun updateSettings(settings: DjMixSettings)  { _settings.value = settings }
+    fun updateSettings(settings: MixStudioSettings)  { _settings.value = settings }
 
     @Synchronized
     fun markTrackPlayed(trackId: Long) {

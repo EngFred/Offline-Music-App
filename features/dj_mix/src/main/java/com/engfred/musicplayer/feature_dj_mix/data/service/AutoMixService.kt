@@ -54,7 +54,7 @@ import javax.inject.Inject
  */
 @UnstableApi
 @AndroidEntryPoint
-class DjMixService : Service() {
+class AutoMixService : Service() {
 
     @Inject lateinit var crossfadeEngine: CrossfadeEngine
     @Inject lateinit var djSessionManager: DjSessionManager
@@ -342,7 +342,7 @@ class DjMixService : Service() {
     }
 
     private fun getServicePendingIntent(action: String): PendingIntent {
-        val intent = Intent(this, DjMixService::class.java).apply { this.action = action }
+        val intent = Intent(this, AutoMixService::class.java).apply { this.action = action }
         return PendingIntent.getService(
             this, action.hashCode(), intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

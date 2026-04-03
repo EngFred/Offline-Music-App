@@ -12,9 +12,9 @@ import com.engfred.musicplayer.core.domain.repository.SettingsRepository
 import com.engfred.musicplayer.feature_dj_mix.data.crossfade.CrossfadeEngine
 import com.engfred.musicplayer.feature_dj_mix.data.sampler.SamplerEngine
 import com.engfred.musicplayer.feature_dj_mix.domain.DjSessionManager
-import com.engfred.musicplayer.feature_dj_mix.domain.model.DjMixSettings
+import com.engfred.musicplayer.feature_dj_mix.domain.model.MixStudioSettings
 import com.engfred.musicplayer.feature_dj_mix.domain.repository.BpmInfo
-import com.engfred.musicplayer.feature_dj_mix.domain.repository.DjMixRepository
+import com.engfred.musicplayer.feature_dj_mix.domain.repository.AutoMixRepository
 import com.engfred.musicplayer.feature_dj_mix.domain.usecases.AnalyzeBpmUseCase
 import com.engfred.musicplayer.feature_dj_mix.domain.usecases.GetSmartNextTrackUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -46,6 +46,22 @@ private const val TAG = "DjMixViewModel"
  *
  * - Handles the "Dead End" queue restart logic.
  * - Handles "Cross-Playlist Navigation" auto-starts.
+ * - Handles "Analysis in Progress" dialog and deferred auto-start.
+ *
+ * ── Analysis-in-progress flow ─────────────────────────────────────────────────
+ *
+ * When the user taps START MIX while BPM analysis is still running:
+ *
+ * 1. [PlayPause] is intercepted → [showAnalysisDialog] = true (no mix start yet).
+ * 2a. User picks "Auto-Start When Ready" → [pendingAutoStartAfterAnalysis] = true.
+ *     As soon as [analysisProgress] hits 1.0, [performRebuild] fires [startFreshMixSession].
+ * 2b. User picks "Start Now" → [startFreshMixSession] fires immediately.
+ *     Unanalysed tracks fall back to natural playlist order in the queue.
+ * 2c. User dismisses (back / outside tap) → dialog closes, nothing changes.
+ *
+ * If the user taps START MIX a second time while [pendingAutoStartAfterAnalysis] is true,
+ * the pending wait is cancelled and the mix starts immediately — consistent with the
+ * user signalling "I changed my mind, just go".
  *
  * ── Sampler suppression rule ──────────────────────────────────────────────────
  * samplerEngine.isAutoSamplerEnabled is driven by:
@@ -61,10 +77,10 @@ private const val TAG = "DjMixViewModel"
  */
 @UnstableApi
 @HiltViewModel
-class DjMixViewModel @Inject constructor(
+class MixStudioViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val playlistRepository: PlaylistRepository,
-    private val djMixRepository: DjMixRepository,
+    private val autoMixRepository: AutoMixRepository,
     private val settingsRepository: SettingsRepository,
     private val analyzeBpmUseCase: AnalyzeBpmUseCase,
     private val getSmartNextTrackUseCase: GetSmartNextTrackUseCase,
@@ -79,8 +95,8 @@ class DjMixViewModel @Inject constructor(
             "DjMixViewModel requires a playlistId in SavedStateHandle"
         }
 
-    private val _uiState = MutableStateFlow(DjMixUiState())
-    val uiState: StateFlow<DjMixUiState> = _uiState.asStateFlow()
+    private val _uiState = MutableStateFlow(MixStudioUiState())
+    val uiState: StateFlow<MixStudioUiState> = _uiState.asStateFlow()
 
     private val _uiEvent = MutableSharedFlow<String>()
     val uiEvent: SharedFlow<String> = _uiEvent.asSharedFlow()
@@ -88,7 +104,7 @@ class DjMixViewModel @Inject constructor(
     private var rawPlaylistSongs: List<AudioFile> = emptyList()
     private var rebuildJob: Job? = null
 
-    // Flag to trigger an auto-start once the queue finishes building after a playlist swap
+    /** Set to true when cross-playlist navigation requires an auto-start after queue rebuild. */
     private var pendingAutoStart = false
 
     init {
@@ -100,13 +116,18 @@ class DjMixViewModel @Inject constructor(
         loadPlaylist()
     }
 
-    fun onEvent(event: DjMixEvent) {
+    // ═════════════════════════════════════════════════════════════════════════
+    // EVENT HANDLER
+    // ═════════════════════════════════════════════════════════════════════════
+
+    fun onEvent(event: MixStudioEvent) {
         when (event) {
-            DjMixEvent.PlayPause -> {
+
+            // ── Play / Pause ──────────────────────────────────────────────────
+            MixStudioEvent.PlayPause -> {
                 val engineState = crossfadeEngine.state.value
 
-                // ── DEAD END DETECTION ──
-                // Detect if the mix naturally reached the end of the final track without looping.
+                // ── DEAD END DETECTION ────────────────────────────────────────
                 val isAtEndOfTrack = engineState.currentDurationMs > 0L &&
                         (engineState.currentDurationMs - engineState.currentPositionMs) <= 500L
                 val isQueueExhausted = engineState.currentTrack != null &&
@@ -114,73 +135,99 @@ class DjMixViewModel @Inject constructor(
                 val isMixFinished = !engineState.isPlaying && isAtEndOfTrack && isQueueExhausted
 
                 if (!crossfadeEngine.isActive || engineState.currentTrack == null || isMixFinished) {
-                    // ── INITIAL START OR RESTART AFTER FINISH ──
-                    Log.i(TAG, "[PLAYBACK] Starting fresh mix session (isMixFinished=$isMixFinished)")
 
-                    crossfadeEngine.initialize()
-                    djSessionManager.startSession(playlistId)
-                    djSessionManager.resetPlayHistory() // Wipe history for a completely fresh start
+                    // ── ANALYSIS GUARD ────────────────────────────────────────
+                    // Analysis is still running AND the user hasn't already committed
+                    // to waiting (pendingAutoStartAfterAnalysis) → intercept with dialog.
+                    //
+                    // If pendingAutoStartAfterAnalysis IS true and the user taps the FAB
+                    // again, they're signalling "just go now" — clear the pending wait
+                    // and fall through to startFreshMixSession immediately.
+                    val analysisStillRunning = _uiState.value.isAnalyzing
+                    val alreadyWaiting       = _uiState.value.pendingAutoStartAfterAnalysis
 
-                    val firstTrack = _uiState.value.smartQueue.firstOrNull() ?: return
-                    djSessionManager.markTrackPlayed(firstTrack.id)
-                    activePlayerRegistry.onDjMixStarted()
+                    if (analysisStillRunning && !alreadyWaiting) {
+                        Log.d(TAG, "[ANALYSIS] Analysis in progress — showing confirmation dialog")
+                        _uiState.update { it.copy(showAnalysisDialog = true) }
+                        return
+                    }
 
-                    syncBeatGridForTrack(firstTrack.id)
-                    crossfadeEngine.startPlayback(firstTrack)
+                    // Cancel any pending auto-start (user tapped again while waiting)
+                    if (alreadyWaiting) {
+                        Log.d(TAG, "[ANALYSIS] User re-tapped while waiting — starting immediately")
+                        _uiState.update { it.copy(pendingAutoStartAfterAnalysis = false) }
+                    }
 
-                    // Fire the session Air Horn locally only when Auto-Mix is ON.
-                    // samplerEngine.isAutoSamplerEnabled already reflects the correct value
-                    // (false when Auto-Mix is OFF) so onSessionStarted is a safe no-op when needed.
-                    samplerEngine.onSessionStarted()
+                    startFreshMixSession()
 
-                    _uiState.update { it.copy(currentTrack = firstTrack) }
-                    viewModelScope.launch { _uiEvent.emit("START_DJ_SERVICE") }
-                    updateNextTrackPreview()
                 } else {
-                    // ── NORMAL PAUSE / RESUME ──
+                    // ── NORMAL PAUSE / RESUME ─────────────────────────────────
                     crossfadeEngine.playPause()
                 }
             }
 
-            DjMixEvent.MixNow -> crossfadeEngine.triggerMixNow()
+            // ── Mix controls ──────────────────────────────────────────────────
+            MixStudioEvent.MixStudioNow        -> crossfadeEngine.triggerMixNow()
+            MixStudioEvent.AbortCrossfade -> crossfadeEngine.abortCurrentCrossfade()
 
-            // ── Settings Updates ──────────────────────────────────────────────
+            // ── Analysis-in-progress dialog actions ───────────────────────────
 
-            is DjMixEvent.ToggleRealMixMode -> {
+            MixStudioEvent.DismissAnalysisDialog -> {
+                // User dismissed via back/outside tap — close dialog, do nothing else.
+                Log.d(TAG, "[ANALYSIS] Dialog dismissed — no action taken")
+                _uiState.update { it.copy(showAnalysisDialog = false) }
+            }
+
+            MixStudioEvent.WaitAndAutoStart -> {
+                // User wants to wait. Schedule auto-start for when analysis completes.
+                // The trigger fires inside performRebuild once isAnalyzing becomes false.
+                Log.i(TAG, "[ANALYSIS] User chose to wait — auto-start armed for analysis completion")
+                _uiState.update {
+                    it.copy(
+                        showAnalysisDialog           = false,
+                        pendingAutoStartAfterAnalysis = true
+                    )
+                }
+            }
+
+            MixStudioEvent.StartAnywayDespiteAnalysis -> {
+                // User is happy to start with partial BPM data. Unanalysed tracks will
+                // fall back to natural playlist order in the queue (already handled by
+                // performRebuild / GetSmartNextTrackUseCase graceful degradation path).
+                Log.i(TAG, "[ANALYSIS] User chose Start Now — starting with partial BPM data")
+                _uiState.update {
+                    it.copy(
+                        showAnalysisDialog           = false,
+                        pendingAutoStartAfterAnalysis = false
+                    )
+                }
+                startFreshMixSession()
+            }
+
+            // ── Settings ──────────────────────────────────────────────────────
+
+            is MixStudioEvent.ToggleRealMixStudioMode -> {
                 val s = _uiState.value.settings.copy(isRealMixMode = event.enabled)
                 crossfadeEngine.isRealMixMode = event.enabled
-
-                // ── Sampler suppression: re-evaluate effective enabled state ──
-                // Switching Auto-Mix ON restores the user's sampler preference.
-                // Switching Auto-Mix OFF silences the sampler immediately.
                 samplerEngine.isAutoSamplerEnabled = s.autoSamplerEnabled && event.enabled
-
                 _uiState.update { it.copy(settings = s) }
                 djSessionManager.updateSettings(s)
                 viewModelScope.launch { settingsRepository.updateDjRealMixMode(event.enabled) }
-
                 Log.d(TAG, "[SETTINGS] ToggleRealMixMode=${event.enabled} " +
                         "effectiveSamplerEnabled=${s.autoSamplerEnabled && event.enabled}")
             }
 
-            DjMixEvent.AbortCrossfade -> crossfadeEngine.abortCurrentCrossfade()
-
-            is DjMixEvent.ToggleAutoSampler -> {
+            is MixStudioEvent.ToggleAutoSampler -> {
                 val s = _uiState.value.settings.copy(autoSamplerEnabled = event.enabled)
-
-                // ── Sampler suppression: only enable if Auto-Mix is also ON ──
-                // Persists the user's preference but only activates it when meaningful.
                 samplerEngine.isAutoSamplerEnabled = event.enabled && s.isRealMixMode
-
                 _uiState.update { it.copy(settings = s) }
                 djSessionManager.updateSettings(s)
                 viewModelScope.launch { settingsRepository.updateDjAutoSampler(event.enabled) }
-
                 Log.d(TAG, "[SETTINGS] ToggleAutoSampler=${event.enabled} " +
                         "effectiveSamplerEnabled=${event.enabled && s.isRealMixMode}")
             }
 
-            is DjMixEvent.UpdateSampleVolume -> {
+            is MixStudioEvent.UpdateSampleVolume -> {
                 val s = _uiState.value.settings.copy(sampleVolume = event.volume)
                 samplerEngine.sampleVolume = event.volume
                 _uiState.update { it.copy(settings = s) }
@@ -189,6 +236,48 @@ class DjMixViewModel @Inject constructor(
             }
         }
     }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // FRESH MIX SESSION  (extracted so it can be called from multiple paths)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Starts a brand-new mix session from the top of the smart queue.
+     *
+     * Called from:
+     * - [MixStudioEvent.PlayPause] (initial start or restart after finish)
+     * - [MixStudioEvent.StartAnywayDespiteAnalysis] (user skips analysis wait)
+     * - [performRebuild] (auto-start after analysis completes via "Wait" path)
+     */
+    private fun startFreshMixSession() {
+        Log.i(TAG, "[PLAYBACK] Starting fresh mix session")
+
+        crossfadeEngine.initialize()
+        djSessionManager.startSession(playlistId)
+        djSessionManager.resetPlayHistory()
+
+        val firstTrack = _uiState.value.smartQueue.firstOrNull() ?: run {
+            Log.w(TAG, "[PLAYBACK] Smart queue is empty — cannot start session")
+            return
+        }
+
+        djSessionManager.markTrackPlayed(firstTrack.id)
+        activePlayerRegistry.onDjMixStarted()
+        syncBeatGridForTrack(firstTrack.id)
+        crossfadeEngine.startPlayback(firstTrack)
+
+        // samplerEngine.isAutoSamplerEnabled already reflects the correct value
+        // (false when Auto-Mix is OFF) so onSessionStarted is a safe no-op in that case.
+        samplerEngine.onSessionStarted()
+
+        _uiState.update { it.copy(currentTrack = firstTrack) }
+        viewModelScope.launch { _uiEvent.emit("START_DJ_SERVICE") }
+        updateNextTrackPreview()
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // HELPERS
+    // ═════════════════════════════════════════════════════════════════════════
 
     private fun updateNextTrackPreview() {
         val currentId = _uiState.value.currentTrack?.id
@@ -200,7 +289,9 @@ class DjMixViewModel @Inject constructor(
         _uiState.update { it.copy(nextTrack = next) }
     }
 
-    // ── Private observers ─────────────────────────────────────────────────────
+    // ═════════════════════════════════════════════════════════════════════════
+    // OBSERVERS
+    // ═════════════════════════════════════════════════════════════════════════
 
     private fun observeCanSkipBack() {
         djSessionManager.canSkipBack
@@ -218,7 +309,7 @@ class DjMixViewModel @Inject constructor(
         settingsRepository.getAppSettings()
             .onEach { appSettings ->
                 val currentSettings = _uiState.value.settings
-                val newSettings = DjMixSettings(
+                val newSettings = MixStudioSettings(
                     crossfadeDurationSec = appSettings.crossfadeDurationSec,
                     bpmTolerance         = appSettings.bpmTolerance,
                     isRealMixMode        = appSettings.isRealMixMode,
@@ -232,10 +323,8 @@ class DjMixViewModel @Inject constructor(
                 crossfadeEngine.isRealMixMode       = newSettings.isRealMixMode
                 crossfadeEngine.maxTrackDurationMs  = newSettings.maxTrackDurationSec * 1000L
                 crossfadeEngine.useHalfwayMix       = !newSettings.useManualMaxDuration
-
-                // ── Sampler suppression: respect isRealMixMode ────────────────
-                samplerEngine.isAutoSamplerEnabled = newSettings.autoSamplerEnabled && newSettings.isRealMixMode
-                samplerEngine.sampleVolume         = newSettings.sampleVolume
+                samplerEngine.isAutoSamplerEnabled  = newSettings.autoSamplerEnabled && newSettings.isRealMixMode
+                samplerEngine.sampleVolume          = newSettings.sampleVolume
 
                 val toleranceChanged = currentSettings.bpmTolerance != newSettings.bpmTolerance
                 _uiState.update { it.copy(settings = newSettings) }
@@ -253,48 +342,57 @@ class DjMixViewModel @Inject constructor(
                     return@onEach
                 }
 
-                // ── CROSS-PLAYLIST NAVIGATION FIX ──
-                // If the user taps a different playlist from the home screen, kill the old session entirely.
+                // ── CROSS-PLAYLIST NAVIGATION FIX ────────────────────────────
                 val activeId = djSessionManager.activePlaylistId
                 if (djSessionManager.isSessionActive.value && activeId != null && activeId != playlistId) {
-                    Log.i(TAG, "[LIFECYCLE] Different playlist detected ($playlistId). Killing old session ($activeId) & Auto-Starting new.")
+                    Log.i(TAG, "[LIFECYCLE] Different playlist detected ($playlistId). " +
+                            "Killing old session ($activeId) & Auto-Starting new.")
                     samplerEngine.stopAllSamples()
                     crossfadeEngine.release()
                     djSessionManager.endSession()
                     crossfadeEngine.initialize()
-                    pendingAutoStart = true // Signals the queue builder to trigger playback automatically
+                    pendingAutoStart = true
                 }
 
                 val songs = playlist.songs
                 rawPlaylistSongs = songs
 
-                val sessionAlreadyActive = djSessionManager.isSessionActive.value && djSessionManager.activePlaylistId == playlistId
+                val sessionAlreadyActive = djSessionManager.isSessionActive.value &&
+                        djSessionManager.activePlaylistId == playlistId
 
                 if (songs.isNotEmpty() && !sessionAlreadyActive) {
                     _uiState.update { it.copy(isAnalyzing = true) }
                     analyzeBpmUseCase(playlistId, songs)
                 }
 
-                _uiState.update { it.copy(playlistName = playlist.name, totalSongs = songs.size, isLoading = false) }
+                _uiState.update {
+                    it.copy(
+                        playlistName = playlist.name,
+                        totalSongs   = songs.size,
+                        isLoading    = false
+                    )
+                }
                 observeBpmCache(songs)
             }
             .launchIn(viewModelScope)
     }
 
     private fun observeBpmCache(songs: List<AudioFile>) {
-        djMixRepository.getBpmCacheFlow()
+        autoMixRepository.getBpmCacheFlow()
             .onEach { bpmCache ->
-                val doneCount    = songs.count { bpmCache.containsKey(it.id) }
-                val failedCount  = songs.count { bpmCache[it.id]?.analysisFailed == true }
-                val progress     = if (songs.isEmpty()) 1f else doneCount.toFloat() / songs.size
+                val doneCount      = songs.count { bpmCache.containsKey(it.id) }
+                val failedCount    = songs.count { bpmCache[it.id]?.analysisFailed == true }
+                val progress       = if (songs.isEmpty()) 1f else doneCount.toFloat() / songs.size
                 val stillAnalysing = progress < 1f
 
+                // ── Push fresh BPM data into the engine for the current track ─
                 val currentTrackId = _uiState.value.currentTrack?.id
                 if (currentTrackId != null) {
                     val freshBpmInfo  = bpmCache[currentTrackId]
                     val cachedBpmInfo = _uiState.value.bpmCache[currentTrackId]
-
-                    val isNewlyAnalyzed = freshBpmInfo != null && cachedBpmInfo == null && !freshBpmInfo.analysisFailed
+                    val isNewlyAnalyzed = freshBpmInfo != null &&
+                            cachedBpmInfo == null &&
+                            !freshBpmInfo.analysisFailed
 
                     if (isNewlyAnalyzed) {
                         crossfadeEngine.updateCurrentBpmInfo(
@@ -317,6 +415,10 @@ class DjMixViewModel @Inject constructor(
                 }
 
                 djSessionManager.updateBpmCache(bpmCache)
+
+                // rebuildSmartQueue has a 300 ms debounce. The auto-start check inside
+                // performRebuild fires only when !isAnalyzing — which is guaranteed to
+                // be true by the state update above before rebuildSmartQueue is called.
                 rebuildSmartQueue(bpmCache = bpmCache)
             }
             .launchIn(viewModelScope)
@@ -358,7 +460,6 @@ class DjMixViewModel @Inject constructor(
     private fun syncBeatGridForTrack(trackId: Long) {
         val bpmInfo = _uiState.value.bpmCache[trackId] ?: return
         if (bpmInfo.analysisFailed) return
-
         crossfadeEngine.updateCurrentBpmInfo(
             bpm              = bpmInfo.bpm,
             firstBeatMs      = bpmInfo.firstBeatMs,
@@ -367,6 +468,10 @@ class DjMixViewModel @Inject constructor(
             mixOutMs         = null
         )
     }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // QUEUE REBUILD
+    // ═════════════════════════════════════════════════════════════════════════
 
     private fun rebuildSmartQueue(
         bpmCache: Map<Long, BpmInfo> = _uiState.value.bpmCache
@@ -391,26 +496,33 @@ class DjMixViewModel @Inject constructor(
         result.add(opener)
         remaining.remove(opener)
 
-        val openerBpm = bpmCache[opener.id]?.bpm?.takeIf { bpmCache[opener.id]?.analysisFailed != true } ?: 120f
+        val openerBpm = bpmCache[opener.id]
+            ?.bpm
+            ?.takeIf { bpmCache[opener.id]?.analysisFailed != true }
+            ?: 120f
         val recentBpms = ArrayDeque<Float>(4)
         if (openerBpm > 0f) recentBpms.addLast(openerBpm)
 
         while (remaining.isNotEmpty()) {
             val lastInfo = bpmCache[result.last().id]
-            val lastBpm = if (lastInfo?.analysisFailed == true) 120f else lastInfo?.bpm ?: 120f
+            val lastBpm  = if (lastInfo?.analysisFailed == true) 120f else lastInfo?.bpm ?: 120f
 
             val next = getSmartNextTrackUseCase(
-                currentBpm          = lastBpm,
-                remainingQueue      = remaining,
-                bpmCache            = bpmCache.mapValues { if (it.value.analysisFailed) 120f else it.value.bpm },
-                tolerance           = tolerance,
-                recentBpms          = recentBpms.toList()
+                currentBpm     = lastBpm,
+                remainingQueue = remaining,
+                bpmCache       = bpmCache.mapValues {
+                    if (it.value.analysisFailed) 120f else it.value.bpm
+                },
+                tolerance      = tolerance,
+                recentBpms     = recentBpms.toList()
             ) ?: remaining.first()
 
             result.add(next)
             remaining.remove(next)
 
-            val nextBpm = bpmCache[next.id]?.bpm?.takeIf { bpmCache[next.id]?.analysisFailed != true }
+            val nextBpm = bpmCache[next.id]
+                ?.bpm
+                ?.takeIf { bpmCache[next.id]?.analysisFailed != true }
             if (nextBpm != null && nextBpm > 0f) {
                 recentBpms.addLast(nextBpm)
                 if (recentBpms.size > 3) recentBpms.removeFirst()
@@ -420,16 +532,42 @@ class DjMixViewModel @Inject constructor(
         _uiState.update { it.copy(smartQueue = result) }
         djSessionManager.updateSmartQueue(result)
 
-        // ── AUTO-START HANDOFF ──
+        // ── Cross-playlist navigation auto-start (existing) ───────────────────
         if (pendingAutoStart && result.isNotEmpty()) {
-            Log.i(TAG, "[LIFECYCLE] Queue built. Auto-starting new playlist mix.")
             pendingAutoStart = false
-            onEvent(DjMixEvent.PlayPause) // Triggers the fresh-start flow
+            Log.i(TAG, "[LIFECYCLE] Queue built — auto-starting new playlist mix.")
+            onEvent(MixStudioEvent.PlayPause)
+        }
+
+        // ── Analysis-completion auto-start ("Wait & Auto-Start" path) ─────────
+        //
+        // Conditions checked in order:
+        //  1. pendingAutoStartAfterAnalysis — user explicitly asked to wait
+        //  2. !isAnalyzing — analysis is fully complete (set in observeBpmCache
+        //     before rebuildSmartQueue is called, so always true here on the
+        //     final cache emission)
+        //  3. currentTrack == null — engine isn't already running (guard against
+        //     double-start if a mix is somehow already in progress)
+        //  4. result.isNotEmpty() — there's something to play
+        //
+        // We check _uiState.value rather than a local snapshot so we always read
+        // the most recent state written by observeBpmCache's update call.
+        val state = _uiState.value
+        if (state.pendingAutoStartAfterAnalysis
+            && !state.isAnalyzing
+            && state.currentTrack == null
+            && result.isNotEmpty()
+        ) {
+            Log.i(TAG, "[ANALYSIS] Analysis complete — auto-starting mix (user chose 'Wait')")
+            _uiState.update { it.copy(pendingAutoStartAfterAnalysis = false) }
+            startFreshMixSession()
         }
     }
 
     private fun selectOpener(songs: List<AudioFile>, bpmCache: Map<Long, BpmInfo>): AudioFile {
-        val withBpm = songs.filter { bpmCache.containsKey(it.id) && bpmCache[it.id]?.analysisFailed != true }
+        val withBpm = songs.filter {
+            bpmCache.containsKey(it.id) && bpmCache[it.id]?.analysisFailed != true
+        }
         if (withBpm.isEmpty()) return songs.first()
 
         val sorted   = withBpm.sortedBy { bpmCache[it.id]!!.bpm }

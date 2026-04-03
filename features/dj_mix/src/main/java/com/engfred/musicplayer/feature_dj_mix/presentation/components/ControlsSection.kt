@@ -43,29 +43,32 @@ fun ControlsSection(
             onCheckedChange = onToggleRealMixMode
         )
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+        // ── Conditionally show Sampler controls ONLY if Auto-Mix is ON ────────
+        if (isRealMixMode) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
 
-        // ── Sampler ───────────────────────────────────────────────────────────
-        PremiumToggleRow(
-            title = "Mix Sound Effects",
-            subtitle = if (autoSamplerEnabled)
-                "App drops air horns, sweeps & hits at the perfect moment"
-            else
-                "Transitions play silently — no effects",
-            isChecked = autoSamplerEnabled,
-            onCheckedChange = onToggleAutoSampler
-        )
-
-        if (autoSamplerEnabled) {
-            SliderWithLabel(
-                label = "Effects Volume",
-                valueLabel = "${(sampleVolume * 100).roundToInt()}%",
-                value = sampleVolume,
-                valueRange = 0f..1f,
-                steps = 19,           // 5% increments
-                description = "How loud the transition effects are relative to the music",
-                onValueChange = onSampleVolumeChanged
+            // ── Sampler ───────────────────────────────────────────────────────
+            PremiumToggleRow(
+                title = "Mix Sound Effects",
+                subtitle = if (autoSamplerEnabled)
+                    "App drops air horns, sweeps & hits at the perfect moment"
+                else
+                    "Transitions play silently — no effects",
+                isChecked = autoSamplerEnabled,
+                onCheckedChange = onToggleAutoSampler
             )
+
+            if (autoSamplerEnabled) {
+                SliderWithLabel(
+                    label = "Effects Volume",
+                    valueLabel = "${(sampleVolume * 100).roundToInt()}%",
+                    value = sampleVolume,
+                    valueRange = 0f..1f,
+                    steps = 19,           // 5% increments
+                    description = "How loud the transition effects are relative to the music",
+                    onValueChange = onSampleVolumeChanged
+                )
+            }
         }
     }
 }

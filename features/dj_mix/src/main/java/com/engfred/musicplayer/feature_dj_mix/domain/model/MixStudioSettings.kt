@@ -20,7 +20,7 @@ package com.engfred.musicplayer.feature_dj_mix.domain.model
  * @param sampleVolume            Master volume for all sampler playback (0.0 – 1.0).
  *                                Default 0.75 keeps samples audible but clearly below the music.
  */
-data class DjMixSettings(
+data class MixStudioSettings(
     val crossfadeDurationSec: Int     = 5,
     val bpmTolerance: Float           = 10f,
     val isRealMixMode: Boolean        = true,

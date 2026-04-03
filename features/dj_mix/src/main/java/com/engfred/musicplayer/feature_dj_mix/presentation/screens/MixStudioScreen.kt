@@ -26,21 +26,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
-import com.engfred.musicplayer.feature_dj_mix.data.service.DjMixService
+import com.engfred.musicplayer.feature_dj_mix.data.service.AutoMixService
+import com.engfred.musicplayer.feature_dj_mix.presentation.components.AnalysisInProgressDialog
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.BpmAnalysisSection
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.ControlsSection
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.NowPlayingSection
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.SmartQueueItem
-import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.DjMixEvent
-import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.DjMixViewModel
+import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.MixStudioEvent
+import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.MixStudioViewModel
 import kotlinx.coroutines.launch
 
 @UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DjMixScreen(
+fun MixStudioScreen(
     onNavigateBack: () -> Unit,
-    viewModel: DjMixViewModel = hiltViewModel()
+    viewModel: MixStudioViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -52,8 +53,8 @@ fun DjMixScreen(
         viewModel.uiEvent.collect { event ->
             when (event) {
                 "START_DJ_SERVICE" -> {
-                    val intent = Intent(context, DjMixService::class.java).apply {
-                        action = DjMixService.ACTION_START
+                    val intent = Intent(context, AutoMixService::class.java).apply {
+                        action = AutoMixService.ACTION_START
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         context.startForegroundService(intent)
@@ -76,11 +77,17 @@ fun DjMixScreen(
         )
     )
 
+    // ── Computed display values ───────────────────────────────────────────────
+    val analysedCount = (uiState.analysisProgress * uiState.totalSongs).toInt()
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier            = Modifier.fillMaxWidth()
+                    ) {
                         Text(
                             text          = "MIX STUDIO",
                             style         = MaterialTheme.typography.titleMedium,
@@ -102,12 +109,20 @@ fun DjMixScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(
+                            Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
                     }
                 },
                 actions = {
                     IconButton(onClick = { showSettingsSheet = true }) {
-                        Icon(Icons.Rounded.Settings, "DJ Settings", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(
+                            Icons.Rounded.Settings,
+                            contentDescription = "DJ Settings",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -120,32 +135,43 @@ fun DjMixScreen(
         floatingActionButton = {
             if (uiState.currentTrack != null) {
                 FloatingActionButton(
-                    onClick        = { viewModel.onEvent(DjMixEvent.PlayPause) },
+                    onClick        = { viewModel.onEvent(MixStudioEvent.PlayPause) },
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
                     contentColor   = MaterialTheme.colorScheme.onSurfaceVariant,
                     shape          = RoundedCornerShape(percent = 50)
                 ) {
                     Icon(
-                        imageVector = if (uiState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        imageVector        = if (uiState.isPlaying) Icons.Rounded.Pause
+                        else Icons.Rounded.PlayArrow,
                         contentDescription = "Play/Pause"
                     )
                 }
             } else if (uiState.smartQueue.isNotEmpty()) {
+                // ── FAB label adapts to whether the user is already waiting ──
+                val fabLabel = if (uiState.pendingAutoStartAfterAnalysis)
+                    "WAITING FOR ANALYSIS…"
+                else
+                    "START MIX"
+
                 ExtendedFloatingActionButton(
                     onClick = {
-                        viewModel.onEvent(DjMixEvent.PlayPause)
-                        coroutineScope.launch {
-                            lazyListState.animateScrollToItem(0)
-                        }
+                        viewModel.onEvent(MixStudioEvent.PlayPause)
+                        coroutineScope.launch { lazyListState.animateScrollToItem(0) }
                     },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor   = MaterialTheme.colorScheme.onPrimary,
-                    shape          = RoundedCornerShape(percent = 50),
-                    modifier       = Modifier.padding(bottom = 16.dp)
+                    containerColor = if (uiState.pendingAutoStartAfterAnalysis)
+                        MaterialTheme.colorScheme.secondaryContainer
+                    else
+                        MaterialTheme.colorScheme.primary,
+                    contentColor = if (uiState.pendingAutoStartAfterAnalysis)
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    else
+                        MaterialTheme.colorScheme.onPrimary,
+                    shape    = RoundedCornerShape(percent = 50),
+                    modifier = Modifier.padding(bottom = 16.dp)
                 ) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = "Start Mix")
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("START MIX", fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                    Text(fabLabel, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                 }
             }
         },
@@ -170,7 +196,7 @@ fun DjMixScreen(
                     item(key = "analysis_section") {
                         BpmAnalysisSection(
                             progress      = uiState.analysisProgress,
-                            analysedCount = (uiState.analysisProgress * uiState.totalSongs).toInt(),
+                            analysedCount = analysedCount,
                             totalCount    = uiState.totalSongs,
                             failedCount   = uiState.analysisFailedCount,
                             modifier      = Modifier.padding(horizontal = 24.dp)
@@ -181,27 +207,30 @@ fun DjMixScreen(
                 uiState.currentTrack?.let { track ->
                     item(key = "now_playing") {
                         NowPlayingSection(
-                            trackTitle        = track.title,
-                            trackArtist       = track.artist ?: "Unknown Artist",
-                            bpm               = uiState.bpmCache[track.id]?.bpm?.takeIf { uiState.bpmCache[track.id]?.analysisFailed != true },
-                            positionMs        = uiState.currentPositionMs,
-                            durationMs        = uiState.currentDurationMs,
-                            isCrossfading     = uiState.isCrossfading,
-                            crossfadeProgress = uiState.crossfadeProgressFraction,
+                            trackTitle         = track.title,
+                            trackArtist        = track.artist ?: "Unknown Artist",
+                            bpm                = uiState.bpmCache[track.id]?.bpm
+                                ?.takeIf { uiState.bpmCache[track.id]?.analysisFailed != true },
+                            positionMs         = uiState.currentPositionMs,
+                            durationMs         = uiState.currentDurationMs,
+                            isCrossfading      = uiState.isCrossfading,
+                            crossfadeProgress  = uiState.crossfadeProgressFraction,
                             currentMixStrategy = uiState.currentMixStrategy,
-                            albumArtUri       = track.albumArtUri,
-                            waveform          = uiState.waveform,
-                            isPlaying         = uiState.isPlaying,
-                            timeToNextMixMs   = uiState.timeToNextMixMs,
-                            nextTrack         = uiState.nextTrack,
-                            modifier          = Modifier.padding(horizontal = 24.dp)
+                            albumArtUri        = track.albumArtUri,
+                            waveform           = uiState.waveform,
+                            isPlaying          = uiState.isPlaying,
+                            timeToNextMixMs    = uiState.timeToNextMixMs,
+                            nextTrack          = uiState.nextTrack,
+                            modifier           = Modifier.padding(horizontal = 24.dp)
                         )
                     }
                 }
 
                 item(key = "queue_header") {
                     Row(
-                        modifier          = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                        modifier          = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -226,44 +255,60 @@ fun DjMixScreen(
                     key   = { _, song -> song.id }
                 ) { index, song ->
                     SmartQueueItem(
-                        position           = index + 1,
-                        song               = song,
-                        bpm                = uiState.bpmCache[song.id]?.bpm?.takeIf { uiState.bpmCache[song.id]?.analysisFailed != true },
-                        analysisFailed     = uiState.bpmCache[song.id]?.analysisFailed == true,
-                        isCurrent          = song.id == uiState.currentTrack?.id,
-                        isPlayed           = song.id in uiState.playedTrackIds && song.id != uiState.currentTrack?.id,
+                        position       = index + 1,
+                        song           = song,
+                        bpm            = uiState.bpmCache[song.id]?.bpm
+                            ?.takeIf { uiState.bpmCache[song.id]?.analysisFailed != true },
+                        analysisFailed = uiState.bpmCache[song.id]?.analysisFailed == true,
+                        isCurrent      = song.id == uiState.currentTrack?.id,
+                        isPlayed       = song.id in uiState.playedTrackIds &&
+                                song.id != uiState.currentTrack?.id,
                     )
                 }
             }
         }
     }
 
+    // ── Analysis-in-progress confirmation dialog ──────────────────────────────
+    if (uiState.showAnalysisDialog) {
+        AnalysisInProgressDialog(
+            analysedCount = analysedCount,
+            totalCount    = uiState.totalSongs,
+            progress      = uiState.analysisProgress,
+            onDismiss     = { viewModel.onEvent(MixStudioEvent.DismissAnalysisDialog) },
+            onWait        = { viewModel.onEvent(MixStudioEvent.WaitAndAutoStart) },
+            onStartNow    = { viewModel.onEvent(MixStudioEvent.StartAnywayDespiteAnalysis) }
+        )
+    }
+
+    // ── Settings sheet ────────────────────────────────────────────────────────
     if (showSettingsSheet) {
         ModalBottomSheet(
             onDismissRequest = { showSettingsSheet = false },
-            sheetState = sheetState,
-            containerColor = MaterialTheme.colorScheme.surface,
-            dragHandle = { BottomSheetDefaults.DragHandle() }
+            sheetState       = sheetState,
+            containerColor   = MaterialTheme.colorScheme.surface,
+            dragHandle       = { BottomSheetDefaults.DragHandle() }
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
             ) {
                 Text(
-                    text = "MIX SETTINGS",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Black,
+                    text          = "MIX SETTINGS",
+                    style         = MaterialTheme.typography.titleMedium,
+                    fontWeight    = FontWeight.Black,
                     letterSpacing = 1.5.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 24.dp)
+                    color         = MaterialTheme.colorScheme.primary,
+                    modifier      = Modifier.padding(bottom = 24.dp)
                 )
-
                 ControlsSection(
-                    isRealMixMode        = uiState.settings.isRealMixMode,
-                    onToggleRealMixMode  = { viewModel.onEvent(DjMixEvent.ToggleRealMixMode(it)) },
-                    autoSamplerEnabled   = uiState.settings.autoSamplerEnabled,
-                    sampleVolume         = uiState.settings.sampleVolume,
-                    onToggleAutoSampler  = { viewModel.onEvent(DjMixEvent.ToggleAutoSampler(it)) },
-                    onSampleVolumeChanged = { viewModel.onEvent(DjMixEvent.UpdateSampleVolume(it)) },
+                    isRealMixMode         = uiState.settings.isRealMixMode,
+                    onToggleRealMixMode   = { viewModel.onEvent(MixStudioEvent.ToggleRealMixStudioMode(it)) },
+                    autoSamplerEnabled    = uiState.settings.autoSamplerEnabled,
+                    sampleVolume          = uiState.settings.sampleVolume,
+                    onToggleAutoSampler   = { viewModel.onEvent(MixStudioEvent.ToggleAutoSampler(it)) },
+                    onSampleVolumeChanged = { viewModel.onEvent(MixStudioEvent.UpdateSampleVolume(it)) },
                 )
                 Spacer(modifier = Modifier.height(48.dp))
             }

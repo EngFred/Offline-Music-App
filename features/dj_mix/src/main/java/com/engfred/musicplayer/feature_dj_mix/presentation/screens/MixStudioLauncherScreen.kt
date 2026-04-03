@@ -28,11 +28,9 @@ import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -40,7 +38,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,22 +51,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import coil.compose.AsyncImage
 import com.engfred.musicplayer.core.domain.model.AutomaticPlaylistType
 import com.engfred.musicplayer.core.domain.model.DjMixPlaylistFilter
 import com.engfred.musicplayer.core.domain.model.Playlist
-import com.engfred.musicplayer.core.ui.components.shimmerBrush
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.DjMixLauncherShimmer
-import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.DjMixLauncherViewModel
+import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.MixStudioLauncherViewModel
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-fun DjMixLauncherScreen(
+fun MixStudioLauncherScreen(
     onPlaylistSelected: (Long) -> Unit,
-    viewModel: DjMixLauncherViewModel = hiltViewModel()
+    viewModel: MixStudioLauncherViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
 

@@ -6,8 +6,8 @@ import com.engfred.musicplayer.core.domain.BpmScanScheduler
 import com.engfred.musicplayer.feature_dj_mix.data.bpm.BpmScanSchedulerImpl
 import com.engfred.musicplayer.feature_dj_mix.data.local.dao.BpmCacheDao
 import com.engfred.musicplayer.feature_dj_mix.data.local.db.DjMixDatabase
-import com.engfred.musicplayer.feature_dj_mix.data.repository.DjMixRepositoryImpl
-import com.engfred.musicplayer.feature_dj_mix.domain.repository.DjMixRepository
+import com.engfred.musicplayer.feature_dj_mix.data.repository.AutoMixRepositoryImpl
+import com.engfred.musicplayer.feature_dj_mix.domain.repository.AutoMixRepository
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -22,7 +22,7 @@ import javax.inject.Singleton
  * Wires:
  * - [DjMixDatabase]         — Room database (BPM cache).
  * - [BpmCacheDao]           — DAO from the database.
- * - [DjMixRepository]       — bound to [DjMixRepositoryImpl].
+ * - [AutoMixRepository]       — bound to [AutoMixRepositoryImpl].
  *
  * Auto-provided by Hilt (no manual @Provides needed):
  * - [BpmAnalyzer]           — @Singleton @Inject constructor.
@@ -38,7 +38,7 @@ abstract class DjMixModule {
 
     @Binds
     @Singleton
-    abstract fun bindDjMixRepository(impl: DjMixRepositoryImpl): DjMixRepository
+    abstract fun bindDjMixRepository(impl: AutoMixRepositoryImpl): AutoMixRepository
 
     @Binds
     @Singleton

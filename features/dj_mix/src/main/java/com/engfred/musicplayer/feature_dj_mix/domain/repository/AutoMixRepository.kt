@@ -46,7 +46,7 @@ data class BpmInfo(
  * Implemented by [DjMixRepositoryImpl] in the data layer — the domain layer
  * depends only on this interface (Clean Architecture rule).
  */
-interface DjMixRepository {
+interface AutoMixRepository {
 
     /**
      * Reactive map of audioFileId → BPM info, emitting a new value whenever any

@@ -7,7 +7,7 @@ import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.feature_dj_mix.data.bpm.BpmAnalysisWorker
 import com.engfred.musicplayer.feature_dj_mix.data.local.dao.BpmCacheDao
 import com.engfred.musicplayer.feature_dj_mix.domain.repository.BpmInfo
-import com.engfred.musicplayer.feature_dj_mix.domain.repository.DjMixRepository
+import com.engfred.musicplayer.feature_dj_mix.domain.repository.AutoMixRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -15,10 +15,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class DjMixRepositoryImpl @Inject constructor(
+class AutoMixRepositoryImpl @Inject constructor(
     private val bpmCacheDao: BpmCacheDao,
     @param:ApplicationContext private val context: Context,
-) : DjMixRepository {
+) : AutoMixRepository {
 
     override fun getBpmCacheFlow(): Flow<Map<Long, BpmInfo>> =
         bpmCacheDao.getAllBpmEntries().map { entries ->

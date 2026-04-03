@@ -1,17 +1,17 @@
 package com.engfred.musicplayer.feature_dj_mix.domain.usecases
 
 import com.engfred.musicplayer.core.domain.model.AudioFile
-import com.engfred.musicplayer.feature_dj_mix.domain.repository.DjMixRepository
+import com.engfred.musicplayer.feature_dj_mix.domain.repository.AutoMixRepository
 import javax.inject.Inject
 
 /**
- * Triggers background BPM analysis for a playlist's songs via [DjMixRepository].
+ * Triggers background BPM analysis for a playlist's songs via [AutoMixRepository].
  *
  * Encapsulates the "start analysis" intent so the ViewModel doesn't need to know
  * about WorkManager or [BpmAnalysisWorker] directly.
  */
 class AnalyzeBpmUseCase @Inject constructor(
-    private val repository: DjMixRepository
+    private val repository: AutoMixRepository
 ) {
     /**
      * Enqueues a [BpmAnalysisWorker] for all songs in [songs] that are not yet cached.
