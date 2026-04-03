@@ -11,7 +11,7 @@ import com.engfred.musicplayer.feature_dj_mix.data.local.entity.BpmCacheEntity
 
 @Database(
     entities = [BpmCacheEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(FloatArrayTypeConverter::class)
@@ -40,7 +40,7 @@ abstract class DjMixDatabase : RoomDatabase() {
             }
         }
 
-        val MIGRATION_5_6 = object : Migration(5, 6) {
+        val MIGRATION_5_7 = object : Migration(5, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // All cached firstBeatMs values were computed with the old
                 // hard-skip + beats[WARMUP_BEATS] logic. Wipe them so the
