@@ -37,6 +37,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.engfred.musicplayer.core.domain.model.Playlist
 import com.engfred.musicplayer.feature_playlist.utils.formatDate
@@ -49,12 +50,17 @@ import com.skydoves.landscapist.coil.CoilImage
 
 @Composable
 fun PlaylistListItem(
+    modifier: Modifier = Modifier,
     playlist: Playlist,
     onClick: (Long) -> Unit,
     onDeleteClick: (Long) -> Unit,
     isDeletable: Boolean,
     showDivider: Boolean,
-    modifier: Modifier = Modifier
+    // Accept horizontal padding as a parameter so the caller controls spacing,
+    // but the component applies it INTERNALLY — after any background — ensuring
+    // both sides are always identical and the clickable/highlight region is
+    // properly inset from the screen edge.
+    horizontalPadding: Dp = 12.dp,
 ) {
     var showDeleteConfirmationDialog by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
@@ -63,8 +69,11 @@ fun PlaylistListItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // ↓ clickable first so the ripple covers the full row width
                 .clickable { onClick(playlist.id) }
-                .padding(vertical = 10.dp),
+                // ↓ horizontal padding applied AFTER clickable — content is
+                //   inset symmetrically; no bleed to the left screen edge
+                .padding(horizontal = horizontalPadding, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -76,13 +85,7 @@ fun PlaylistListItem(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
-                // Determine the art to show. findFirstAlbumArtUri checks customArtUri first.
                 val displayArt = playlist.findFirstAlbumArtUri()
-
-                // Logic:
-                // 1. If there is valid art (Custom or First Song), show it.
-                // 2. If no art AND it is Favorites (not deletable), show the Favorite Drawable.
-                // 3. Otherwise show generic music note.
 
                 if (displayArt != null) {
                     CoilImage(
@@ -91,14 +94,14 @@ fun PlaylistListItem(
                             .fillMaxWidth()
                             .width(56.dp)
                             .height(56.dp),
-                        imageOptions = ImageOptions(
-                            contentScale = ContentScale.Crop
-                        ),
+                        imageOptions = ImageOptions(contentScale = ContentScale.Crop),
                         loading = {
-                            Box(modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
-                                .background(MaterialTheme.colorScheme.surfaceVariant))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                            )
                         },
                         failure = {
                             Box(
@@ -117,7 +120,6 @@ fun PlaylistListItem(
                         }
                     )
                 } else if (!isDeletable) {
-                    // Fallback for Favorites ONLY if no custom/song art exists
                     Image(
                         painter = painterResource(id = R.drawable.favorites),
                         contentDescription = "Favorites",
@@ -137,7 +139,7 @@ fun PlaylistListItem(
                 }
             }
 
-            // Textual info (name, songs count, created)
+            // Textual info
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = playlist.name,
@@ -161,7 +163,7 @@ fun PlaylistListItem(
                 )
             }
 
-            // Options menu (delete)
+            // Options menu
             if (isDeletable) {
                 Box {
                     IconButton(onClick = { showMenu = true }) {
@@ -175,8 +177,7 @@ fun PlaylistListItem(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false },
                         containerColor = MaterialTheme.colorScheme.surface,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
+                        modifier = Modifier.clip(RoundedCornerShape(12.dp))
                     ) {
                         DropdownMenuItem(
                             text = { Text("Delete Playlist") },
@@ -195,8 +196,11 @@ fun PlaylistListItem(
 
         if (showDivider) {
             HorizontalDivider(
+                // Divider respects the same horizontal inset so it doesn't
+                // bleed to the screen edges either
                 modifier = Modifier
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .padding(horizontal = horizontalPadding),
                 thickness = 1.dp,
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             )
