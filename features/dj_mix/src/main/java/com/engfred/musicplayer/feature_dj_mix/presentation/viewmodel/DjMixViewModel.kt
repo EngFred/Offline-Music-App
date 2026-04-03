@@ -43,8 +43,21 @@ private const val TAG = "DjMixViewModel"
  * This ViewModel acts as the supreme orchestrator for the DJ Mix session.
  * It coordinates the Hardware (CrossfadeEngine), the Audio FX (SamplerEngine),
  * and the State/History (DjSessionManager).
- * * - Handles the "Dead End" queue restart logic.
+ *
+ * - Handles the "Dead End" queue restart logic.
  * - Handles "Cross-Playlist Navigation" auto-starts.
+ *
+ * ── Sampler suppression rule ──────────────────────────────────────────────────
+ * samplerEngine.isAutoSamplerEnabled is driven by:
+ *   settings.autoSamplerEnabled AND settings.isRealMixMode
+ *
+ * When Auto-Mix (isRealMixMode) is OFF the sampler is always silent — there are
+ * no DJ-strategy lifecycle events to attach sound effects to in Continuous Play mode.
+ * The user's autoSamplerEnabled preference is never mutated — it is restored as soon
+ * as isRealMixMode is switched back ON.
+ *
+ * This logic is mirrored in DjMixService so the sampler stays suppressed even when
+ * the user navigates away from the DJ screen and the ViewModel is cleared.
  */
 @UnstableApi
 @HiltViewModel
@@ -115,7 +128,9 @@ class DjMixViewModel @Inject constructor(
                     syncBeatGridForTrack(firstTrack.id)
                     crossfadeEngine.startPlayback(firstTrack)
 
-                    // Fire the session Air Horn locally! Fixes the "Missing Horn" bug on new playlists.
+                    // Fire the session Air Horn locally only when Auto-Mix is ON.
+                    // samplerEngine.isAutoSamplerEnabled already reflects the correct value
+                    // (false when Auto-Mix is OFF) so onSessionStarted is a safe no-op when needed.
                     samplerEngine.onSessionStarted()
 
                     _uiState.update { it.copy(currentTrack = firstTrack) }
@@ -134,19 +149,35 @@ class DjMixViewModel @Inject constructor(
             is DjMixEvent.ToggleRealMixMode -> {
                 val s = _uiState.value.settings.copy(isRealMixMode = event.enabled)
                 crossfadeEngine.isRealMixMode = event.enabled
+
+                // ── Sampler suppression: re-evaluate effective enabled state ──
+                // Switching Auto-Mix ON restores the user's sampler preference.
+                // Switching Auto-Mix OFF silences the sampler immediately.
+                samplerEngine.isAutoSamplerEnabled = s.autoSamplerEnabled && event.enabled
+
                 _uiState.update { it.copy(settings = s) }
                 djSessionManager.updateSettings(s)
                 viewModelScope.launch { settingsRepository.updateDjRealMixMode(event.enabled) }
+
+                Log.d(TAG, "[SETTINGS] ToggleRealMixMode=${event.enabled} " +
+                        "effectiveSamplerEnabled=${s.autoSamplerEnabled && event.enabled}")
             }
 
             DjMixEvent.AbortCrossfade -> crossfadeEngine.abortCurrentCrossfade()
 
             is DjMixEvent.ToggleAutoSampler -> {
                 val s = _uiState.value.settings.copy(autoSamplerEnabled = event.enabled)
-                samplerEngine.isAutoSamplerEnabled = event.enabled
+
+                // ── Sampler suppression: only enable if Auto-Mix is also ON ──
+                // Persists the user's preference but only activates it when meaningful.
+                samplerEngine.isAutoSamplerEnabled = event.enabled && s.isRealMixMode
+
                 _uiState.update { it.copy(settings = s) }
                 djSessionManager.updateSettings(s)
                 viewModelScope.launch { settingsRepository.updateDjAutoSampler(event.enabled) }
+
+                Log.d(TAG, "[SETTINGS] ToggleAutoSampler=${event.enabled} " +
+                        "effectiveSamplerEnabled=${event.enabled && s.isRealMixMode}")
             }
 
             is DjMixEvent.UpdateSampleVolume -> {
@@ -201,8 +232,10 @@ class DjMixViewModel @Inject constructor(
                 crossfadeEngine.isRealMixMode       = newSettings.isRealMixMode
                 crossfadeEngine.maxTrackDurationMs  = newSettings.maxTrackDurationSec * 1000L
                 crossfadeEngine.useHalfwayMix       = !newSettings.useManualMaxDuration
-                samplerEngine.isAutoSamplerEnabled  = newSettings.autoSamplerEnabled
-                samplerEngine.sampleVolume          = newSettings.sampleVolume
+
+                // ── Sampler suppression: respect isRealMixMode ────────────────
+                samplerEngine.isAutoSamplerEnabled = newSettings.autoSamplerEnabled && newSettings.isRealMixMode
+                samplerEngine.sampleVolume         = newSettings.sampleVolume
 
                 val toleranceChanged = currentSettings.bpmTolerance != newSettings.bpmTolerance
                 _uiState.update { it.copy(settings = newSettings) }
@@ -338,7 +371,6 @@ class DjMixViewModel @Inject constructor(
     private fun rebuildSmartQueue(
         bpmCache: Map<Long, BpmInfo> = _uiState.value.bpmCache
     ) {
-        // Removed early return for isQueueUserOrdered — the algorithm is fully in charge now.
         if (rawPlaylistSongs.isEmpty()) return
         rebuildJob?.cancel()
         rebuildJob = viewModelScope.launch {

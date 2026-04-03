@@ -12,31 +12,46 @@
  *   int      sampleRate  — original sample rate (e.g. 44100, 48000)
  *
  * Output:
- *   float[3] { bpm, firstBeatMs, confidence }  — timestamps are relative to
- *             the start of the passed samples; the Kotlin side adds the intro-
- *             skip offset to map them back to the original track position.
- *   null     — on any failure (too short, no beats, bad BPM range, OOM)
+ *   float[3] { bpm, firstBeatMs, confidence }
  *
- * Algorithm:
+ *   firstBeatMs is the BEAT-0 position relative to the start of the
+ *   passed samples (i.e. relative to the analysis segment, NOT the
+ *   full track).  The Kotlin side adds the intro-skip offset back.
+ *
+ *   null — on any failure (too short, no beats, bad BPM range, OOM)
+ *
+ * Algorithm — BPM:
  *   aubio_tempo is a dynamic-programming beat tracker (NOT onset-interval
  *   heuristics). It fits a probabilistic tempo model to the onset detection
- *   function, giving accurate BPM even on swing/groove, dense EDM, and tracks
- *   with irregular transients — all the cases that break TarsosDSP.
+ *   function, giving accurate BPM even on swing/groove, dense EDM, and
+ *   tracks with irregular transients — all the cases that break TarsosDSP.
  *
  *   buf_size = 1024 samples (~23 ms at 44100 Hz)
  *   hop_size =  512 samples (~12 ms at 44100 Hz)
  *   method   = "default" (specdiff — robust across genres)
  *
- * First beat selection:
- *   aubio's DP estimator takes several hops to converge.  We skip the first
- *   WARMUP_BEATS detections and use the next one as the DJ cue point.
+ * Algorithm — first beat (Beat-0 extrapolation):
+ *   aubio's DP estimator needs WARMUP_BEATS hops to converge. We let it
+ *   converge, then use the anchor beat (beats[WARMUP_BEATS]) and the known
+ *   tempo to EXTRAPOLATE BACKWARD to beat 0.
+ *
+ *   firstBeatMs = anchor_ms − WARMUP_BEATS × beat_interval_ms
+ *
+ *   If the result is negative (beat 0 predates the analysis window), we
+ *   phase-wrap into [0, beatInterval) so the returned value is always a
+ *   non-negative offset inside the samples we were given.
+ *
+ *   This eliminates the systematic ~(WARMUP_BEATS × beat_interval) over-
+ *   shoot that the old code returned by treating beats[WARMUP_BEATS] as
+ *   the first beat directly.
  *
  * Memory safety:
- *   All aubio objects are freed before every return path via a single cleanup
- *   label. No leaks on success, early return, or realloc failure.
+ *   All aubio objects are freed before every return path via a single
+ *   cleanup label. No leaks on success, early return, or realloc failure.
  */
 
 #include <jni.h>
+#include <math.h>       /* ceilf — explicit; do not rely on aubio.h to pull this in */
 #include <stdlib.h>
 #include <string.h>
 #include <android/log.h>
@@ -54,9 +69,12 @@
 #define HOP_SIZE  512
 
 /*
- * Skip this many initial beat detections to let aubio's DP estimator converge.
- * The first few beats after a percussive intro can be slightly mis-timed while
- * the internal tempo model is still bootstrapping.
+ * Number of beat detections to collect before declaring the tempo model
+ * "converged". We then extrapolate BACKWARD by this many intervals to find
+ * beat 0, rather than returning beats[WARMUP_BEATS] directly.
+ *
+ * Keep this at 4: enough convergence, not so many that early onset silence
+ * pushes the anchor far from the actual musical content.
  */
 #define WARMUP_BEATS  4
 
@@ -152,8 +170,8 @@ Java_com_engfred_musicplayer_feature_1dj_1mix_data_bpm_BpmAnalyzer_analyzeBeatsN
 
             /*
              * output->data[0] != 0 signals a beat was detected in this hop.
-             * aubio_tempo_get_last_s() returns its position in the audio stream
-             * (seconds since analysis start, not since the hop start).
+             * aubio_tempo_get_last_s() returns the beat's position in the audio
+             * stream (seconds since analysis start, not since the hop start).
              */
             if (output->data[0] != 0) {
                 smpl_t beat_s = aubio_tempo_get_last_s(tempo);
@@ -198,13 +216,42 @@ Java_com_engfred_musicplayer_feature_1dj_1mix_data_bpm_BpmAnalyzer_analyzeBeatsN
         }
 
         /*
-         * First beat cue point.
-         * Skip WARMUP_BEATS to let the estimator converge, then take the next
-         * detected beat as the DJ cue point. Falls back to beats[0] if there
-         * aren't enough beats to skip (shouldn't happen given MIN_BEATS check).
+         * ── Beat-0 Extrapolation ────────────────────────────────────────────
+         *
+         * The old approach returned beats[WARMUP_BEATS] as "firstBeatMs".
+         * That is actually the (WARMUP_BEATS+1)-th detected beat, causing a
+         * systematic overshoot of ~(WARMUP_BEATS × beat_interval_ms).
+         *
+         * New approach:
+         *   1. Take the anchor beat: beats[firstBeatIdx].
+         *   2. Compute beat_interval_ms = 60 000 / bpm.
+         *   3. Extrapolate backward: beat0_ms = anchor_ms − firstBeatIdx × interval.
+         *   4. If beat0_ms < 0 (beat 0 predates the analysis window), phase-wrap
+         *      into [0, interval) — the nearest valid beat-0 equivalent that lies
+         *      within the samples we were given.
+         *
+         * Phase-wrapping is safe because the beat grid is periodic: beat 0 at
+         * t=X is musically identical to beat 0 at t=X+N×interval for any integer N.
+         * The Kotlin beat-snap pass will refine the position further.
          */
-        int   firstBeatIdx = (beatCnt > WARMUP_BEATS) ? WARMUP_BEATS : 0;
-        float firstBeatMs  = beats[firstBeatIdx] * 1000.0f;
+        int   firstBeatIdx   = (beatCnt > WARMUP_BEATS) ? WARMUP_BEATS : 0;
+        float beatIntervalMs = 60000.0f / (float)bpm;
+        float anchorMs       = beats[firstBeatIdx] * 1000.0f;
+        float firstBeatMs    = anchorMs - (float)firstBeatIdx * beatIntervalMs;
+
+        if (firstBeatMs < 0.0f) {
+            /*
+             * How many full intervals must we add to land at or just after 0?
+             * ceilf(-firstBeatMs / beatIntervalMs) gives the smallest positive
+             * integer N such that firstBeatMs + N*interval >= 0.
+             */
+            int cycles   = (int)ceilf(-firstBeatMs / beatIntervalMs);
+            firstBeatMs += (float)cycles * beatIntervalMs;
+        }
+
+        LOGD("Beat-0 extrapolation: anchor=beats[%d]=%.1fms interval=%.1fms → beat0=%.1fms",
+                firstBeatIdx, (double)anchorMs,
+                (double)beatIntervalMs, (double)firstBeatMs);
 
         /* Build return array: float[3] = { bpm, firstBeatMs, confidence } */
         result = (*env)->NewFloatArray(env, 3);
@@ -226,7 +273,7 @@ Java_com_engfred_musicplayer_feature_1dj_1mix_data_bpm_BpmAnalyzer_analyzeBeatsN
     if (tempo)  del_aubio_tempo(tempo);
     if (beats)  free(beats);
 
-    /* JNI_ABORT: we never modified the array, so don't copy back */
+    /* JNI_ABORT: we never modified the Java array, so do not copy back */
     (*env)->ReleaseFloatArrayElements(env, monoSamples, samples, JNI_ABORT);
 
     return result;

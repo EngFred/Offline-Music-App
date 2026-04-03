@@ -18,7 +18,7 @@ data class DjMixUiState(
     val currentPositionMs: Long = 0L,
     val currentDurationMs: Long = 0L,
     val crossfadeProgressFraction: Float = 0f,
-    val currentMixStrategy: MixStrategy = MixStrategy.HARMONIC, // [was SMOOTH] — updated for 2-strategy test build
+    val currentMixStrategy: MixStrategy = MixStrategy.HARMONIC,
     val waveform: List<Float> = emptyList(),
     val settings: DjMixSettings = DjMixSettings(),
     val isLoading: Boolean = true,

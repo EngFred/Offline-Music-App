@@ -33,20 +33,14 @@ import javax.inject.Inject
 /**
  * Foreground Service for the DJ Mix feature.
  *
- * ── What changed in this version ─────────────────────────────────────────────
- * Added [observePrebufferRequests] — new companion to [observeNextTrackRequests].
- *
- * When the position monitor determines that remaining time < crossfadeDurationMs × 3,
- * it emits on [CrossfadeEngine.prebufferRequest]. This service:
- * 1. Selects the next track from DjSessionManager (same algorithm, NOT marked as played)
- * 2. Calls crossfadeEngine.prebufferTrack() to silently load it into the secondary ExoPlayer
- *
- * When the actual crossfade fires shortly after, the secondary player is already in
- * STATE_READY and seeked to firstBeatMs. [executeCrossfade] skips the 2-second buffer
- * wait entirely — zero silence gap.
- *
- * Key distinction: observePrebufferRequests does NOT call markTrackPlayed.
- * That happens only in observeNextTrackRequests when the crossfade actually starts.
+ * ── Continuous Play mode (isRealMixMode = false) ──────────────────────────────
+ * When Auto-Mix is OFF:
+ *  • [SamplerEngine.isAutoSamplerEnabled] is forced to false regardless of the
+ *    user's sampler preference — transitions play silently.
+ *  • All other engine settings (crossfade duration, BPM tolerance, etc.) are
+ *    kept in sync as normal.
+ *  • The user's autoSamplerEnabled preference is NOT mutated — it is restored
+ *    automatically the moment isRealMixMode is switched back ON.
  *
  * ── Previously fixed (retained from prior version) ───────────────────────────
  * 1. nextTrackRequest handling lives here (not ViewModel) — survives screen exit
@@ -56,6 +50,7 @@ import javax.inject.Inject
  * 5. ActivePlayerRegistry coordination (stop signal from normal player)
  * 6. Engine released in onDestroy if not already released via ACTION_STOP
  * 7. useHalfwayMix synced from useManualMaxDuration setting
+ * 8. observePrebufferRequests — silently pre-loads next track before crossfade fires
  */
 @UnstableApi
 @AndroidEntryPoint
@@ -191,6 +186,14 @@ class DjMixService : Service() {
         }
     }
 
+    /**
+     * Syncs all engine and sampler settings from [DjSessionManager.settings].
+     *
+     * Sampler suppression rule:
+     *  - Auto-Mix ON  (isRealMixMode = true)  → sampler respects the user's autoSamplerEnabled toggle.
+     *  - Auto-Mix OFF (isRealMixMode = false) → sampler is forced silent regardless of the toggle.
+     *    The user's preference is NOT changed — it is restored when Auto-Mix is turned back ON.
+     */
     private fun observeEngineSettings() {
         serviceScope.launch {
             djSessionManager.settings.collect { settings ->
@@ -198,8 +201,19 @@ class DjMixService : Service() {
                 crossfadeEngine.isRealMixMode       = settings.isRealMixMode
                 crossfadeEngine.maxTrackDurationMs  = settings.maxTrackDurationSec * 1000L
                 crossfadeEngine.useHalfwayMix       = !settings.useManualMaxDuration
-                samplerEngine.isAutoSamplerEnabled  = settings.autoSamplerEnabled
-                samplerEngine.sampleVolume          = settings.sampleVolume
+
+                // ── Sampler suppression in Continuous Play mode ───────────────
+                // When Auto-Mix is OFF the sampler must be silent — there are no
+                // DJ-strategy lifecycle events to attach sound effects to.
+                samplerEngine.isAutoSamplerEnabled = settings.autoSamplerEnabled && settings.isRealMixMode
+                samplerEngine.sampleVolume         = settings.sampleVolume
+
+                Log.d(
+                    TAG,
+                    "[SETTINGS] isRealMixMode=${settings.isRealMixMode} " +
+                            "autoSampler=${settings.autoSamplerEnabled} " +
+                            "effectiveSamplerEnabled=${settings.autoSamplerEnabled && settings.isRealMixMode}"
+                )
             }
         }
     }
@@ -217,10 +231,9 @@ class DjMixService : Service() {
      * Fires [SamplerEngine.onSessionStarted] exactly once — when the DJ Mix engine
      * plays its first track for this session.
      *
-     * We wait for [CrossfadeEngineState.isPlaying] = true rather than firing
-     * immediately in onCreate() because:
-     * a) SoundPool needs time to decode the AIR_HORN asset after initialize().
-     * b) The user may have opened the DJ screen but not yet pressed Play.
+     * Only fires when isRealMixMode is true. In Continuous Play mode the session-start
+     * air horn is suppressed because samplerEngine.isAutoSamplerEnabled will already
+     * be false when observeEngineSettings runs before the first play.
      *
      * [kotlinx.coroutines.flow.first] automatically cancels collection after the
      * first matching emission, so this never fires twice.
@@ -230,8 +243,10 @@ class DjMixService : Service() {
             crossfadeEngine.state
                 .first { it.isPlaying && !it.isCrossfading }
             // Reached here only on the first isPlaying=true, non-crossfading emission.
+            // samplerEngine.isAutoSamplerEnabled already reflects the correct value
+            // (false when Auto-Mix is OFF) so onSessionStarted is a safe no-op in that case.
             samplerEngine.onSessionStarted()
-            Log.d(TAG, "observeFirstPlay: session-start AIR_HORN triggered")
+            Log.d(TAG, "observeFirstPlay: session-start triggered (sampler will fire only if Auto-Mix is ON)")
         }
     }
 
