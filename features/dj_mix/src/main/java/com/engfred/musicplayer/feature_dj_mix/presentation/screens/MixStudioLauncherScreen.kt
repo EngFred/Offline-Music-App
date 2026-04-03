@@ -54,7 +54,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.engfred.musicplayer.core.domain.model.AutomaticPlaylistType
 import com.engfred.musicplayer.core.domain.model.DjMixPlaylistFilter
 import com.engfred.musicplayer.core.domain.model.Playlist
-import com.engfred.musicplayer.feature_dj_mix.presentation.components.DjMixLauncherShimmer
+import com.engfred.musicplayer.feature_dj_mix.presentation.components.MixStudioLauncherShimmer
 import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.MixStudioLauncherViewModel
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ fun MixStudioLauncherScreen(
         when {
             uiState.isLoading -> {
                 // Show the perfectly matched shimmer layout instead of a spinner
-                DjMixLauncherShimmer(modifier = Modifier.fillMaxSize())
+                MixStudioLauncherShimmer(modifier = Modifier.fillMaxSize())
             }
 
             uiState.error != null -> {

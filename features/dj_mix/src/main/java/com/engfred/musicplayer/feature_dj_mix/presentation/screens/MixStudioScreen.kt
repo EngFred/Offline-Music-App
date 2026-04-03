@@ -1,6 +1,7 @@
 package com.engfred.musicplayer.feature_dj_mix.presentation.screens
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -19,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,6 +47,8 @@ fun MixStudioScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showSettingsSheet by remember { mutableStateOf(false) }
@@ -68,6 +72,7 @@ fun MixStudioScreen(
 
     val lazyListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    val analysedCount = (uiState.analysisProgress * uiState.totalSongs).toInt()
 
     val backgroundBrush = Brush.verticalGradient(
         colors = listOf(
@@ -77,199 +82,450 @@ fun MixStudioScreen(
         )
     )
 
-    // ── Computed display values ───────────────────────────────────────────────
-    val analysedCount = (uiState.analysisProgress * uiState.totalSongs).toInt()
+    if (isLandscape) {
+        // ══════════════════════════════════════════════════════════════
+        //  LANDSCAPE  — Split-panel layout
+        // ══════════════════════════════════════════════════════════════
+        Scaffold(
+            containerColor = Color.Transparent
+        ) { paddingValues ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(backgroundBrush)
+                    .padding(paddingValues)
+            ) {
+                Row(modifier = Modifier.fillMaxSize()) {
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
+                    // ── LEFT PANEL: Now Playing ───────────────────────────────
                     Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier            = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .weight(0.45f)
+                            .fillMaxHeight()
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.12f),
+                                        Color.Transparent
+                                    )
+                                )
+                            ),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(
-                            text          = "MIX STUDIO",
-                            style         = MaterialTheme.typography.titleMedium,
-                            fontWeight    = FontWeight.Black,
-                            letterSpacing = 1.5.sp,
-                            color         = MaterialTheme.colorScheme.onBackground
-                        )
-                        if (uiState.playlistName.isNotBlank()) {
+                        // Mini top bar embedded in the panel
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = onNavigateBack) {
+                                Icon(
+                                    Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onBackground
+                                )
+                            }
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text          = "MIX STUDIO",
+                                    style         = MaterialTheme.typography.titleSmall,
+                                    fontWeight    = FontWeight.Black,
+                                    letterSpacing = 1.5.sp,
+                                    color         = MaterialTheme.colorScheme.onBackground
+                                )
+                                if (uiState.playlistName.isNotBlank()) {
+                                    Text(
+                                        text          = uiState.playlistName.uppercase(),
+                                        style         = MaterialTheme.typography.labelSmall,
+                                        color         = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                                        maxLines      = 1,
+                                        overflow      = TextOverflow.Ellipsis,
+                                        letterSpacing = 1.sp
+                                    )
+                                }
+                            }
+                            IconButton(onClick = { showSettingsSheet = true }) {
+                                Icon(
+                                    Icons.Rounded.Settings,
+                                    contentDescription = "DJ Settings",
+                                    tint = MaterialTheme.colorScheme.onBackground
+                                )
+                            }
+                        }
+
+                        // Scrollable now-playing content
+                        LazyColumn(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            contentPadding = PaddingValues(
+                                horizontal = 20.dp,
+                                vertical   = 8.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            if (uiState.isAnalyzing || uiState.analysisProgress < 1f ||
+                                uiState.analysisFailedCount > 0) {
+                                item(key = "analysis_section") {
+                                    BpmAnalysisSection(
+                                        progress      = uiState.analysisProgress,
+                                        analysedCount = analysedCount,
+                                        totalCount    = uiState.totalSongs,
+                                        failedCount   = uiState.analysisFailedCount,
+                                        modifier      = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+
+                            uiState.currentTrack?.let { track ->
+                                item(key = "now_playing") {
+                                    NowPlayingSection(
+                                        trackTitle         = track.title,
+                                        trackArtist        = track.artist ?: "Unknown Artist",
+                                        bpm                = uiState.bpmCache[track.id]?.bpm
+                                            ?.takeIf { uiState.bpmCache[track.id]?.analysisFailed != true },
+                                        positionMs         = uiState.currentPositionMs,
+                                        durationMs         = uiState.currentDurationMs,
+                                        isCrossfading      = uiState.isCrossfading,
+                                        crossfadeProgress  = uiState.crossfadeProgressFraction,
+                                        currentMixStrategy = uiState.currentMixStrategy,
+                                        albumArtUri        = track.albumArtUri,
+                                        waveform           = uiState.waveform,
+                                        isPlaying          = uiState.isPlaying,
+                                        timeToNextMixMs    = uiState.timeToNextMixMs,
+                                        nextTrack          = uiState.nextTrack,
+                                        modifier           = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+
+                        // ── Play/Pause button pinned at bottom of left panel ──
+                        val fabLabel = when {
+                            uiState.currentTrack != null             -> null
+                            uiState.pendingAutoStartAfterAnalysis    -> "WAITING…"
+                            uiState.smartQueue.isNotEmpty()          -> "START MIX"
+                            else                                     -> null
+                        }
+                        if (fabLabel != null || uiState.currentTrack != null) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (uiState.currentTrack != null) {
+                                    FloatingActionButton(
+                                        onClick        = { viewModel.onEvent(MixStudioEvent.PlayPause) },
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                        contentColor   = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        shape          = RoundedCornerShape(percent = 50)
+                                    ) {
+                                        Icon(
+                                            imageVector        = if (uiState.isPlaying)
+                                                Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                            contentDescription = "Play/Pause"
+                                        )
+                                    }
+                                } else {
+                                    ExtendedFloatingActionButton(
+                                        onClick = {
+                                            viewModel.onEvent(MixStudioEvent.PlayPause)
+                                            coroutineScope.launch { lazyListState.animateScrollToItem(0) }
+                                        },
+                                        containerColor = if (uiState.pendingAutoStartAfterAnalysis)
+                                            MaterialTheme.colorScheme.secondaryContainer
+                                        else
+                                            MaterialTheme.colorScheme.primary,
+                                        contentColor = if (uiState.pendingAutoStartAfterAnalysis)
+                                            MaterialTheme.colorScheme.onSecondaryContainer
+                                        else
+                                            MaterialTheme.colorScheme.onPrimary,
+                                        shape = RoundedCornerShape(percent = 50),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Rounded.PlayArrow, contentDescription = null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            fabLabel!!,
+                                            fontWeight    = FontWeight.Black,
+                                            letterSpacing = 1.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Divider between panels
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .fillMaxHeight()
+                            .background(
+                                MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
+                            )
+                    )
+
+                    // ── RIGHT PANEL: Queue ────────────────────────────────────
+                    Column(
+                        modifier = Modifier
+                            .weight(0.55f)
+                            .fillMaxHeight()
+                    ) {
+                        // Queue header
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text          = uiState.playlistName.uppercase(),
-                                style         = MaterialTheme.typography.labelSmall,
-                                color         = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
-                                maxLines      = 1,
-                                overflow      = TextOverflow.Ellipsis,
-                                letterSpacing = 1.sp
+                                text          = "UP NEXT",
+                                style         = MaterialTheme.typography.titleSmall,
+                                fontWeight    = FontWeight.Black,
+                                letterSpacing = 2.sp,
+                                color         = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                text       = "${uiState.smartQueue.size} TRACKS",
+                                style      = MaterialTheme.typography.labelMedium,
+                                color      = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 20.dp),
+                            color    = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f)
+                        )
+
+                        LazyColumn(
+                            state          = lazyListState,
+                            modifier       = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 16.dp)
+                        ) {
+                            itemsIndexed(
+                                items = uiState.smartQueue,
+                                key   = { _, song -> song.id }
+                            ) { index, song ->
+                                SmartQueueItem(
+                                    position       = index + 1,
+                                    song           = song,
+                                    bpm            = uiState.bpmCache[song.id]?.bpm
+                                        ?.takeIf { uiState.bpmCache[song.id]?.analysisFailed != true },
+                                    analysisFailed = uiState.bpmCache[song.id]?.analysisFailed == true,
+                                    isCurrent      = song.id == uiState.currentTrack?.id,
+                                    isPlayed       = song.id in uiState.playedTrackIds &&
+                                            song.id != uiState.currentTrack?.id,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    } else {
+        // ══════════════════════════════════════════════════════════════
+        //  PORTRAIT  — Original single-column scroll layout
+        // ══════════════════════════════════════════════════════════════
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier            = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text          = "MIX STUDIO",
+                                style         = MaterialTheme.typography.titleMedium,
+                                fontWeight    = FontWeight.Black,
+                                letterSpacing = 1.5.sp,
+                                color         = MaterialTheme.colorScheme.onBackground
+                            )
+                            if (uiState.playlistName.isNotBlank()) {
+                                Text(
+                                    text          = uiState.playlistName.uppercase(),
+                                    style         = MaterialTheme.typography.labelSmall,
+                                    color         = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                                    maxLines      = 1,
+                                    overflow      = TextOverflow.Ellipsis,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { showSettingsSheet = true }) {
+                            Icon(
+                                Icons.Rounded.Settings,
+                                contentDescription = "DJ Settings",
+                                tint = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor         = Color.Transparent,
+                        scrolledContainerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
+                    )
+                )
+            },
+            floatingActionButtonPosition = FabPosition.Center,
+            floatingActionButton = {
+                if (uiState.currentTrack != null) {
+                    FloatingActionButton(
+                        onClick        = { viewModel.onEvent(MixStudioEvent.PlayPause) },
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor   = MaterialTheme.colorScheme.onSurfaceVariant,
+                        shape          = RoundedCornerShape(percent = 50)
+                    ) {
+                        Icon(
+                            imageVector        = if (uiState.isPlaying) Icons.Rounded.Pause
+                            else Icons.Rounded.PlayArrow,
+                            contentDescription = "Play/Pause"
+                        )
+                    }
+                } else if (uiState.smartQueue.isNotEmpty()) {
+                    val fabLabel = if (uiState.pendingAutoStartAfterAnalysis)
+                        "WAITING FOR ANALYSIS…"
+                    else
+                        "START MIX"
+
+                    ExtendedFloatingActionButton(
+                        onClick = {
+                            viewModel.onEvent(MixStudioEvent.PlayPause)
+                            coroutineScope.launch { lazyListState.animateScrollToItem(0) }
+                        },
+                        containerColor = if (uiState.pendingAutoStartAfterAnalysis)
+                            MaterialTheme.colorScheme.secondaryContainer
+                        else
+                            MaterialTheme.colorScheme.primary,
+                        contentColor = if (uiState.pendingAutoStartAfterAnalysis)
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        else
+                            MaterialTheme.colorScheme.onPrimary,
+                        shape    = RoundedCornerShape(percent = 50),
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    ) {
+                        Icon(Icons.Rounded.PlayArrow, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(fabLabel, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                    }
+                }
+            },
+            containerColor = Color.Transparent
+        ) { paddingValues ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(backgroundBrush)
+            ) {
+                LazyColumn(
+                    state          = lazyListState,
+                    modifier       = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        top    = paddingValues.calculateTopPadding() + 16.dp,
+                        bottom = 120.dp
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(32.dp)
+                ) {
+                    if (uiState.isAnalyzing || uiState.analysisProgress < 1f ||
+                        uiState.analysisFailedCount > 0) {
+                        item(key = "analysis_section") {
+                            BpmAnalysisSection(
+                                progress      = uiState.analysisProgress,
+                                analysedCount = analysedCount,
+                                totalCount    = uiState.totalSongs,
+                                failedCount   = uiState.analysisFailedCount,
+                                modifier      = Modifier.padding(horizontal = 24.dp)
                             )
                         }
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showSettingsSheet = true }) {
-                        Icon(
-                            Icons.Rounded.Settings,
-                            contentDescription = "DJ Settings",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor         = Color.Transparent,
-                    scrolledContainerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
-                )
-            )
-        },
-        floatingActionButtonPosition = FabPosition.Center,
-        floatingActionButton = {
-            if (uiState.currentTrack != null) {
-                FloatingActionButton(
-                    onClick        = { viewModel.onEvent(MixStudioEvent.PlayPause) },
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor   = MaterialTheme.colorScheme.onSurfaceVariant,
-                    shape          = RoundedCornerShape(percent = 50)
-                ) {
-                    Icon(
-                        imageVector        = if (uiState.isPlaying) Icons.Rounded.Pause
-                        else Icons.Rounded.PlayArrow,
-                        contentDescription = "Play/Pause"
-                    )
-                }
-            } else if (uiState.smartQueue.isNotEmpty()) {
-                // ── FAB label adapts to whether the user is already waiting ──
-                val fabLabel = if (uiState.pendingAutoStartAfterAnalysis)
-                    "WAITING FOR ANALYSIS…"
-                else
-                    "START MIX"
 
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        viewModel.onEvent(MixStudioEvent.PlayPause)
-                        coroutineScope.launch { lazyListState.animateScrollToItem(0) }
-                    },
-                    containerColor = if (uiState.pendingAutoStartAfterAnalysis)
-                        MaterialTheme.colorScheme.secondaryContainer
-                    else
-                        MaterialTheme.colorScheme.primary,
-                    contentColor = if (uiState.pendingAutoStartAfterAnalysis)
-                        MaterialTheme.colorScheme.onSecondaryContainer
-                    else
-                        MaterialTheme.colorScheme.onPrimary,
-                    shape    = RoundedCornerShape(percent = 50),
-                    modifier = Modifier.padding(bottom = 16.dp)
-                ) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(fabLabel, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-                }
-            }
-        },
-        containerColor = Color.Transparent
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(backgroundBrush)
-        ) {
-            LazyColumn(
-                state          = lazyListState,
-                modifier       = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    top    = paddingValues.calculateTopPadding() + 16.dp,
-                    bottom = 120.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(32.dp)
-            ) {
-                if (uiState.isAnalyzing || uiState.analysisProgress < 1f ||
-                    uiState.analysisFailedCount > 0) {
-                    item(key = "analysis_section") {
-                        BpmAnalysisSection(
-                            progress      = uiState.analysisProgress,
-                            analysedCount = analysedCount,
-                            totalCount    = uiState.totalSongs,
-                            failedCount   = uiState.analysisFailedCount,
-                            modifier      = Modifier.padding(horizontal = 24.dp)
+                    uiState.currentTrack?.let { track ->
+                        item(key = "now_playing") {
+                            NowPlayingSection(
+                                trackTitle         = track.title,
+                                trackArtist        = track.artist ?: "Unknown Artist",
+                                bpm                = uiState.bpmCache[track.id]?.bpm
+                                    ?.takeIf { uiState.bpmCache[track.id]?.analysisFailed != true },
+                                positionMs         = uiState.currentPositionMs,
+                                durationMs         = uiState.currentDurationMs,
+                                isCrossfading      = uiState.isCrossfading,
+                                crossfadeProgress  = uiState.crossfadeProgressFraction,
+                                currentMixStrategy = uiState.currentMixStrategy,
+                                albumArtUri        = track.albumArtUri,
+                                waveform           = uiState.waveform,
+                                isPlaying          = uiState.isPlaying,
+                                timeToNextMixMs    = uiState.timeToNextMixMs,
+                                nextTrack          = uiState.nextTrack,
+                                modifier           = Modifier.padding(horizontal = 24.dp)
+                            )
+                        }
+                    }
+
+                    item(key = "queue_header") {
+                        Row(
+                            modifier          = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text          = "UP NEXT",
+                                style         = MaterialTheme.typography.titleSmall,
+                                fontWeight    = FontWeight.Black,
+                                letterSpacing = 2.sp,
+                                color         = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                text       = "${uiState.smartQueue.size} TRACKS",
+                                style      = MaterialTheme.typography.labelMedium,
+                                color      = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    itemsIndexed(
+                        items = uiState.smartQueue,
+                        key   = { _, song -> song.id }
+                    ) { index, song ->
+                        SmartQueueItem(
+                            position       = index + 1,
+                            song           = song,
+                            bpm            = uiState.bpmCache[song.id]?.bpm
+                                ?.takeIf { uiState.bpmCache[song.id]?.analysisFailed != true },
+                            analysisFailed = uiState.bpmCache[song.id]?.analysisFailed == true,
+                            isCurrent      = song.id == uiState.currentTrack?.id,
+                            isPlayed       = song.id in uiState.playedTrackIds &&
+                                    song.id != uiState.currentTrack?.id,
                         )
                     }
-                }
-
-                uiState.currentTrack?.let { track ->
-                    item(key = "now_playing") {
-                        NowPlayingSection(
-                            trackTitle         = track.title,
-                            trackArtist        = track.artist ?: "Unknown Artist",
-                            bpm                = uiState.bpmCache[track.id]?.bpm
-                                ?.takeIf { uiState.bpmCache[track.id]?.analysisFailed != true },
-                            positionMs         = uiState.currentPositionMs,
-                            durationMs         = uiState.currentDurationMs,
-                            isCrossfading      = uiState.isCrossfading,
-                            crossfadeProgress  = uiState.crossfadeProgressFraction,
-                            currentMixStrategy = uiState.currentMixStrategy,
-                            albumArtUri        = track.albumArtUri,
-                            waveform           = uiState.waveform,
-                            isPlaying          = uiState.isPlaying,
-                            timeToNextMixMs    = uiState.timeToNextMixMs,
-                            nextTrack          = uiState.nextTrack,
-                            modifier           = Modifier.padding(horizontal = 24.dp)
-                        )
-                    }
-                }
-
-                item(key = "queue_header") {
-                    Row(
-                        modifier          = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text          = "UP NEXT",
-                            style         = MaterialTheme.typography.titleSmall,
-                            fontWeight    = FontWeight.Black,
-                            letterSpacing = 2.sp,
-                            color         = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            text       = "${uiState.smartQueue.size} TRACKS",
-                            style      = MaterialTheme.typography.labelMedium,
-                            color      = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                itemsIndexed(
-                    items = uiState.smartQueue,
-                    key   = { _, song -> song.id }
-                ) { index, song ->
-                    SmartQueueItem(
-                        position       = index + 1,
-                        song           = song,
-                        bpm            = uiState.bpmCache[song.id]?.bpm
-                            ?.takeIf { uiState.bpmCache[song.id]?.analysisFailed != true },
-                        analysisFailed = uiState.bpmCache[song.id]?.analysisFailed == true,
-                        isCurrent      = song.id == uiState.currentTrack?.id,
-                        isPlayed       = song.id in uiState.playedTrackIds &&
-                                song.id != uiState.currentTrack?.id,
-                    )
                 }
             }
         }
     }
 
-    // ── Analysis-in-progress confirmation dialog ──────────────────────────────
+    // ── Analysis-in-progress confirmation dialog (shared by both orientations) ─
     if (uiState.showAnalysisDialog) {
         AnalysisInProgressDialog(
             analysedCount = analysedCount,
@@ -281,7 +537,7 @@ fun MixStudioScreen(
         )
     }
 
-    // ── Settings sheet ────────────────────────────────────────────────────────
+    // ── Settings bottom sheet (shared by both orientations) ──────────────────
     if (showSettingsSheet) {
         ModalBottomSheet(
             onDismissRequest = { showSettingsSheet = false },

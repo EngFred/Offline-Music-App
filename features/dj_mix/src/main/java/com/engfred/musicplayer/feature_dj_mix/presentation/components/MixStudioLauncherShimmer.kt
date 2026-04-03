@@ -29,7 +29,7 @@ import com.engfred.musicplayer.core.ui.components.shimmerBrush
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-fun DjMixLauncherShimmer(modifier: Modifier = Modifier) {
+fun MixStudioLauncherShimmer(modifier: Modifier = Modifier) {
     val brush = shimmerBrush()
 
     LazyColumn(
