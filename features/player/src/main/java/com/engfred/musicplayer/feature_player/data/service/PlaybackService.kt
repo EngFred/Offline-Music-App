@@ -70,7 +70,6 @@ class PlaybackService : MediaSessionService() {
     @Inject
     lateinit var activePlayerRegistry: ActivePlayerRegistry
 
-    // ── Add injection (remove the old Equalizer field) ────────────────────────
     @Inject
     lateinit var eqProcessor: BandEqAudioProcessor
 
@@ -80,7 +79,7 @@ class PlaybackService : MediaSessionService() {
     private var lastIdleDisplayInfo: WidgetDisplayInfo? = null
     private var preferredRepeatMode: RepeatMode = RepeatMode.OFF
     private var widgetThemeAware: Boolean = false
-    private var isFullShown: Boolean = false  //Track if full was rendered to prevent idle reversion
+    private var isFullShown: Boolean = false
 
     companion object {
         const val ACTION_WIDGET_PLAY_PAUSE = "com.engfred.musicplayer.ACTION_WIDGET_PLAY_PAUSE"
@@ -104,7 +103,7 @@ class PlaybackService : MediaSessionService() {
                 .setContentTitle("Music Player")
                 .setContentText("Starting music service...")
                 .setSmallIcon(android.R.drawable.ic_media_play)
-                .setPriority(NotificationManager.IMPORTANCE_LOW)
+                .setPriority(NotificationManager.IMPORTANCE_MIN)
                 .setSilent(true)
                 .build()
             try {
@@ -149,19 +148,17 @@ class PlaybackService : MediaSessionService() {
 
             setMediaNotificationProvider(musicNotificationProvider)
 
-            //Load last info BLOCKING to ensure it's ready before any updates
             runBlocking {
                 loadLastIdleDisplayInfo()
                 if (sharedAudioDataSource.playingQueueAudioFiles.value.isEmpty()) {
                     Log.d(TAG, "Playing queue was empty loading songs....")
                     loadPlayingQueue()
-                } else{
+                } else {
                     Log.d(TAG, "QUEUE IS SET. READY TO PLAY!!!!!.")
                 }
             }
-            isFullShown = lastIdleDisplayInfo != null  // Set flag based on load
+            isFullShown = lastIdleDisplayInfo != null
 
-            // listen for player changes and update widget
             exoPlayer.addListener(object : Player.Listener {
                 @RequiresApi(Build.VERSION_CODES.P)
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -186,7 +183,6 @@ class PlaybackService : MediaSessionService() {
                 }
             })
 
-            // Start periodic update for duration (1s)
             serviceScope.launch {
                 while (true) {
                     delay(1000)
@@ -198,7 +194,6 @@ class PlaybackService : MediaSessionService() {
                 }
             }
 
-            // Periodic state saving
             serviceScope.launch {
                 while (true) {
                     delay(PERIODIC_SAVE_INTERVAL_MS)
@@ -208,12 +203,10 @@ class PlaybackService : MediaSessionService() {
                 }
             }
 
-            // Load preferred repeat and widget mode (async, as less critical)
             serviceScope.launch {
                 val appSettings = settingsRepository.getAppSettings().first()
                 preferredRepeatMode = appSettings.repeatMode
                 widgetThemeAware = (appSettings.widgetBackgroundMode == WidgetBackgroundMode.THEME_AWARE)
-                // Initial update now that load is done
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     WidgetUpdater.updateWidget(
                         this@PlaybackService,
@@ -221,12 +214,11 @@ class PlaybackService : MediaSessionService() {
                         lastIdleDisplayInfo,
                         getIdleRepeatMode(),
                         widgetThemeAware,
-                        isInitial = true  // Force full rebuild on boot/refresh
+                        isInitial = true
                     )
                 }
             }
 
-            // Observe settings for preset and repeat changes
             serviceScope.launch {
                 var lastRepeat: RepeatMode? = null
                 var lastWidgetMode: WidgetBackgroundMode? = null
@@ -277,7 +269,6 @@ class PlaybackService : MediaSessionService() {
                 )
                 Log.d(TAG, "Cached last idle display info: ${audio.title} by ${audio.artist}")
             } else {
-                // Clear invalid state
                 settingsRepository.saveLastPlaybackState(LastPlaybackState(null))
                 lastIdleDisplayInfo = null
                 Log.w(TAG, "Last audio ID ${lastState.audioId} not found; cleared state")
@@ -287,7 +278,6 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    //Added this function to load the playing queue
     private suspend fun loadPlayingQueue() {
         val lastState = settingsRepository.getLastPlaybackState().first()
         val deviceAudios = libRepo.getAllAudioFiles().first()
@@ -303,12 +293,8 @@ class PlaybackService : MediaSessionService() {
         Log.d(TAG, "Loaded ${playingQueue.size} songs into playing queue on service create")
     }
 
-    /**
-     * Central widget play/pause handling that calls playbackController directly.
-     */
     private suspend fun handleWidgetPlayPause() {
         try {
-            // Wait for controller to be ready (fixes double click issue)
             if (!playbackController.waitUntilReady(10000L)) {
                 Log.e(TAG, "Playback controller not ready after timeout")
                 Toast.makeText(applicationContext, "Player starting, try again", Toast.LENGTH_SHORT).show()
@@ -320,7 +306,7 @@ class PlaybackService : MediaSessionService() {
             } else {
                 playbackController.playPause()
             }
-            isFullShown = true  //Mark full as shown after playback init
+            isFullShown = true
         } catch (e: Exception) {
             Log.e(TAG, "handleWidgetPlayPause error: ${e.message}", e)
         }
@@ -354,7 +340,6 @@ class PlaybackService : MediaSessionService() {
     @RequiresApi(Build.VERSION_CODES.P)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
-            //Check if exoPlayer is initialized before using
             if (!::exoPlayer.isInitialized) {
                 Log.w(TAG, "exoPlayer not initialized yet in onStartCommand; skipping action")
                 return START_STICKY
@@ -376,10 +361,9 @@ class PlaybackService : MediaSessionService() {
                     } catch (_: Exception) {}
                 }
                 ACTION_REFRESH_WIDGET -> {
-                    //Brief delay if load not done (should be rare since blocking in onCreate)
                     if (lastIdleDisplayInfo == null && isFullShown) {
                         serviceScope.launch {
-                            delay(200)  // Wait for any pending load
+                            delay(200)
                             WidgetUpdater.updateWidget(this@PlaybackService, exoPlayer, lastIdleDisplayInfo, getIdleRepeatMode(), widgetThemeAware, isInitial = true)
                         }
                     } else {
@@ -403,7 +387,6 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         try {
-            // Save last state synchronously (as before)
             saveLastPlaybackStateBlocking(settingsRepository, exoPlayer)
             serviceScope.cancel()
             mediaSession?.run {
@@ -416,46 +399,66 @@ class PlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
+    // ── FIX: Delete old channel and recreate at IMPORTANCE_MIN so existing
+    //         users also lose the badge after updating the app. ────────────────
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            // Delete the old channel so its cached importance setting is wiped
+            // for users who already installed a previous version of the app.
+            notificationManager.deleteNotificationChannel(MUSIC_NOTIFICATION_CHANNEL_ID)
+
             val channel = NotificationChannel(
                 MUSIC_NOTIFICATION_CHANNEL_ID,
                 "Music Playback",
-                NotificationManager.IMPORTANCE_LOW
+                // IMPORTANCE_MIN: no sound, no vibration, no badge, no heads-up.
+                // The media controls still appear in the notification shade when
+                // music is actually playing because Media3 elevates the priority
+                // of its media-style notification automatically.
+                NotificationManager.IMPORTANCE_MIN
             ).apply {
                 description = "Notifications for music playback controls"
                 setSound(null, null)
                 enableLights(false)
                 enableVibration(false)
+                setShowBadge(false) // Explicitly suppress the icon badge count
             }
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
     }
 
     fun updateWidgetWithInfo() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            //Skip if would revert to idle when full is shown
             if (lastIdleDisplayInfo == null && exoPlayer.currentMediaItem == null && isFullShown) return
             WidgetUpdater.updateWidget(this, exoPlayer, lastIdleDisplayInfo, getIdleRepeatMode(), widgetThemeAware)
             isFullShown = (lastIdleDisplayInfo != null || exoPlayer.currentMediaItem != null)
         }
     }
 
-    /**
-     * Suppress the normal-player notification while the DJ Mix is active.
-     * The DJ service posts its own notification; showing both causes the wrong
-     * track info and a frozen progress bar in the system media UI.
-     */
+    // ── FIX: Suppress the normal-player notification while the DJ Mix is
+    //         active, AND remove the lingering "Starting music service..."
+    //         placeholder when nothing is loaded into the player yet. ─────────
     override fun onUpdateNotification(session: MediaSession, startInForeground: Boolean) {
-        if (activePlayerRegistry.isDjMixActive.value) {
-            // Cancel the old notification so it doesn't linger in the shade.
-            // PlaybackService stays alive as a background service; when normal
-            // playback resumes this method will be called again with isDjMixActive=false.
-            (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
-                ?.cancel(MUSIC_NOTIFICATION_ID)
-            return
+        when {
+            // DJ Mix is active — cancel the normal player notification so it
+            // doesn't conflict with the DJ service's own notification.
+            activePlayerRegistry.isDjMixActive.value -> {
+                (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
+                    ?.cancel(MUSIC_NOTIFICATION_ID)
+            }
+
+            // Nothing is loaded and nothing is playing — demote the service out
+            // of the foreground so the "Starting music service..." placeholder
+            // is removed from the notification shade and the badge disappears.
+            exoPlayer.mediaItemCount == 0 && !exoPlayer.isPlaying -> {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+
+            // Normal case — let Media3 handle the media-style notification.
+            else -> super.onUpdateNotification(session, startInForeground)
         }
-        super.onUpdateNotification(session, startInForeground)
     }
 }

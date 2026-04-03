@@ -66,13 +66,6 @@ class UpdateCheckWorker @AssistedInject constructor(
         val updateInfo = checkForUpdateUseCase(BuildConfig.VERSION_NAME)
             ?: return Result.success()  // Up-to-date or network error
 
-        // Respect the user's "Remind Me Later" choice for this version
-        val snoozed = settingsRepository.getSnoozedUpdateVersion()
-        if (updateInfo.latestVersion == snoozed) {
-            Log.d(TAG, "Version ${updateInfo.latestVersion} was snoozed by user — skipping notification")
-            return Result.success()
-        }
-
         showNotification(updateInfo)
         return Result.success()
     }

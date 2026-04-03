@@ -116,17 +116,6 @@ class MainActivity : ComponentActivity() {
 
         scheduleBackgroundScan()
 
-//        // ── TEMPORARY: force update dialog for UI testing — REMOVE BEFORE RELEASE ──
-//        uiScope.launch {
-//            updateInfo = UpdateInfo(
-//                latestVersion = "99.9.9",
-//                releaseNotes  = "Introducing DJ Auto-Mix!\nTurn your playlist into a seamless DJ set.\n\nPro-Level Transitions with custom Full Energy volume curve.\n\nGenius Drop Mixes for smooth automatic transitions.",
-//                downloadUrl   = "https://github.com/EngFred/Offline-Music-App/releases",
-//                htmlUrl       = "https://github.com/EngFred/Offline-Music-App/releases"
-//            )
-//            showUpdateDialog = true
-//        }
-
         uiScope.launch {
             try {
                 getAppSettingsUseCase().collect { settings ->
@@ -185,11 +174,8 @@ class MainActivity : ComponentActivity() {
                     val info = checkForUpdateUseCase(BuildConfig.VERSION_NAME)
                     settingsRepository.updateLastUpdateCheckTimestamp(now)
                     if (info != null) {
-                        val snoozed = settingsRepository.getSnoozedUpdateVersion()
-                        if (info.latestVersion != snoozed) {
-                            updateInfo      = info
-                            showUpdateDialog = true
-                        }
+                        updateInfo      = info
+                        showUpdateDialog = true
                     }
                 }
             } catch (t: Throwable) {
@@ -243,7 +229,6 @@ class MainActivity : ComponentActivity() {
                         if (playlistId != null) {
                             val route = AppDestinations.DjMix.createRoute(playlistId)
                             if (navController.currentDestination?.route != route) {
-                                // ── FIX: Prevent duplicate instances of the DJ Mix screen ──
                                 navController.navigate(route) {
                                     launchSingleTop = true
                                     restoreState = true
@@ -402,18 +387,12 @@ class MainActivity : ComponentActivity() {
                     UpdateDialog(
                         updateInfo    = currentUpdateInfo,
                         onDownload    = {
-                            // User tapped Download — dismiss and clear snooze for this version
                             showUpdateDialog = false
                             updateInfo = null
                         },
                         onRemindLater = {
-                            // Snooze this version so the dialog doesn't reappear until a newer one
+                            // User tapped Remind Later — just dismiss the dialog for now.
                             showUpdateDialog = false
-                            uiScope.launch {
-                                settingsRepository.updateSnoozedUpdateVersion(
-                                    currentUpdateInfo.latestVersion
-                                )
-                            }
                             updateInfo = null
                         },
                         onDismiss = {

@@ -62,7 +62,6 @@ class SettingsRepositoryImpl @Inject constructor(
         private val DJ_MIX_PLAYLIST_FILTER = stringPreferencesKey("dj_mix_playlist_filter")
 
         private val LAST_UPDATE_CHECK_TIMESTAMP = longPreferencesKey("last_update_check_timestamp")
-        private val SNOOZED_UPDATE_VERSION      = stringPreferencesKey("snoozed_update_version")
     }
 
     override fun getAppSettings(): Flow<AppSettings> {
@@ -251,12 +250,5 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun updateLastUpdateCheckTimestamp(timestamp: Long) {
         dataStore.edit { it[LAST_UPDATE_CHECK_TIMESTAMP] = timestamp }
-    }
-
-    override suspend fun getSnoozedUpdateVersion(): String =
-        dataStore.data.first()[SNOOZED_UPDATE_VERSION] ?: ""
-
-    override suspend fun updateSnoozedUpdateVersion(version: String) {
-        dataStore.edit { it[SNOOZED_UPDATE_VERSION] = version }
     }
 }

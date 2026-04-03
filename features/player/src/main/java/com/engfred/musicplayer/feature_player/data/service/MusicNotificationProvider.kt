@@ -10,7 +10,7 @@ import javax.inject.Inject
  * Custom MediaNotification.Provider for Media3 to manage music playback notifications.
  * This class handles creating and updating the notification.
  *
- * Note: DefaultMediaNotificationProvider automatically handles loading artwork from
+ * DefaultMediaNotificationProvider automatically handles loading artwork from
  * MediaItem.mediaMetadata.artworkUri. We do not need to override a specific method
  * for bitmap loading unless we want to provide a completely custom notification layout
  * or use a different image loading mechanism (which would involve implementing
@@ -23,7 +23,6 @@ import javax.inject.Inject
 class MusicNotificationProvider @OptIn(UnstableApi::class)
 @Inject constructor(
     private val context: Context
-    // Removed: private val imageLoader: ImageLoader // No longer directly used here for bitmap override
 ) : DefaultMediaNotificationProvider(context) {
 
     // No need for a custom getMediaItemBitmap override.

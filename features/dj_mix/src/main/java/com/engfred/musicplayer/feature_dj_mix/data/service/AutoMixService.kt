@@ -51,6 +51,17 @@ import javax.inject.Inject
  * 6. Engine released in onDestroy if not already released via ACTION_STOP
  * 7. useHalfwayMix synced from useManualMaxDuration setting
  * 8. observePrebufferRequests — silently pre-loads next track before crossfade fires
+ *
+ * ── Notification ghost bug fix ────────────────────────────────────────────────
+ * Previously serviceScope was only cancelled in onDestroy(). This created a race:
+ * after releaseAndStop() called stopForeground(true) to remove notification 505,
+ * the still-alive observeEngineState() coroutine could receive a final state
+ * emission from the releasing CrossfadeEngine and call startForeground(505, ...)
+ * again — re-posting the notification. The service would then be destroyed,
+ * leaving notification 505 permanently stuck in the shade with no live service
+ * able to remove it.
+ * Fix: serviceScope is cancelled at the TOP of releaseAndStop(), before the
+ * engine is released, so no coroutine can ever re-post the notification.
  */
 @UnstableApi
 @AndroidEntryPoint
@@ -119,10 +130,10 @@ class AutoMixService : Service() {
         serviceScope.launch {
             crossfadeEngine.state.collectLatest { state ->
                 updateNotification(
-                    track    = state.currentTrack,
+                    track     = state.currentTrack,
                     isPlaying = state.isPlaying,
-                    position = state.currentPositionMs,
-                    duration = state.currentDurationMs
+                    position  = state.currentPositionMs,
+                    duration  = state.currentDurationMs
                 )
             }
         }
@@ -135,7 +146,6 @@ class AutoMixService : Service() {
     private fun observeNextTrackRequests() {
         serviceScope.launch {
             crossfadeEngine.nextTrackRequest.collect { currentTrackId ->
-                // Guard against stale replay emissions from a previous session
                 val actualCurrentId = crossfadeEngine.state.value.currentTrack?.id
                 if (currentTrackId != actualCurrentId) {
                     Log.d(TAG, "Ignored stale nextTrackRequest for ID $currentTrackId")
@@ -173,13 +183,11 @@ class AutoMixService : Service() {
                     Log.d(TAG, "Ignored stale prebufferRequest for ID $currentTrackId")
                     return@collect
                 }
-                // Do not prebuffer if a crossfade is already in progress
                 if (crossfadeEngine.state.value.isCrossfading) return@collect
 
                 Log.d(TAG, "prebufferRequest received for trackId=$currentTrackId")
                 val nextTrack = djSessionManager.selectNextTrack(currentTrackId) ?: return@collect
                 val (firstBeatMs, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(nextTrack)
-                // NOT marking as played here — that happens in observeNextTrackRequests
                 crossfadeEngine.prebufferTrack(nextTrack, firstBeatMs, bpm, amplitude)
                 Log.d(TAG, "Prebuffering '${nextTrack.title}' (bpm=$bpm firstBeatMs=$firstBeatMs)")
             }
@@ -202,9 +210,6 @@ class AutoMixService : Service() {
                 crossfadeEngine.maxTrackDurationMs  = settings.maxTrackDurationSec * 1000L
                 crossfadeEngine.useHalfwayMix       = !settings.useManualMaxDuration
 
-                // ── Sampler suppression in Continuous Play mode ───────────────
-                // When Auto-Mix is OFF the sampler must be silent — there are no
-                // DJ-strategy lifecycle events to attach sound effects to.
                 samplerEngine.isAutoSamplerEnabled = settings.autoSamplerEnabled && settings.isRealMixMode
                 samplerEngine.sampleVolume         = settings.sampleVolume
 
@@ -242,9 +247,6 @@ class AutoMixService : Service() {
         serviceScope.launch {
             crossfadeEngine.state
                 .first { it.isPlaying && !it.isCrossfading }
-            // Reached here only on the first isPlaying=true, non-crossfading emission.
-            // samplerEngine.isAutoSamplerEnabled already reflects the correct value
-            // (false when Auto-Mix is OFF) so onSessionStarted is a safe no-op in that case.
             samplerEngine.onSessionStarted()
             Log.d(TAG, "observeFirstPlay: session-start triggered (sampler will fire only if Auto-Mix is ON)")
         }
@@ -307,7 +309,6 @@ class AutoMixService : Service() {
         val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause
         else           android.R.drawable.ic_media_play
 
-        // ── FIX: Adjusted Intent Flags to prevent multiple screen instances ──
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("OPEN_DJ_MIX", true)
@@ -351,17 +352,58 @@ class AutoMixService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            // Delete old channel so its cached importance setting is wiped
+            // for users who already have a previous version installed.
+            nm.deleteNotificationChannel(DJ_CHANNEL_ID)
+
             val channel = NotificationChannel(
-                DJ_CHANNEL_ID, "DJ Mix Playback", NotificationManager.IMPORTANCE_LOW
-            )
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                .createNotificationChannel(channel)
+                DJ_CHANNEL_ID,
+                "DJ Mix Playback",
+                // Keep IMPORTANCE_LOW (not MIN) — the DJ notification must stay
+                // visible in the shade so users can access Play/Pause and Stop.
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                setSound(null, null)
+                enableLights(false)
+                enableVibration(false)
+                setShowBadge(false) // Suppress the icon badge count
+            }
+            nm.createNotificationChannel(channel)
         }
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
+    /**
+     * ── FIX: Notification ghost bug ───────────────────────────────────────────
+     * The BROKEN order was:
+     *   1. crossfadeEngine.release()  ← emits a final state change to its StateFlow
+     *   2. stopForeground(true)       ← removes notification 505 ✓
+     *   3. stopSelf()
+     *   ...time passes...
+     *   4. [onDestroy] serviceScope.cancel()  ← coroutines only stop HERE
+     *
+     * Between steps 2–4, the observeEngineState() coroutine was still alive.
+     * It received the final emission from step 1 and called startForeground(505)
+     * AFTER stopForeground() had already run — re-posting the notification.
+     * The service was then destroyed, leaving 505 stuck with no way to remove it.
+     *
+     * The FIXED order:
+     *   1. serviceScope.cancel()   ← ALL coroutines stop NOW; observeEngineState()
+     *                                 can never call startForeground() again
+     *   2. crossfadeEngine.release()  ← final state emission is ignored (scope dead)
+     *   3. nm.cancel(505)          ← belt-and-suspenders explicit cancel
+     *   4. stopForeground(true)    ← removes foreground status
+     *   5. stopSelf()
+     */
     private fun releaseAndStop() {
+        // Step 1: Kill all coroutines FIRST so no observer can re-post the
+        // notification after we remove it in steps 3-4 below.
+        serviceScope.cancel()
+
+        // Step 2: Release engines — safe now, no coroutine can react to emissions.
         if (!engineReleased) {
             engineReleased = true
             crossfadeEngine.release()
@@ -369,12 +411,21 @@ class AutoMixService : Service() {
         }
         djSessionManager.endSession()
         activePlayerRegistry.onDjMixStopped()
+
+        // Step 3: Explicitly cancel the notification via NotificationManager as a
+        // belt-and-suspenders measure on top of stopForeground below.
+        (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
+            ?.cancel(NOTIFICATION_ID)
+
+        // Step 4: Demote from foreground and stop the service.
         @Suppress("DEPRECATION")
         stopForeground(true)
         stopSelf()
     }
 
     override fun onDestroy() {
+        // serviceScope.cancel() is idempotent — safe even if releaseAndStop()
+        // already cancelled it.
         serviceScope.cancel()
         if (!engineReleased) {
             engineReleased = true
