@@ -34,11 +34,11 @@ import javax.inject.Singleton
  */
 @Module
 @InstallIn(SingletonComponent::class)
-abstract class DjMixModule {
+abstract class AutoMixModule {
 
     @Binds
     @Singleton
-    abstract fun bindDjMixRepository(impl: AutoMixRepositoryImpl): AutoMixRepository
+    abstract fun bindAutoMixRepository(impl: AutoMixRepositoryImpl): AutoMixRepository
 
     @Binds
     @Singleton
