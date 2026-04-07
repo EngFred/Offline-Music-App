@@ -72,4 +72,14 @@ interface PlaylistRepository {
 
     suspend fun addSongsToPlaylist(playlistId: Long, audioFiles: List<AudioFile>): Int
     suspend fun replaceMixOfTheDay(playlist: Playlist, songs: List<AudioFile>)
+
+
+    /**
+     * Removes playlist_songs rows whose audioFileId is no longer present on the
+     * device. Call this whenever the device audio file list refreshes so that
+     * deletions made outside the app (file manager, OS cleanup, etc.) are caught.
+     *
+     * @param existingAudioFileIds The complete set of IDs currently on the device.
+     */
+    suspend fun reconcileWithDeviceFiles(existingAudioFileIds: Set<Long>)
 }

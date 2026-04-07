@@ -24,22 +24,30 @@ import kotlin.math.sqrt
  * 1. Decode up to [MAX_ANALYSIS_DURATION_MS] of PCM via MediaCodec.
  * 2. Mix to mono (if stereo).
  * 3. Compute K-weighted amplitude (EBU R128) and waveform envelope from the
- *    FULL decoded PCM so they represent the whole track, not just the
- *    analysed portion.
+ *    FULL decoded PCM — these always reflect the initial decode window.
  * 4. Detect the musical onset via [detectOnsetOffset]:
  *      • Scan 50 ms RMS windows forward.
- *      • Return the byte offset of the first window whose RMS ≥ 20 % of the
- *        track peak and that threshold is sustained for 250 ms.
+ *      • Return the byte offset of the first window whose RMS ≥ 20% of peak
+ *        AND energy is visibly rising (≥ 120% of energy 200ms prior).
+ *        The rise check filters sustained speech/ambient from real musical onsets.
+ *      • Sustain must hold for 250 ms.
  *      • Back up one window to preserve the attack transient.
- *    This replaces the old hard "skip 15 seconds" constant which was wrong
- *    for tracks that start immediately and still wrong for long ambient intros.
- * 5. Pass the onset-trimmed PCM to the native aubio beat tracker.
- * 6. The native layer returns beat-0 (extrapolated backward from the first
- *    converged beat — see aubio_bridge.c), not beats[WARMUP_BEATS].
- * 7. [snapToNearestOnset] validates the returned position against local PCM
- *    energy. If the position lands in a transient gap (< 30 % of local peak),
- *    the nearest louder frame within ±½ beat is used instead.
- * 8. Add the onset-skip offset back to map beat-0 into full-track time.
+ *
+ * 5. LATE ONSET DETECTION (new):
+ *      If the onset lands in the last [LATE_ONSET_THRESHOLD] fraction of the
+ *      decoded window (i.e. audio is mostly intro/speech within 90s), re-decode
+ *      up to [EXTENDED_ANALYSIS_DURATION_MS] and re-run onset detection.
+ *      This covers the "Havana-style" scenario: YouTube rips with 1-2 minutes
+ *      of acting/speech before the actual song begins.
+ *
+ * 6. Pass the onset-trimmed PCM to the native aubio beat tracker.
+ * 7. CONFIDENCE GATING (new):
+ *      If aubio's confidence < [CONFIDENCE_THRESHOLD], set firstBeatMs = 0.
+ *      The BPM itself is still cached (useful for queue ordering), but we do
+ *      not trust a low-confidence cue point — starting from position 0 is
+ *      safer than starting mid-speech 28 seconds in.
+ * 8. [snapToNearestOnset] validates the beat-0 position against local PCM energy.
+ * 9. Add the onset-skip offset back to map beat-0 into full-track time.
  */
 @Singleton
 class BpmAnalyzer @Inject constructor(
@@ -48,8 +56,17 @@ class BpmAnalyzer @Inject constructor(
     companion object {
         private const val TAG = "BpmAnalyzer"
 
-        /** Decode at most this many ms — enough for reliable BPM even on long tracks. */
+        /** Standard analysis window — covers the vast majority of tracks. */
         private const val MAX_ANALYSIS_DURATION_MS = 90_000L
+
+        /**
+         * Extended analysis window used when a late onset is detected.
+         * 150s covers intros up to ~2.5 minutes (e.g. YouTube rips with
+         * acting/dialogue before the song begins).
+         * Only triggered when onset > [LATE_ONSET_THRESHOLD] × decoded window,
+         * so normal tracks are not affected.
+         */
+        private const val EXTENDED_ANALYSIS_DURATION_MS = 150_000L
 
         /** Clamp the native result to a sane DJ range. */
         private const val MIN_BPM = 55f
@@ -58,13 +75,13 @@ class BpmAnalyzer @Inject constructor(
         // ── Onset detection parameters ────────────────────────────────────────
 
         /** RMS window size used by [detectOnsetOffset], in seconds. */
-        private const val ONSET_WINDOW_SEC = 0.050f      // 50 ms
+        private const val ONSET_WINDOW_SEC = 0.050f // 50 ms
 
         /**
          * Fraction of the track's peak RMS that a window must exceed to be
          * considered "musically active".
          */
-        private const val ONSET_ENERGY_THRESHOLD = 0.20f // 20 % of peak
+        private const val ONSET_ENERGY_THRESHOLD = 0.20f // 20% of peak
 
         /**
          * Minimum duration (in consecutive windows) the energy must remain above
@@ -73,6 +90,43 @@ class BpmAnalyzer @Inject constructor(
          */
         private const val ONSET_SUSTAIN_WINDOWS = 5
 
+        /**
+         * Energy-rise ratio for onset validation.
+         *
+         * A candidate onset window must have RMS ≥ this multiple of the RMS
+         * measured 200ms earlier (4 windows back). This single check is highly
+         * effective at rejecting sustained speech and ambient sound, which have
+         * relatively flat energy profiles, while accepting real musical onsets
+         * (drum hits, bass drops) that arrive with a sharp energy increase.
+         *
+         * A value of 1.20 means "energy must have grown by at least 20% in the
+         * 200ms leading up to the onset". This is deliberately conservative to
+         * avoid rejecting gradual music fade-ins.
+         */
+        private const val ONSET_RISE_RATIO = 1.20f
+
+        /**
+         * If the onset is detected this far into the decoded window (as a fraction
+         * of total decoded bytes), trigger a re-decode with the extended window.
+         *
+         * 0.72 = onset in the last 28% of decoded audio → likely a long intro
+         * that has pushed the real music toward or beyond the analysis boundary.
+         * Example: 90s window × 0.72 = onset after 64.8s. Anything later than
+         * that warrants an extended re-analysis.
+         */
+        private const val LATE_ONSET_THRESHOLD = 0.72f
+
+        /**
+         * Minimum aubio confidence score required to trust the firstBeatMs cue.
+         *
+         * aubio returns a confidence value in [0, 1]. Below 0.30, the beat
+         * tracker likely converged on noise, speech, or very sparse transients
+         * rather than a real rhythmic pulse. In that case we keep the BPM estimate
+         * (still useful for queue ordering) but zero out firstBeatMs so playback
+         * starts from position 0 rather than an unreliable cue point.
+         */
+        private const val CONFIDENCE_THRESHOLD = 0.30f
+
         // ── Beat-snap parameters ──────────────────────────────────────────────
 
         /** Window width used by [snapToNearestOnset] to measure local RMS. */
@@ -80,7 +134,6 @@ class BpmAnalyzer @Inject constructor(
 
         /**
          * Step size for the ±½-beat search in [snapToNearestOnset].
-         * Finer than ½ a hop (≈12 ms), coarse enough to stay cheap.
          */
         private const val SNAP_STEP_MS = 10L
 
@@ -110,39 +163,81 @@ class BpmAnalyzer @Inject constructor(
 
     suspend fun analyzeBpm(uri: Uri): BpmAnalysisResult? = withContext(Dispatchers.IO) {
         try {
+            // ── Step 1: Initial decode (up to MAX_ANALYSIS_DURATION_MS) ─────────
             val (pcmBytes, sampleRate, channelCount) = decodeToPcm(uri)
                 ?: return@withContext null
 
             val monoBytes = if (channelCount > 1) mixToMono(pcmBytes, channelCount) else pcmBytes
 
-            // ── Steps 3 & 4: amplitude + envelope use FULL decoded PCM ──────────
-            // Done BEFORE the onset skip so they cover the whole track, not just
-            // the analysed portion. The waveform visualiser and auto-gain both
-            // need to reflect the complete audio content from start to finish.
+            // ── Steps 2 & 3: Amplitude + envelope from FULL initial PCM ─────────
+            // These are computed BEFORE onset trimming and BEFORE any extended
+            // re-decode. They represent the first MAX_ANALYSIS_DURATION_MS of the
+            // track, which is the most musically dense portion and the correct
+            // source for the waveform visualiser and auto-gain.
             val amplitude        = calculateKWeightedAmplitude(monoBytes, sampleRate)
             val waveformEnvelope = computeWaveformEnvelope(monoBytes)
 
-            // ── Step 5: Energy-onset intro detection ────────────────────────────
-            // Replaces the old hard ANALYSIS_SKIP_SECONDS = 15f constant.
-            val onsetSkipBytes = detectOnsetOffset(monoBytes, sampleRate)
+            // ── Step 4: Initial onset detection ─────────────────────────────────
+            var onsetSkipBytes = detectOnsetOffset(monoBytes, sampleRate)
 
-            val (analysisBytes, effectiveSkipSeconds) = when {
-                onsetSkipBytes <= 0 -> {
-                    Log.d(TAG, "No ambient intro detected — analysing from start")
-                    monoBytes to 0f
-                }
-                monoBytes.size > onsetSkipBytes * 2 -> {
-                    val secs = onsetSkipBytes / 2f / sampleRate
-                    Log.d(TAG, "Onset skip: ${(secs * 1000).toInt()} ms (${onsetSkipBytes} bytes)")
-                    monoBytes.copyOfRange(onsetSkipBytes, monoBytes.size) to secs
-                }
-                else -> {
-                    Log.d(TAG, "Track too short for onset skip — analysing from start")
-                    monoBytes to 0f
+            // ── Step 5: Late-onset check → extended re-decode if needed ──────────
+            //
+            // If the onset is in the last LATE_ONSET_THRESHOLD fraction of the
+            // decoded audio, the real music likely starts close to or beyond the
+            // 90-second boundary. Re-decode with an extended window and re-run
+            // onset detection on the longer PCM.
+            //
+            // The amplitude and waveformEnvelope are deliberately NOT recomputed
+            // from the extended decode — the initial window is fine for those.
+            val analysisMonoBytes: ByteArray = run {
+                val isLateOnset = onsetSkipBytes > 0 &&
+                        (onsetSkipBytes.toFloat() / monoBytes.size) >= LATE_ONSET_THRESHOLD
+
+                if (isLateOnset) {
+                    val onsetMs = (onsetSkipBytes.toLong() / 2L * 1000L / sampleRate)
+                    Log.d(TAG,
+                        "Late onset at ~${onsetMs}ms " +
+                                "(${(onsetSkipBytes.toFloat() / monoBytes.size * 100).toInt()}% of window) — " +
+                                "re-decoding with extended ${EXTENDED_ANALYSIS_DURATION_MS / 1000}s window"
+                    )
+
+                    val extended = decodeToPcm(uri, EXTENDED_ANALYSIS_DURATION_MS)
+                    if (extended != null) {
+                        val (extPcm, _, extChannelCount) = extended
+                        val extMono = if (extChannelCount > 1) mixToMono(extPcm, extChannelCount) else extPcm
+                        val extOnset = detectOnsetOffset(extMono, sampleRate)
+                        val extOnsetMs = if (extOnset > 0) extOnset.toLong() / 2L * 1000L / sampleRate else 0L
+                        Log.d(TAG, "Extended decode onset at ~${extOnsetMs}ms " +
+                                "(was ~${onsetMs}ms in 90s window)")
+                        onsetSkipBytes = extOnset
+                        extMono
+                    } else {
+                        Log.w(TAG, "Extended decode failed — continuing with initial 90s window")
+                        monoBytes
+                    }
+                } else {
+                    monoBytes
                 }
             }
 
-            // ── Step 6: Convert trimmed bytes → float[] for native ──────────────
+            // ── Step 6: Apply onset skip ──────────────────────────────────────────
+            val (analysisBytes, effectiveSkipSeconds) = when {
+                onsetSkipBytes <= 0 -> {
+                    Log.d(TAG, "No ambient intro detected — analysing from start")
+                    analysisMonoBytes to 0f
+                }
+                analysisMonoBytes.size > onsetSkipBytes * 2 -> {
+                    val secs = onsetSkipBytes / 2f / sampleRate
+                    Log.d(TAG, "Onset skip: ${(secs * 1000).toInt()} ms ($onsetSkipBytes bytes)")
+                    analysisMonoBytes.copyOfRange(onsetSkipBytes, analysisMonoBytes.size) to secs
+                }
+                else -> {
+                    Log.d(TAG, "Track too short for onset skip — analysing from start")
+                    analysisMonoBytes to 0f
+                }
+            }
+
+            // ── Step 7: Convert trimmed bytes → float[] for native ──────────────
             val numSamples   = analysisBytes.size / 2
             val floatSamples = FloatArray(numSamples)
             val buf          = ByteBuffer.wrap(analysisBytes).order(ByteOrder.LITTLE_ENDIAN)
@@ -150,41 +245,61 @@ class BpmAnalyzer @Inject constructor(
                 floatSamples[i] = buf.short.toFloat() / Short.MAX_VALUE
             }
 
-            // ── Step 7: Native beat tracking (aubio) ────────────────────────────
+            // ── Step 8: Native beat tracking (aubio) ─────────────────────────────
             val nativeResult = analyzeBeatsNative(floatSamples, sampleRate)
                 ?: run {
                     Log.w(TAG, "analyzeBeatsNative returned null for $uri")
                     return@withContext null
                 }
 
-            val bpm                 = nativeResult[0].coerceIn(MIN_BPM, MAX_BPM)
-            // beat-0 position relative to the START of analysisBytes (intro-skipped segment).
-            // The native layer already performed the backward extrapolation; this is NOT
-            // beats[WARMUP_BEATS] but the phase-corrected beat-0 position.
-            val beat0RelativeMs     = nativeResult[1].toLong().coerceAtLeast(0L)
-            val confidence          = nativeResult[2]
+            val bpm        = nativeResult[0].coerceIn(MIN_BPM, MAX_BPM)
+            val beat0Ms    = nativeResult[1].toLong().coerceAtLeast(0L)
+            val confidence = nativeResult[2]
 
-            // ── Step 8: Beat-snap validation ────────────────────────────────────
-            // Verify the native beat-0 position lands on real PCM energy.
-            // If it fell into a transient gap, search ±½ beat for the nearest onset.
-            val halfBeatMs = (30_000f / bpm).toLong()   // half a beat in ms
-            val snappedRelativeMs = snapToNearestOnset(
-                candidateMs  = beat0RelativeMs,
-                halfBeatMs   = halfBeatMs,
-                monoBytes    = analysisBytes,
-                sampleRate   = sampleRate
-            )
+            // ── Step 9: Confidence gating ─────────────────────────────────────────
+            //
+            // A low confidence score means aubio couldn't find a clear rhythmic
+            // pulse — this happens on speech, ambient sound, or very sparse music.
+            // We keep the BPM (still useful for rough queue ordering) but zero out
+            // firstBeatMs so the track plays from the start rather than an
+            // unreliable cue point deep inside intro speech.
+            val isConfident = confidence >= CONFIDENCE_THRESHOLD
+            if (!isConfident) {
+                Log.w(TAG,
+                    "Low confidence (${String.format("%.3f", confidence)}) for $uri — " +
+                            "BPM=$bpm retained, firstBeatMs forced to 0"
+                )
+            }
 
-            // ── Step 9: Map back to full-track time ─────────────────────────────
-            val firstBeatMs = snappedRelativeMs + (effectiveSkipSeconds * 1000f).toLong()
+            // ── Step 10: Beat-snap validation (skipped if low confidence) ────────
+            val halfBeatMs = (30_000f / bpm).toLong()
+
+            val snappedRelativeMs = if (isConfident) {
+                snapToNearestOnset(
+                    candidateMs = beat0Ms,
+                    halfBeatMs  = halfBeatMs,
+                    monoBytes   = analysisBytes,
+                    sampleRate  = sampleRate
+                )
+            } else {
+                0L
+            }
+
+            // ── Step 11: Map back to full-track time ──────────────────────────────
+            val firstBeatMs = if (isConfident) {
+                snappedRelativeMs + (effectiveSkipSeconds * 1000f).toLong()
+            } else {
+                0L
+            }
 
             Log.d(TAG,
                 "BPM=$bpm " +
-                        "beat0_native=${beat0RelativeMs}ms " +
+                        "beat0_native=${beat0Ms}ms " +
                         "beat0_snapped=${snappedRelativeMs}ms " +
                         "skipOffset=${(effectiveSkipSeconds * 1000f).toInt()}ms " +
                         "firstBeat_track=${firstBeatMs}ms " +
                         "confidence=${String.format("%.3f", confidence)} " +
+                        "(${if (isConfident) "trusted" else "LOW — cue zeroed"}) " +
                         "kRms=${String.format("%.4f", amplitude)}"
             )
 
@@ -207,27 +322,29 @@ class BpmAnalyzer @Inject constructor(
 
     /**
      * Finds the byte offset in [monoBytes] where the musical content begins,
-     * using short-term RMS energy.
+     * using short-term RMS energy with an energy-rise validation step.
      *
      * Algorithm:
      *  1. Divide [monoBytes] into [ONSET_WINDOW_SEC]-wide RMS windows.
      *  2. Compute the per-window RMS and the global peak RMS.
      *  3. Scan forward. The first window whose RMS ≥ [ONSET_ENERGY_THRESHOLD] × peak,
-     *     sustained for [ONSET_SUSTAIN_WINDOWS] consecutive windows (250 ms), marks
-     *     the onset.
-     *  4. Return the byte offset of the window ONE before the onset (to preserve
-     *     the attack transient). If no onset is found, return 0.
-     *
-     * Returns a byte offset that is always aligned to a 2-byte sample boundary.
+     *     sustained for [ONSET_SUSTAIN_WINDOWS] consecutive windows (250 ms), is
+     *     a candidate onset.
+     *  4. ENERGY RISE CHECK (new): the candidate window's RMS must be ≥
+     *     [ONSET_RISE_RATIO] × the RMS 200ms earlier (4 windows back). This
+     *     rejects sustained speech/ambient that crosses the threshold without any
+     *     sharp energy increase.
+     *  5. Return the byte offset of the window ONE before the validated onset (to
+     *     preserve the attack transient). If no onset is found, return 0.
      *
      * @param monoBytes  16-bit little-endian mono PCM.
      * @param sampleRate Sample rate of [monoBytes].
      * @return Byte offset into [monoBytes] to start analysis from, or 0.
      */
     private fun detectOnsetOffset(monoBytes: ByteArray, sampleRate: Int): Int {
-        val windowSamples  = (sampleRate * ONSET_WINDOW_SEC).toInt()
-        val windowBytes    = windowSamples * 2
-        val minTotalBytes  = windowBytes * (ONSET_SUSTAIN_WINDOWS + 2)
+        val windowSamples = (sampleRate * ONSET_WINDOW_SEC).toInt()
+        val windowBytes   = windowSamples * 2
+        val minTotalBytes = windowBytes * (ONSET_SUSTAIN_WINDOWS + 6) // +6 for rise lookback
 
         if (monoBytes.size < minTotalBytes) {
             Log.d(TAG, "detectOnsetOffset: track too short for onset scan — returning 0")
@@ -257,25 +374,62 @@ class BpmAnalyzer @Inject constructor(
         Log.d(TAG,
             "detectOnsetOffset: peakRms=${String.format("%.4f", peakRms)} " +
                     "threshold=${String.format("%.4f", threshold)} " +
-                    "windows=$numWindows (${numWindows * ONSET_WINDOW_SEC * 1000}ms)"
+                    "windows=$numWindows (${(numWindows * ONSET_WINDOW_SEC * 1000).toLong()}ms)"
         )
 
-        // ── Pass 2: find first sustained threshold crossing ──────────────────
+        // ── Pass 2: find first sustained, energy-rising threshold crossing ───
+        //
+        // For each window w, we check:
+        //   a) The next ONSET_SUSTAIN_WINDOWS windows are all above threshold.
+        //   b) Energy at w is ≥ ONSET_RISE_RATIO × energy 4 windows earlier.
+        //      (4 windows × 50ms = 200ms lookback)
+        //
+        // Check (b) rejects sustained speech/ambient:
+        //   • A speech sentence that happens to be loud will be at a steady
+        //     RMS level. w and w-4 will have similar RMS → ratio ≈ 1.0 → rejected.
+        //   • A real drum hit or bass drop has a sharp attack. RMS at w will be
+        //     significantly higher than RMS 200ms earlier → ratio > 1.20 → accepted.
+        //
+        // Edge case: w < 4 (very start of track). In that case, we skip the rise
+        // check because there is no prior context — if the track truly starts with
+        // music on the first beat, that is valid.
         val scanLimit = numWindows - ONSET_SUSTAIN_WINDOWS
         for (w in 0 until scanLimit) {
             val allAbove = (0 until ONSET_SUSTAIN_WINDOWS).all { offset ->
                 rms[w + offset] >= threshold
             }
+
             if (allAbove) {
-                // Back up one window to preserve the attack
-                val onsetWindow    = maxOf(0, w - 1)
+                // Energy rise validation
+                val lookbackWindow = 4 // 4 × 50ms = 200ms
+                val isEnergyRising = if (w < lookbackWindow) {
+                    // No prior context — accept onset at track start without rise check
+                    true
+                } else {
+                    rms[w] >= rms[w - lookbackWindow] * ONSET_RISE_RATIO
+                }
+
+                if (!isEnergyRising) {
+                    // Log at first rejection to aid debugging
+                    Log.d(TAG,
+                        "detectOnsetOffset: candidate at window $w " +
+                                "(${(w * ONSET_WINDOW_SEC * 1000).toInt()}ms) rejected — " +
+                                "no energy rise (rms[w]=${String.format("%.4f", rms[w])} " +
+                                "rms[w-4]=${String.format("%.4f", rms[w - lookbackWindow])} " +
+                                "required×${ONSET_RISE_RATIO})"
+                    )
+                    continue
+                }
+
+                // Back up one window to preserve the attack transient
+                val onsetWindow     = maxOf(0, w - 1)
                 val onsetByteOffset = onsetWindow * windowBytes
 
                 Log.d(TAG,
-                    "detectOnsetOffset: onset at window $w " +
-                            "(${w * ONSET_WINDOW_SEC * 1000}ms), " +
+                    "detectOnsetOffset: validated onset at window $w " +
+                            "(${(w * ONSET_WINDOW_SEC * 1000).toInt()}ms), " +
                             "backed up to window $onsetWindow " +
-                            "(${onsetWindow * ONSET_WINDOW_SEC * 1000}ms)"
+                            "(${(onsetWindow * ONSET_WINDOW_SEC * 1000).toInt()}ms)"
                 )
                 return onsetByteOffset
             }
@@ -292,24 +446,6 @@ class BpmAnalyzer @Inject constructor(
     /**
      * Validates [candidateMs] against local PCM energy and snaps it to the
      * nearest real onset if the candidate position falls in a transient gap.
-     *
-     * Algorithm:
-     *  1. Measure the RMS in a [SNAP_WINDOW_MS]-wide window at [candidateMs].
-     *  2. Find the local peak RMS across the entire ±[halfBeatMs] search zone.
-     *  3. If the candidate RMS is ≥ [SNAP_SILENCE_RATIO] × local peak, the
-     *     candidate is already on a real onset — return it unchanged.
-     *  4. Otherwise, step through the search zone in [SNAP_STEP_MS] increments
-     *     and return the ms position with the highest RMS.
-     *
-     * [monoBytes] must be the analysis segment (after onset skip).
-     * [candidateMs] must be relative to the start of [monoBytes].
-     * The returned value is also relative to [monoBytes].
-     *
-     * @param candidateMs  Candidate beat-0 position in ms, relative to [monoBytes].
-     * @param halfBeatMs   Half a beat interval in ms (search radius).
-     * @param monoBytes    16-bit LE mono PCM — the analysis segment only.
-     * @param sampleRate   Sample rate of [monoBytes].
-     * @return Validated (possibly snapped) beat-0 ms position relative to [monoBytes].
      */
     private fun snapToNearestOnset(
         candidateMs: Long,
@@ -322,22 +458,18 @@ class BpmAnalyzer @Inject constructor(
         val totalSamples  = monoBytes.size / 2
         val durationMs    = totalSamples.toLong() * 1000L / sampleRate
 
-        /** Compute RMS of the [windowSamples]-wide window beginning at [ms]. */
         fun rmsAt(ms: Long): Float {
             val startSample = (ms * sampleRate / 1000L).toInt()
                 .coerceIn(0, (totalSamples - windowSamples).coerceAtLeast(0))
-            val startByte   = startSample * 2
-            val available   = monoBytes.size - startByte
+            val startByte = startSample * 2
+            val available = monoBytes.size - startByte
             if (available < 2) return 0f
             val readBytes = minOf(windowBytes, available)
-            val bbuf      = ByteBuffer.wrap(monoBytes, startByte, readBytes)
-                .order(ByteOrder.LITTLE_ENDIAN)
-            var sumSq = 0.0
-            var count = 0
+            val bbuf = ByteBuffer.wrap(monoBytes, startByte, readBytes).order(ByteOrder.LITTLE_ENDIAN)
+            var sumSq = 0.0; var count = 0
             while (bbuf.remaining() >= 2) {
                 val s = bbuf.short.toFloat() / Short.MAX_VALUE
-                sumSq += s * s
-                count++
+                sumSq += s * s; count++
             }
             return if (count > 0) sqrt(sumSq / count).toFloat() else 0f
         }
@@ -349,30 +481,17 @@ class BpmAnalyzer @Inject constructor(
 
         val candidateRms = rmsAt(safeCandidate)
 
-        // ── Find local peak across the full search zone ──────────────────────
         var localPeak = candidateRms
-        var t         = searchStart
-        while (t <= searchEnd) {
-            val r = rmsAt(t)
-            if (r > localPeak) localPeak = r
-            t += SNAP_STEP_MS
-        }
+        var t = searchStart
+        while (t <= searchEnd) { val r = rmsAt(t); if (r > localPeak) localPeak = r; t += SNAP_STEP_MS }
 
-        // Candidate is already on a real onset — accept it
-        if (localPeak == 0f || candidateRms >= localPeak * SNAP_SILENCE_RATIO) {
-            return safeCandidate
-        }
+        if (localPeak == 0f || candidateRms >= localPeak * SNAP_SILENCE_RATIO) return safeCandidate
 
-        // ── Candidate is in a gap — find the loudest frame in the search zone
-        var bestMs  = safeCandidate
-        var bestRms = candidateRms
+        var bestMs = safeCandidate; var bestRms = candidateRms
         t = searchStart
         while (t <= searchEnd) {
             val r = rmsAt(t)
-            if (r > bestRms) {
-                bestRms = r
-                bestMs  = t
-            }
+            if (r > bestRms) { bestRms = r; bestMs = t }
             t += SNAP_STEP_MS
         }
 
@@ -382,7 +501,6 @@ class BpmAnalyzer @Inject constructor(
                     "localPeak=${String.format("%.4f", localPeak)} " +
                     "bestRms=${String.format("%.4f", bestRms)})"
         )
-
         return bestMs
     }
 
@@ -432,8 +550,7 @@ class BpmAnalyzer @Inject constructor(
 
     private fun applyBiquad(input: FloatArray, c: BiquadCoeffs): FloatArray {
         val output = FloatArray(input.size)
-        var w1 = 0.0
-        var w2 = 0.0
+        var w1 = 0.0; var w2 = 0.0
         for (i in input.indices) {
             val x  = input[i].toDouble()
             val y  = c.b0 * x + w1
@@ -459,7 +576,6 @@ class BpmAnalyzer @Inject constructor(
 
         var sumSq = 0.0
         for (s in filtered) sumSq += s.toDouble() * s
-
         return sqrt(sumSq / numSamples).toFloat()
     }
 
@@ -467,24 +583,7 @@ class BpmAnalyzer @Inject constructor(
     // WAVEFORM ENVELOPE
     // ═════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Computes a 128-element normalised RMS amplitude envelope from mono PCM bytes.
-     *
-     * Each bar is the RMS of (numSamples/128) consecutive 16-bit samples.
-     * The array is normalised so the loudest bar = 1.0.
-     *
-     * [monoBytes] MUST be the full decoded PCM (before onset skip) so the
-     * envelope represents the entire track for the DJ scrubber.
-     *
-     * Note: [MAX_ANALYSIS_DURATION_MS] caps decoding at 90 s, so on tracks
-     * longer than 90 s the envelope covers only the first 90 s. This is a
-     * deliberate trade-off — decoding the full file would be prohibitively
-     * slow for a background worker scanning a large library.
-     */
-    private fun computeWaveformEnvelope(
-        monoBytes: ByteArray,
-        numBars:   Int = 128
-    ): FloatArray {
+    private fun computeWaveformEnvelope(monoBytes: ByteArray, numBars: Int = 128): FloatArray {
         if (monoBytes.size < 2) return FloatArray(numBars) { 0.1f }
 
         val numSamples    = monoBytes.size / 2
@@ -494,12 +593,10 @@ class BpmAnalyzer @Inject constructor(
         var maxRms        = 0f
 
         for (bar in 0 until numBars) {
-            var sumSq = 0.0
-            var count = 0
+            var sumSq = 0.0; var count = 0
             while (count < samplesPerBar && buf.hasRemaining()) {
                 val sample = buf.short.toFloat() / Short.MAX_VALUE
-                sumSq += sample * sample
-                count++
+                sumSq += sample * sample; count++
             }
             if (count > 0) {
                 val rms = sqrt(sumSq / count).toFloat()
@@ -519,7 +616,19 @@ class BpmAnalyzer @Inject constructor(
     // PCM DECODING
     // ═════════════════════════════════════════════════════════════════════════
 
-    private fun decodeToPcm(uri: Uri): Triple<ByteArray, Int, Int>? {
+    /**
+     * Decodes PCM from [uri] up to [maxDurationMs] milliseconds.
+     *
+     * The [maxDurationMs] parameter defaults to [MAX_ANALYSIS_DURATION_MS] (90s)
+     * for normal analysis, but can be set to [EXTENDED_ANALYSIS_DURATION_MS]
+     * (150s) for the late-onset re-decode pass.
+     *
+     * @return Triple(pcmBytes, sampleRate, channelCount) or null on failure.
+     */
+    private fun decodeToPcm(
+        uri: Uri,
+        maxDurationMs: Long = MAX_ANALYSIS_DURATION_MS
+    ): Triple<ByteArray, Int, Int>? {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         return try {
@@ -567,7 +676,7 @@ class BpmAnalyzer @Inject constructor(
                                     MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                                 inputEos = true
                             }
-                            extractor.sampleTime / 1_000 >= MAX_ANALYSIS_DURATION_MS -> {
+                            extractor.sampleTime / 1_000 >= maxDurationMs -> {
                                 codec.queueInputBuffer(inputIdx, 0, 0, 0L,
                                     MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                                 inputEos = true
@@ -600,7 +709,7 @@ class BpmAnalyzer @Inject constructor(
             Triple(output.toByteArray(), sampleRate, channelCount)
 
         } catch (e: Exception) {
-            Log.e(TAG, "PCM decode failed for $uri", e)
+            Log.e(TAG, "PCM decode failed for $uri (maxDurationMs=$maxDurationMs)", e)
             null
         } finally {
             try { codec?.stop(); codec?.release() } catch (_: Exception) {}

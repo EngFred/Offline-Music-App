@@ -78,6 +78,20 @@ class CrossfadeEngine @Inject constructor(
         private const val PHRASE_BARS            = 8
         private const val BARS_PER_BEAT_MULTIPLE = 4
         private const val WAVEFORM_BARS          = 32
+
+        /**
+         * In continuous mode (isRealMixMode = false), start the crossfade this
+         * many ms before the track ends. 12 seconds gives enough overlap for
+         * the listener to clearly hear the new song arriving naturally.
+         */
+        private const val CONTINUOUS_TRIGGER_WINDOW_MS = 12_000L
+
+        /**
+         * In continuous mode, request prebuffering this many ms before track end.
+         * 30 seconds ensures the secondary player is fully ready before the
+         * 12-second trigger window opens, even on slow storage.
+         */
+        private const val CONTINUOUS_PREBUFFER_WINDOW_MS = 30_000L
     }
 
     private var engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -546,6 +560,28 @@ class CrossfadeEngine @Inject constructor(
                 withContext(Dispatchers.Main) {
                     primaryRef.volume = cos(angle) * primaryStartVolume
                     secondaryRef.volume = sin(angle) * secondaryBaseVolume
+
+                    // ── Tempo blend ──────────────────────────────────────────
+                    // Gradually shift the outgoing track's playback speed toward
+                    // the incoming BPM over the FIRST HALF of the crossfade.
+                    // By step FADE_STEPS/2, both tracks are at the same BPM and
+                    // the second half is a clean equal-power blend with no clash.
+                    //
+                    // ExoPlayer's PlaybackParameters(speed) uses pitch-corrected
+                    // time stretching (key lock) — the pitch does not change.
+                    // This is the same as "tempo sync without pitch shift" on
+                    // professional DJ hardware.
+                    if (decision.isEffectivelyTempoSynced) {
+                        val blendProgress = (progress * 2f).coerceAtMost(1f)
+                        val targetSpeed   = 1.0f + (
+                                (decision.stretchRatio.toFloat() - 1.0f) * blendProgress
+                                )
+                        try {
+                            primaryRef.playbackParameters = PlaybackParameters(targetSpeed)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "[MIXER] Tempo blend failed at step $step: ${e.message}")
+                        }
+                    }
                 }
                 _state.update { it.copy(crossfadeProgressFraction = sin(angle)) }
                 delay(stepDelayMs)
@@ -571,6 +607,11 @@ class CrossfadeEngine @Inject constructor(
                 try {
                     primaryRef.pause()
                     primaryRef.volume = primaryBaseVolume
+                    // Reset tempo on the outgoing player. If tempo blending was
+                    // active, it may be playing at a shifted speed. The next time
+                    // this ExoPlayer slot is reused (as the secondary player on the
+                    // NEXT crossfade), it must start at normal 1.0× speed.
+                    primaryRef.playbackParameters = PlaybackParameters.DEFAULT
                     if (secondaryRef.isPlaying) {
                         secondaryRef.volume = secondaryBaseVolume
                     }
@@ -671,8 +712,19 @@ class CrossfadeEngine @Inject constructor(
                 val mustTrigger     = beatLengthMs > 0L && remaining <= crossfadeDurationMs + beatLengthMs
                 val triggerWindow   = crossfadeDurationMs + beatLengthMs
                 val prebufferZone   = crossfadeDurationMs * 3 + beatLengthMs
-                val inTriggerZone   = duration > 0L && remaining in CROSSFADE_GUARD_MS..triggerWindow
-                val inPrebufferZone = duration > 0L && remaining in triggerWindow..prebufferZone
+                // ── Effective trigger & prebuffer windows ────────────────────
+                // In Real Mix mode  : use beat-aligned windows (existing logic).
+                // In Continuous mode: use fixed minimum windows so the next track
+                //   is always heard coming in naturally, regardless of crossfade
+                //   duration setting. Beat/phrase alignment is a DJ concept and
+                //   does not apply to continuous background playback.
+                val effectiveTriggerWindowMs = if (isRealMixMode) triggerWindow
+                else maxOf(triggerWindow, CONTINUOUS_TRIGGER_WINDOW_MS)
+                val effectivePrebufferZoneMs = if (isRealMixMode) prebufferZone
+                else maxOf(prebufferZone, CONTINUOUS_PREBUFFER_WINDOW_MS)
+
+                val inTriggerZone   = duration > 0L && remaining in CROSSFADE_GUARD_MS..effectiveTriggerWindowMs
+                val inPrebufferZone = duration > 0L && remaining in effectiveTriggerWindowMs..effectivePrebufferZoneMs
                 val postGuardActive = System.currentTimeMillis() < postCrossfadeGuardUntilMs
                 val customMixOut    = currentTrackMixOutMs != null && position >= currentTrackMixOutMs!!
 
@@ -682,10 +734,11 @@ class CrossfadeEngine @Inject constructor(
 
                 val isMaxTime = mixAtMs != null && position >= mixAtMs && remaining > crossfadeDurationMs
 
-                // Prebuffer for end-of-track path (normal) OR for isMaxTime path (halfway / manual max).
-                // Without this second condition, prebuffering never fires on long tracks because
-                // inPrebufferZone (relative to end-of-track) is never reached before isMaxTime triggers.
-                val approachingMaxTime = mixAtMs != null &&
+                // approachingMaxTime only applies in Real Mix mode (mixAtMs is
+                // always null in continuous mode — continuous mode uses the wider
+                // inPrebufferZone window instead).
+                val approachingMaxTime = isRealMixMode &&
+                        mixAtMs != null &&
                         position >= (mixAtMs - crossfadeDurationMs * 2) &&
                         position < mixAtMs
 
@@ -697,8 +750,13 @@ class CrossfadeEngine @Inject constructor(
                     }
                 }
 
+                // In Real Mix mode: only trigger on a beat AND near a phrase boundary
+                //   (DJ precision — wrong bar = bad mix).
+                // In Continuous mode: trigger as soon as the track enters the window.
+                //   Beat/phrase alignment removed — irrelevant for background listening.
+                val beatAligned = !isRealMixMode || (isOnBeat && (isAtPhrase || mustTrigger))
                 val shouldTrigger = playing && !_state.value.isCrossfading && !postGuardActive && duration > 0L &&
-                        (customMixOut || ((inTriggerZone || isMaxTime) && isOnBeat && (isAtPhrase || mustTrigger)))
+                        (customMixOut || ((inTriggerZone || isMaxTime) && beatAligned))
 
                 if (shouldTrigger) {
                     val id = _state.value.currentTrack?.id

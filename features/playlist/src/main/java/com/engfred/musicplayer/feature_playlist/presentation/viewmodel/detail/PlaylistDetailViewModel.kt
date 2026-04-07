@@ -13,6 +13,7 @@ import com.engfred.musicplayer.core.domain.repository.ShuffleMode
 import com.engfred.musicplayer.core.util.TextUtils.pluralize
 import com.engfred.musicplayer.feature_playlist.domain.model.PlaylistSortOrder
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -52,9 +53,15 @@ class PlaylistDetailViewModel @Inject constructor(
     private var currentPlaylistId: Long? = null
 
     init {
-        sharedAudioDataSource.deviceAudioFiles.onEach {
+        sharedAudioDataSource.deviceAudioFiles.onEach { audioFiles ->
             _uiState.update { currentState ->
-                currentState.copy(allAudioFiles = it)
+                currentState.copy(allAudioFiles = audioFiles)
+            }
+            // Trigger reconciliation whenever the device audio files are updated.
+            // This ensures that if a song was deleted outside the app, the playlist
+            // reflects the synced state immediately.
+            if (audioFiles.isNotEmpty()) {
+                reconcilePlaylistWithDeviceFiles(audioFiles)
             }
         }.launchIn(viewModelScope)
 
@@ -82,6 +89,18 @@ class PlaylistDetailViewModel @Inject constructor(
                 )
             }
         }.launchIn(viewModelScope)
+    }
+
+    /**
+     * Reconciles the database with the provided audio files to automatically purge
+     * any playlist entries that refer to files that no longer exist on the device.
+     */
+    private fun reconcilePlaylistWithDeviceFiles(audioFiles: List<AudioFile>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            playlistRepository.reconcileWithDeviceFiles(
+                existingAudioFileIds = audioFiles.map { it.id }.toSet()
+            )
+        }
     }
 
     fun onEvent(event: PlaylistDetailEvent) {

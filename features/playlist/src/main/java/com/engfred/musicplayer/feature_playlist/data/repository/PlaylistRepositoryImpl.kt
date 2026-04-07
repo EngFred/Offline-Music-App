@@ -354,6 +354,34 @@ class PlaylistRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * Finds every audioFileId stored in playlist_songs that is NOT in
+     * [existingAudioFileIds] and deletes those rows.
+     *
+     * This is the single source-of-truth cleanup that covers:
+     *  - In-app batch/single deletion
+     *  - External deletion (file manager, OS, other apps)
+     *  - Any future deletion path
+     *
+     * It is O(n) in Kotlin with two Set operations; all DB work is a single
+     * SELECT followed by at most k DELETEs where k = number of orphans (usually 0).
+     */
+    override suspend fun reconcileWithDeviceFiles(existingAudioFileIds: Set<Long>) {
+        try {
+            val inPlaylists = playlistDao.getAllPlaylistSongAudioFileIds().toSet()
+            val orphanIds = inPlaylists - existingAudioFileIds          // set subtraction
+
+            if (orphanIds.isEmpty()) return
+
+            Log.d(TAG, "Reconciliation: purging ${orphanIds.size} orphaned song(s) from playlists")
+            orphanIds.forEach { orphanId ->
+                playlistDao.deletePlaylistSongsByAudioFileId(orphanId)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Playlist reconciliation failed", e)
+        }
+    }
+
     private fun getArtistPlaylists(): Flow<List<Playlist>> =
         sharedAudioDataSource.deviceAudioFiles.map { allAudioFiles ->
             allAudioFiles.groupBy { it.artistId }.mapNotNull { (artistId, songs) ->

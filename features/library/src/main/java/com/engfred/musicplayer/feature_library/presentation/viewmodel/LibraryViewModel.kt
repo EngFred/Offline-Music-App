@@ -21,6 +21,7 @@ import com.engfred.musicplayer.core.util.MediaUtils
 import com.engfred.musicplayer.core.util.TextUtils.pluralize
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -48,6 +49,12 @@ class LibraryViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     @param:ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    // ── capture selected files BEFORE the async system dialog ──────
+    // selectedAudioFiles in uiState can be cleared by any state update between
+    // ConfirmBatchDelete and the Activity returning BatchDeletionResult.
+    private var pendingBatchDeletion: List<AudioFile> = emptyList()
+    private var pendingSingleDeletion: AudioFile? = null
 
     private val _uiState = MutableStateFlow(LibraryScreenState())
     val uiState: StateFlow<LibraryScreenState> = _uiState.asStateFlow()
@@ -117,13 +124,13 @@ class LibraryViewModel @Inject constructor(
      *
      * Key design points:
      * - Uses [launchIn] so the coroutine lives for the entire ViewModel lifetime
-     *   (tied to [viewModelScope]) — no `first()` one-shot collection.
+     * (tied to [viewModelScope]) — no `first()` one-shot collection.
      * - [distinctUntilChanged] prevents redundant recompositions when Room fires
-     *   spurious invalidations without an actual data change.
+     * spurious invalidations without an actual data change.
      * - Because [PlaylistRepository.getPlaylistById] for the mix ID is backed by a
-     *   Room @Transaction query, this Flow is guaranteed to emit only after the
-     *   atomic write in [MixOfTheDayWorker] completes — so `playlist.songs` is
-     *   always either null (not yet generated) or fully populated (35 tracks).
+     * Room @Transaction query, this Flow is guaranteed to emit only after the
+     * atomic write in [MixOfTheDayWorker] completes — so `playlist.songs` is
+     * always either null (not yet generated) or fully populated (35 tracks).
      */
     private fun observeMixOfTheDay() {
         playlistRepository
@@ -302,8 +309,10 @@ class LibraryViewModel @Inject constructor(
                     }
                 }
 
+                // ── Bug-2 fix: capture before async system dialog ─────────────
                 LibraryEvent.ConfirmDeleteAudioFile -> {
                     _uiState.value.audioFileToDelete?.let { audioFile ->
+                        pendingSingleDeletion = audioFile          // ← capture here
                         val intentSender = MediaUtils.deleteAudioFile(context, audioFile) { success, errorMessage ->
                             onEvent(LibraryEvent.DeletionResult(audioFile, success, errorMessage))
                         }
@@ -315,7 +324,12 @@ class LibraryViewModel @Inject constructor(
                 }
 
                 is LibraryEvent.DeletionResult -> {
-                    val audioFile = event.audioFile
+                    // Prefer the event's audioFile; fall back to pendingSingleDeletion
+                    val audioFile = event.audioFile.takeIf { it.id != 0L }
+                        ?: pendingSingleDeletion
+                        ?: return@launch
+                    pendingSingleDeletion = null
+
                     if (event.success) {
                         _uiState.update { currentState ->
                             val updatedList = currentState.audioFiles.filter { it.id != audioFile.id }
@@ -382,10 +396,13 @@ class LibraryViewModel @Inject constructor(
                 LibraryEvent.ConfirmBatchDelete -> {
                     val selected = _uiState.value.selectedAudioFiles.toList()
                     if (selected.isEmpty()) return@launch
+                    pendingBatchDeletion = selected               // ← capture before async
                     val intentSender = MediaUtils.deleteAudioFiles(context, selected) { success, errorMessage ->
+                        // Pre-Q: callback fires synchronously; pendingBatchDeletion is still valid.
                         onEvent(LibraryEvent.BatchDeletionResult(success, errorMessage))
                     }
                     if (intentSender != null) {
+                        // Q+: system dialog shown; result arrives via Activity → BatchDeletionResult
                         _deleteRequest.emit(IntentSenderRequest.Builder(intentSender).build())
                     }
                     _uiState.update { it.copy(showBatchDeleteConfirmationDialog = false) }
@@ -393,7 +410,13 @@ class LibraryViewModel @Inject constructor(
 
                 is LibraryEvent.BatchDeletionResult -> {
                     if (event.success) {
-                        val selected = _uiState.value.selectedAudioFiles
+                        // Use the pre-captured list; fall back to current state if still populated.
+                        val selected = pendingBatchDeletion
+                            .takeIf { it.isNotEmpty() }
+                            ?.toSet()
+                            ?: _uiState.value.selectedAudioFiles
+                        pendingBatchDeletion = emptyList()
+
                         _uiState.update { currentState ->
                             val updatedList = currentState.audioFiles.filterNot { selected.contains(it) }
                             val filteredList = applyQueryFilter(updatedList, currentState.searchQuery)
@@ -413,6 +436,7 @@ class LibraryViewModel @Inject constructor(
                         }
                         _uiEvent.emit("Successfully deleted ${pluralize(selected.size, "song", "songs")}")
                     } else {
+                        pendingBatchDeletion = emptyList()
                         event.errorMessage?.let { _uiEvent.emit(it) }
                         _uiState.update { it.copy(showBatchDeleteConfirmationDialog = false) }
                     }
@@ -467,39 +491,62 @@ class LibraryViewModel @Inject constructor(
 
     fun getRequiredPermission(): String = permissionHandlerUseCase.getRequiredReadPermission()
 
+    // ── loadAudioFiles: trigger reconciliation on every MediaStore refresh ─────
     private fun loadAudioFiles() {
-        // Set loading synchronously so the UI never renders an empty-state flash.
         _uiState.update { it.copy(isLoading = true, error = null) }
 
         viewModelScope.launch {
             getAudioFilesUseCase().collect { result ->
-                _uiState.update { currentState ->
-                    when (result) {
-                        is Resource.Success -> {
-                            val audioFiles = result.data ?: emptyList()
-                            val filtered = applyQueryFilter(audioFiles, currentState.searchQuery)
-                            val sorted = sortAudioFiles(filtered, currentState.currentFilterOption)
-                            sharedAudioDataSource.setDeviceAudioFiles(audioFiles)
-                            currentState.copy(
+                when (result) {
+                    is Resource.Success -> {
+                        val audioFiles = result.data ?: emptyList()
+                        val currentState = _uiState.value
+                        val filtered = applyQueryFilter(audioFiles, currentState.searchQuery)
+                        val sorted = sortAudioFiles(filtered, currentState.currentFilterOption)
+
+                        sharedAudioDataSource.setDeviceAudioFiles(audioFiles)
+                        sharedAudioDataSource.setPlayingQueue(sorted)
+
+                        _uiState.update {
+                            it.copy(
                                 audioFiles = audioFiles,
                                 filteredAudioFiles = sorted,
                                 isLoading = false,
                                 error = null
                             )
                         }
-                        is Resource.Error -> {
-                            sharedAudioDataSource.clearPlayingQueue()
-                            _uiEvent.emit("Failed to load songs: ${result.message}")
-                            currentState.copy(
+
+                        // Every time MediaStore emits a new list (including after
+                        // external deletions), purge playlist rows that no longer
+                        // have a backing file on the device.
+                        reconcilePlaylistsWithDeviceFiles(audioFiles)
+                    }
+                    is Resource.Error -> {
+                        sharedAudioDataSource.clearPlayingQueue()
+                        _uiEvent.emit("Failed to load songs: ${result.message}")
+                        _uiState.update {
+                            it.copy(
                                 isLoading = false,
                                 error = result.message,
                                 filteredAudioFiles = emptyList()
                             )
                         }
-                        is Resource.Loading -> currentState
                     }
+                    is Resource.Loading -> { /* no-op */ }
                 }
             }
+        }
+    }
+
+    /**
+     * Launches reconciliation on the IO dispatcher, isolated from the UI
+     * collect loop so a DB failure can never crash the audio loading flow.
+     */
+    private fun reconcilePlaylistsWithDeviceFiles(audioFiles: List<AudioFile>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            playlistRepository.reconcileWithDeviceFiles(
+                existingAudioFileIds = audioFiles.map { it.id }.toSet()
+            )
         }
     }
 }

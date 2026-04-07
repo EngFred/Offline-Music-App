@@ -151,4 +151,21 @@ interface PlaylistDao {
         artist: String,
         albumArtUri: String?
     )
+
+
+    // Add inside PlaylistDao interface
+
+    /**
+     * Returns every distinct audioFileId that exists in ANY playlist.
+     * Used by the reconciliation pass to find orphaned entries.
+     */
+    @Query("SELECT DISTINCT audioFileId FROM playlist_songs")
+    suspend fun getAllPlaylistSongAudioFileIds(): List<Long>
+
+    /**
+     * Removes a song from EVERY playlist in one query.
+     * More efficient than the existing loop through getPlaylistIdsContainingSong.
+     */
+    @Query("DELETE FROM playlist_songs WHERE audioFileId = :audioFileId")
+    suspend fun deletePlaylistSongsByAudioFileId(audioFileId: Long)
 }
