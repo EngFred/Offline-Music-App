@@ -30,10 +30,6 @@ object PlaylistDetailArgs {
     const val PLAYLIST_ID = "playlistId"
 }
 
-/**
- * ViewModel for the Playlist Detail screen.
- * Manages the state of a specific playlist and its songs.
- */
 @HiltViewModel
 class PlaylistDetailViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
@@ -52,15 +48,21 @@ class PlaylistDetailViewModel @Inject constructor(
 
     private var currentPlaylistId: Long? = null
 
+    // FIX: track last known file count so we only reconcile when the device
+    // library actually changes in size, not on every StateFlow emission.
+    // A file count change (add or delete) is the only condition that can
+    // introduce orphaned playlist entries, so this is the correct trigger.
+    private var lastKnownFileCount = -1
+
     init {
         sharedAudioDataSource.deviceAudioFiles.onEach { audioFiles ->
-            _uiState.update { currentState ->
-                currentState.copy(allAudioFiles = audioFiles)
-            }
-            // Trigger reconciliation whenever the device audio files are updated.
-            // This ensures that if a song was deleted outside the app, the playlist
-            // reflects the synced state immediately.
-            if (audioFiles.isNotEmpty()) {
+            _uiState.update { it.copy(allAudioFiles = audioFiles) }
+
+            // FIX: was running a full DB SELECT on every emission regardless of
+            // whether the library changed. Now only reconciles when the file count
+            // actually changes — covers both additions and deletions.
+            if (audioFiles.size != lastKnownFileCount && audioFiles.isNotEmpty()) {
+                lastKnownFileCount = audioFiles.size
                 reconcilePlaylistWithDeviceFiles(audioFiles)
             }
         }.launchIn(viewModelScope)
@@ -68,7 +70,6 @@ class PlaylistDetailViewModel @Inject constructor(
         loadPlaylistDetails(savedStateHandle)
         startObservingPlaybackState(playbackController)
 
-        // Filter out the current playlist from the list of playlists available for "Add to another playlist"
         playlistRepository.getPlaylists().onEach { allPlaylists ->
             _uiState.update { currentState ->
                 currentState.copy(
@@ -85,16 +86,12 @@ class PlaylistDetailViewModel @Inject constructor(
             _uiState.update { currentState ->
                 currentState.copy(
                     currentPlayingAudioFile = state.currentAudioFile,
-                    isPlaying = state.isPlaying
+                    isPlaying               = state.isPlaying
                 )
             }
         }.launchIn(viewModelScope)
     }
 
-    /**
-     * Reconciles the database with the provided audio files to automatically purge
-     * any playlist entries that refer to files that no longer exist on the device.
-     */
     private fun reconcilePlaylistWithDeviceFiles(audioFiles: List<AudioFile>) {
         viewModelScope.launch(Dispatchers.IO) {
             playlistRepository.reconcileWithDeviceFiles(
@@ -108,7 +105,6 @@ class PlaylistDetailViewModel @Inject constructor(
             val currentPlaylist = _uiState.value.playlist
             when (event) {
                 is PlaylistDetailEvent.ShowRemoveSongConfirmation -> {
-                    // Prevent removal if automatic, BUT allow Favorites (which is often handled as automatic in DB but user-editable)
                     if (currentPlaylist?.isAutomatic == true && !currentPlaylist.name.equals("Favorites", true)) {
                         _uiEvent.emit("Cannot remove songs from automatic playlists.")
                         return@launch
@@ -116,7 +112,7 @@ class PlaylistDetailViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             showRemoveSongConfirmationDialog = true,
-                            audioFileToRemove = event.audioFile
+                            audioFileToRemove               = event.audioFile
                         )
                     }
                 }
@@ -125,30 +121,22 @@ class PlaylistDetailViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             showRemoveSongConfirmationDialog = false,
-                            audioFileToRemove = null
+                            audioFileToRemove               = null
                         )
                     }
                 }
 
                 PlaylistDetailEvent.ConfirmRemoveSong -> {
                     val audioFileToRemove = _uiState.value.audioFileToRemove
-                    val playlistId = currentPlaylistId
+                    val playlistId        = currentPlaylistId
                     if (playlistId != null && audioFileToRemove != null) {
                         if (currentPlaylist?.isAutomatic == true && !currentPlaylist.name.equals("Favorites", true)) {
                             _uiEvent.emit("Cannot remove songs from automatic playlists.")
                             return@launch
                         }
                         try {
-                            playlistRepository.removeSongFromPlaylist(
-                                playlistId,
-                                audioFileToRemove.id
-                            )
-                            //playbackController.removeFromQueue(audioFileToRemove)
+                            playlistRepository.removeSongFromPlaylist(playlistId, audioFileToRemove.id)
                             _uiEvent.emit("Removed '${audioFileToRemove.title}' from playlist.")
-                            Log.d(
-                                TAG,
-                                "Removed song ID: ${audioFileToRemove.id} from playlist ID: $playlistId"
-                            )
                         } catch (e: Exception) {
                             Log.e(TAG, "Failed to remove song from playlist: ${e.message}", e)
                             _uiEvent.emit("Failed to remove song!")
@@ -156,17 +144,14 @@ class PlaylistDetailViewModel @Inject constructor(
                             _uiState.update {
                                 it.copy(
                                     showRemoveSongConfirmationDialog = false,
-                                    audioFileToRemove = null
+                                    audioFileToRemove               = null
                                 )
                             }
                         }
                     } else {
                         _uiEvent.emit("No song or playlist selected for removal.")
                         _uiState.update {
-                            it.copy(
-                                showRemoveSongConfirmationDialog = false,
-                                audioFileToRemove = null
-                            )
+                            it.copy(showRemoveSongConfirmationDialog = false, audioFileToRemove = null)
                         }
                     }
                 }
@@ -177,33 +162,20 @@ class PlaylistDetailViewModel @Inject constructor(
                         _uiState.update { it.copy(showRenameDialog = false) }
                         return@launch
                     }
-
-                    if (event.newName.equals(
-                            "Favorites",
-                            ignoreCase = true
-                        ) || event.newName.equals("Favorite", ignoreCase = true)
-                    ) {
+                    if (event.newName.equals("Favorites", ignoreCase = true) ||
+                        event.newName.equals("Favorite",  ignoreCase = true)) {
                         _uiEvent.emit("Cannot use this playlist name! Please choose another.")
                         return@launch
                     }
-
-                    val existingPlaylists =
-                        playlistRepository.getPlaylists().first().filter { !it.isAutomatic }
-                    if (existingPlaylists.any {
-                            it.name.equals(
-                                event.newName,
-                                ignoreCase = true
-                            )
-                        }) {
+                    val existing = playlistRepository.getPlaylists().first().filter { !it.isAutomatic }
+                    if (existing.any { it.name.equals(event.newName, ignoreCase = true) }) {
                         _uiEvent.emit("Playlist with this name already exists.")
                         return@launch
                     }
-
                     currentPlaylistId?.let {
                         if (currentPlaylist != null && event.newName.isNotBlank()) {
                             try {
-                                val updatedPlaylist = currentPlaylist.copy(name = event.newName)
-                                playlistRepository.updatePlaylist(updatedPlaylist)
+                                playlistRepository.updatePlaylist(currentPlaylist.copy(name = event.newName))
                                 _uiState.update { it.copy(showRenameDialog = false) }
                                 _uiEvent.emit("Playlist renamed to '${event.newName}'.")
                             } catch (e: Exception) {
@@ -224,9 +196,8 @@ class PlaylistDetailViewModel @Inject constructor(
                     _uiState.update { it.copy(showRenameDialog = true, error = null) }
                 }
 
-                PlaylistDetailEvent.HideRenameDialog -> {
+                PlaylistDetailEvent.HideRenameDialog ->
                     _uiState.update { it.copy(showRenameDialog = false, error = null) }
-                }
 
                 is PlaylistDetailEvent.AddSong -> {
                     if (currentPlaylist?.isAutomatic == true && !currentPlaylist.name.equals("Favorites", true)) {
@@ -234,9 +205,8 @@ class PlaylistDetailViewModel @Inject constructor(
                         return@launch
                     }
                     currentPlaylistId?.let { playlistId ->
-                        val playlistSongs =
-                            uiState.value.playlist?.songs?.map { it.id } ?: emptyList()
-                        if (!playlistSongs.contains(event.audioFile.id)) {
+                        val alreadyIn = uiState.value.playlist?.songs?.any { it.id == event.audioFile.id } == true
+                        if (!alreadyIn) {
                             try {
                                 playlistRepository.addSongToPlaylist(playlistId, event.audioFile)
                                 _uiEvent.emit("Song added to playlist.")
@@ -245,7 +215,6 @@ class PlaylistDetailViewModel @Inject constructor(
                                 _uiEvent.emit("Failed to add song to playlist!")
                             }
                         } else {
-                            Log.d(TAG, "Song ${event.audioFile.title} is already in playlist.")
                             _uiEvent.emit("Song already in this playlist.")
                         }
                     }
@@ -264,32 +233,25 @@ class PlaylistDetailViewModel @Inject constructor(
 
                 PlaylistDetailEvent.ShuffleAll -> {
                     uiState.value.playlist?.songs?.let { songs ->
-                        if (songs.isNotEmpty()) {
-                            playbackController.initiateShufflePlayback(songs)
-                        } else {
-                            _uiEvent.emit("Playlist is empty, cannot shuffle play.")
-                        }
+                        if (songs.isNotEmpty()) playbackController.initiateShufflePlayback(songs)
+                        else _uiEvent.emit("Playlist is empty, cannot shuffle play.")
                     }
                 }
 
-                is PlaylistDetailEvent.LoadPlaylist -> {
-                    loadPlaylistDetails(savedStateHandle)
-                }
+                is PlaylistDetailEvent.LoadPlaylist -> loadPlaylistDetails(savedStateHandle)
 
-                PlaylistDetailEvent.PlayNext -> playbackController.skipToNext()
+                PlaylistDetailEvent.PlayNext  -> playbackController.skipToNext()
                 PlaylistDetailEvent.PlayPause -> playbackController.playPause()
-                PlaylistDetailEvent.PlayPrev -> playbackController.skipToPrevious()
+                PlaylistDetailEvent.PlayPrev  -> playbackController.skipToPrevious()
 
-                is PlaylistDetailEvent.SetPlayNext -> {
+                is PlaylistDetailEvent.SetPlayNext ->
                     playbackController.addAudioToQueueNext(event.audioFile)
-                }
 
                 is PlaylistDetailEvent.SetSortOrder -> {
                     _uiState.update { currentState ->
-                        val sorted = applySorting(event.sortOrder, currentState.playlist)
                         currentState.copy(
                             currentSortOrder = event.sortOrder,
-                            sortedSongs = sorted
+                            sortedSongs      = applySorting(event.sortOrder, currentState.playlist)
                         )
                     }
                 }
@@ -304,64 +266,39 @@ class PlaylistDetailViewModel @Inject constructor(
                 }
 
                 is PlaylistDetailEvent.ToggleSelection -> {
-                    // Allow selection for Favorites. Only block if automatic AND NOT Favorites
-                    if (_uiState.value.playlist?.isAutomatic == true && !_uiState.value.playlist!!.name.equals("Favorites", true)) {
-                        return@launch
-                    }
+                    if (_uiState.value.playlist?.isAutomatic == true &&
+                        !_uiState.value.playlist!!.name.equals("Favorites", true)) return@launch
                     _uiState.update { current ->
                         val newSelected = current.selectedSongs.toMutableSet()
-                        if (newSelected.contains(event.audioFile)) {
-                            newSelected.remove(event.audioFile)
-                        } else {
-                            newSelected.add(event.audioFile)
-                        }
+                        if (!newSelected.add(event.audioFile)) newSelected.remove(event.audioFile)
                         current.copy(selectedSongs = newSelected)
                     }
                 }
 
-                PlaylistDetailEvent.SelectAll -> {
-                    _uiState.update { current ->
-                        current.copy(selectedSongs = current.sortedSongs.toSet())
-                    }
-                }
+                PlaylistDetailEvent.SelectAll ->
+                    _uiState.update { it.copy(selectedSongs = it.sortedSongs.toSet()) }
 
-                PlaylistDetailEvent.DeselectAll -> {
+                PlaylistDetailEvent.DeselectAll ->
                     _uiState.update { it.copy(selectedSongs = emptySet()) }
-                }
 
                 PlaylistDetailEvent.ShowBatchRemoveConfirmation -> {
-                    if (_uiState.value.selectedSongs.isNotEmpty()) {
+                    if (_uiState.value.selectedSongs.isNotEmpty())
                         _uiState.update { it.copy(showBatchRemoveConfirmationDialog = true) }
-                    }
                 }
 
-                PlaylistDetailEvent.DismissBatchRemoveConfirmation -> {
-                    _uiState.update {
-                        it.copy(
-                            showBatchRemoveConfirmationDialog = false,
-                            selectedSongs = emptySet()
-                        )
-                    }  // Clear selection on dismiss/cancel
-                }
+                PlaylistDetailEvent.DismissBatchRemoveConfirmation ->
+                    _uiState.update { it.copy(showBatchRemoveConfirmationDialog = false, selectedSongs = emptySet()) }
 
                 PlaylistDetailEvent.ConfirmBatchRemove -> {
                     val selected = _uiState.value.selectedSongs.toList()
                     if (selected.isEmpty()) return@launch
-
                     try {
                         selected.forEach { audioFile ->
-                            currentPlaylistId?.let { playlistId ->
-                                playlistRepository.removeSongFromPlaylist(playlistId, audioFile.id)
-                            }
+                            currentPlaylistId?.let { playlistRepository.removeSongFromPlaylist(it, audioFile.id) }
                         }
                         onEvent(PlaylistDetailEvent.BatchRemoveResult(true, null))
                     } catch (e: Exception) {
-                        onEvent(
-                            PlaylistDetailEvent.BatchRemoveResult(
-                                false,
-                                "Failed to remove songs: ${e.message}"
-                            )
-                        )
+                        onEvent(PlaylistDetailEvent.BatchRemoveResult(false, "Failed to remove songs: ${e.message}"))
                     }
                 }
 
@@ -369,96 +306,55 @@ class PlaylistDetailViewModel @Inject constructor(
                     if (event.success) {
                         val selected = _uiState.value.selectedSongs
                         _uiState.update { currentState ->
-                            val updatedSongs =
-                                currentState.sortedSongs.filterNot { selected.contains(it) }
+                            val updatedSongs   = currentState.sortedSongs.filterNot { selected.contains(it) }
                             val updatedPlaylist = currentState.playlist?.copy(songs = updatedSongs)
                             currentState.copy(
-                                playlist = updatedPlaylist,
-                                sortedSongs = updatedSongs,
-                                selectedSongs = emptySet(),
+                                playlist                        = updatedPlaylist,
+                                sortedSongs                     = updatedSongs,
+                                selectedSongs                   = emptySet(),
                                 showBatchRemoveConfirmationDialog = false
                             )
                         }
-                        _uiEvent.emit(
-                            "Successfully removed ${
-                                pluralize(
-                                    selected.size,
-                                    "song",
-                                    "songs"
-                                )
-                            } from playlist."
-                        )
+                        _uiEvent.emit("Successfully removed ${pluralize(selected.size, "song", "songs")} from playlist.")
                     } else {
                         _uiEvent.emit(event.errorMessage ?: "Failed to remove selected songs.")
                         _uiState.update { it.copy(showBatchRemoveConfirmationDialog = false) }
                     }
                 }
 
-                is PlaylistDetailEvent.SetPlaylistCover -> {
-                    _uiState.update {
-                        it.copy(
-                            showSetCoverConfirmationDialog = true,
-                            potentialCoverAudioFile = event.audioFile
-                        )
-                    }
-                }
+                is PlaylistDetailEvent.SetPlaylistCover ->
+                    _uiState.update { it.copy(showSetCoverConfirmationDialog = true, potentialCoverAudioFile = event.audioFile) }
 
-                PlaylistDetailEvent.DismissSetCoverConfirmation -> {
-                    _uiState.update {
-                        it.copy(
-                            showSetCoverConfirmationDialog = false,
-                            potentialCoverAudioFile = null
-                        )
-                    }
-                }
+                PlaylistDetailEvent.DismissSetCoverConfirmation ->
+                    _uiState.update { it.copy(showSetCoverConfirmationDialog = false, potentialCoverAudioFile = null) }
 
                 PlaylistDetailEvent.ConfirmSetCover -> {
                     val audioFile = _uiState.value.potentialCoverAudioFile
-                    val playlist = _uiState.value.playlist
-
+                    val playlist  = _uiState.value.playlist
                     if (audioFile != null && playlist != null) {
-                        try {
-                            val artUri = audioFile.albumArtUri
-                            if (artUri != null) {
-                                val updatedPlaylist = playlist.copy(customArtUri = artUri)
-
-                                // Since repo now uses insertPlaylist (REPLACE), this works even for automatic playlists
-                                playlistRepository.updatePlaylist(updatedPlaylist)
-
+                        val artUri = audioFile.albumArtUri
+                        if (artUri != null) {
+                            try {
+                                playlistRepository.updatePlaylist(playlist.copy(customArtUri = artUri))
                                 _uiEvent.emit("Playlist cover updated!")
-//                                // Immediately update local state to reflect change
-//                                _uiState.update { it.copy(playlist = updatedPlaylist) }
-                            } else {
-                                _uiEvent.emit("This song has no album art.")
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to set playlist cover", e)
+                                _uiEvent.emit("Failed to update playlist cover.")
                             }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to set playlist cover", e)
-                            _uiEvent.emit("Failed to update playlist cover.")
+                        } else {
+                            _uiEvent.emit("This song has no album art.")
                         }
                     }
-                    // Dismiss dialog and cleanup
-                    _uiState.update {
-                        it.copy(
-                            showSetCoverConfirmationDialog = false,
-                            potentialCoverAudioFile = null
-                        )
-                    }
+                    _uiState.update { it.copy(showSetCoverConfirmationDialog = false, potentialCoverAudioFile = null) }
                 }
 
-                is PlaylistDetailEvent.ShowPlaylistsDialog -> {
-                    _uiState.update {
-                        it.copy(
-                            audioToAddToPlaylist = event.audioFile,
-                            showAddToPlaylistDialog = true
-                        )
-                    }
-                }
+                is PlaylistDetailEvent.ShowPlaylistsDialog ->
+                    _uiState.update { it.copy(audioToAddToPlaylist = event.audioFile, showAddToPlaylistDialog = true) }
 
                 is PlaylistDetailEvent.AddedSongToPlaylist -> {
                     val audioFile = _uiState.value.audioToAddToPlaylist
                     if (audioFile != null) {
-                        val alreadyIn = event.playlist.songs.any { it.id == audioFile.id }
-                        if (alreadyIn) {
+                        if (event.playlist.songs.any { it.id == audioFile.id }) {
                             _uiEvent.emit("Song already in playlist")
                         } else {
                             try {
@@ -469,86 +365,39 @@ class PlaylistDetailViewModel @Inject constructor(
                             }
                         }
                     }
-                    _uiState.update {
-                        it.copy(
-                            audioToAddToPlaylist = null,
-                            showAddToPlaylistDialog = false
-                        )
-                    }
+                    _uiState.update { it.copy(audioToAddToPlaylist = null, showAddToPlaylistDialog = false) }
                 }
 
-                PlaylistDetailEvent.DismissAddToPlaylistDialog -> {
-                    // Clears the selected song on standard dismiss
-                    _uiState.update {
-                        it.copy(
-                            audioToAddToPlaylist = null,
-                            showAddToPlaylistDialog = false
-                        )
-                    }
-                }
+                PlaylistDetailEvent.DismissAddToPlaylistDialog ->
+                    _uiState.update { it.copy(audioToAddToPlaylist = null, showAddToPlaylistDialog = false) }
 
-                PlaylistDetailEvent.ShowCreatePlaylistDialog -> {
-                    // Close AddDialog, Open CreateDialog, KEEP audioToAddToPlaylist
-                    _uiState.update {
-                        it.copy(
-                            showAddToPlaylistDialog = false,
-                            showCreatePlaylistDialog = true
-                        )
-                    }
-                }
+                PlaylistDetailEvent.ShowCreatePlaylistDialog ->
+                    _uiState.update { it.copy(showAddToPlaylistDialog = false, showCreatePlaylistDialog = true) }
 
-                PlaylistDetailEvent.DismissCreatePlaylistDialog -> {
-                    // Cancel creation -> clear everything
-                    _uiState.update {
-                        it.copy(
-                            showCreatePlaylistDialog = false,
-                            audioToAddToPlaylist = null
-                        )
-                    }
-                }
+                PlaylistDetailEvent.DismissCreatePlaylistDialog ->
+                    _uiState.update { it.copy(showCreatePlaylistDialog = false, audioToAddToPlaylist = null) }
 
                 is PlaylistDetailEvent.CreatePlaylistAndAddSongs -> {
                     val name = event.playlistName
-                    if (name.isBlank()) {
-                        _uiEvent.emit("Playlist name cannot be empty.")
-                        return@launch
+                    if (name.isBlank()) { _uiEvent.emit("Playlist name cannot be empty."); return@launch }
+                    if (name.equals("Favorites", ignoreCase = true) || name.equals("Favorite", ignoreCase = true)) {
+                        _uiEvent.emit("Cannot use this playlist name! Please choose another."); return@launch
                     }
-                    if (name.equals("Favorites", ignoreCase = true) || name.equals(
-                            "Favorite",
-                            ignoreCase = true
-                        )
-                    ) {
-                        _uiEvent.emit("Cannot use this playlist name! Please choose another.")
-                        return@launch
+                    val existing = playlistRepository.getPlaylists().first().filter { !it.isAutomatic }
+                    if (existing.any { it.name.equals(name, ignoreCase = true) }) {
+                        _uiEvent.emit("Playlist with this name already exists."); return@launch
                     }
-                    val existingPlaylists =
-                        playlistRepository.getPlaylists().first().filter { !it.isAutomatic }
-                    if (existingPlaylists.any { it.name.equals(name, ignoreCase = true) }) {
-                        _uiEvent.emit("Playlist with this name already exists.")
-                        return@launch
-                    }
-
                     try {
-                        val newPlaylistId = playlistRepository.createPlaylist(
-                            Playlist(
-                                name = name,
-                                isAutomatic = false,
-                                type = null
-                            )
-                        )
-
+                        val newId     = playlistRepository.createPlaylist(Playlist(name = name, isAutomatic = false, type = null))
                         val audioFile = _uiState.value.audioToAddToPlaylist
                         if (audioFile != null) {
-                            playlistRepository.addSongToPlaylist(newPlaylistId, audioFile)
+                            playlistRepository.addSongToPlaylist(newId, audioFile)
                             _uiEvent.emit("Created '$name' playlist and added the selected song.")
-                            // Now we can clear it
                             _uiState.update { it.copy(audioToAddToPlaylist = null) }
                         } else {
                             _uiEvent.emit("Created playlist '$name'.")
                         }
-
                         _uiState.update { it.copy(showCreatePlaylistDialog = false) }
-
                     } catch (e: Exception) {
                         _uiEvent.emit("Failed to create playlist: ${e.message}")
                     }
@@ -566,17 +415,14 @@ class PlaylistDetailViewModel @Inject constructor(
                 .onEach { playlist ->
                     if (playlist != null) {
                         _uiState.update { currentState ->
-                            val sorted = applySorting(currentState.currentSortOrder, playlist)
                             currentState.copy(
-                                playlist = playlist,
-                                sortedSongs = sorted,
-                                isLoading = false
+                                playlist    = playlist,
+                                sortedSongs = applySorting(currentState.currentSortOrder, playlist),
+                                isLoading   = false
                             )
                         }
                     } else {
-                        _uiState.update {
-                            it.copy(isLoading = false, error = "Playlist not found.", playlist = null)
-                        }
+                        _uiState.update { it.copy(isLoading = false, error = "Playlist not found.", playlist = null) }
                     }
                 }
                 .launchIn(viewModelScope)
@@ -588,18 +434,19 @@ class PlaylistDetailViewModel @Inject constructor(
     private suspend fun startAudioPlayback() {
         uiState.value.playlist?.songs?.let {
             sharedAudioDataSource.setPlayingQueue(_uiState.value.sortedSongs)
-            val firstSong = _uiState.value.sortedSongs.first()
-            playbackController.initiatePlayback(firstSong.uri)
+            playbackController.initiatePlayback(_uiState.value.sortedSongs.first().uri)
         }
     }
 
-    /** Applies sorting based on the given order and playlist */
-    private fun applySorting(order: PlaylistSortOrder, playlist: Playlist?): List<AudioFile> {
-        return when (order) {
-            PlaylistSortOrder.DATE_ADDED -> if(playlist?.isAutomatic?.not() == true) playlist.songs.reversed() else playlist?.songs?.sortedByDescending { it.dateAdded }
+    private fun applySorting(order: PlaylistSortOrder, playlist: Playlist?): List<AudioFile> =
+        when (order) {
+            PlaylistSortOrder.DATE_ADDED   -> if (playlist?.isAutomatic?.not() == true)
+                playlist.songs.reversed()
+            else
+                playlist?.songs?.sortedByDescending { it.dateAdded }
             PlaylistSortOrder.ALPHABETICAL -> playlist?.songs?.sortedBy { it.title.lowercase() }
-            PlaylistSortOrder.PLAY_COUNT -> playlist?.songs?.sortedByDescending { playlist.playCounts?.get(it.id)
-                ?: 0 }
+            PlaylistSortOrder.PLAY_COUNT   -> playlist?.songs?.sortedByDescending {
+                playlist.playCounts?.get(it.id) ?: 0
+            }
         } ?: emptyList()
-    }
 }

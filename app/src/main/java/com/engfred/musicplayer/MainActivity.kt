@@ -40,6 +40,7 @@ import com.engfred.musicplayer.feature_dj_mix.data.bpm.GlobalBpmScanWorker
 import com.engfred.musicplayer.feature_dj_mix.data.bpm.MixOfTheDayWorker
 import com.engfred.musicplayer.feature_dj_mix.domain.DjSessionManager
 import com.engfred.musicplayer.feature_library.data.worker.NewAudioScanWorker
+import com.engfred.musicplayer.feature_playlist.data.worker.PlayEventPruneWorker
 import com.engfred.musicplayer.feature_settings.domain.usecases.GetAppSettingsUseCase
 import com.engfred.musicplayer.helpers.IntentPermissionHelper
 import com.engfred.musicplayer.helpers.PlaybackQueueHelper
@@ -53,6 +54,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -69,7 +71,6 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var permissionHandlerUseCase: PermissionHandlerUseCase
     @Inject lateinit var activePlayerRegistry: ActivePlayerRegistry
     @Inject lateinit var djSessionManager: DjSessionManager
-
     @Inject lateinit var checkForUpdateUseCase: CheckForUpdateUseCase
 
     private var externalPlaybackUri by mutableStateOf<Uri?>(null)
@@ -84,13 +85,11 @@ class MainActivity : ComponentActivity() {
 
     private var navigateToNowPlayingOnStart by mutableStateOf(false)
     private var navigateToDjMixOnStart by mutableStateOf(false)
-
     private var navigateToMixOfTheDayOnStart by mutableStateOf(false)
     private var mixOfTheDayPlaylistId by mutableLongStateOf(AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID)
 
     private val uiScope get() = lifecycleScope
 
-    // Update dialog state
     private var updateInfo by mutableStateOf<UpdateInfo?>(null)
     private var showUpdateDialog by mutableStateOf(false)
 
@@ -98,16 +97,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "onCreate: start")
         enableEdgeToEdge()
 
         permissionLauncher = registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) { granted ->
             if (granted) {
-                Log.d(TAG, "Read permission granted (via Intent).")
                 externalPlaybackUri = pendingPlaybackUri
-                pendingPlaybackUri = null
+                pendingPlaybackUri  = null
             } else {
                 Toast.makeText(this, "Permission required to play external audio files.", Toast.LENGTH_SHORT).show()
                 pendingPlaybackUri = null
@@ -120,7 +117,7 @@ class MainActivity : ComponentActivity() {
             try {
                 getAppSettingsUseCase().collect { settings ->
                     initialAppSettings = settings
-                    appSettingsLoaded = true
+                    appSettingsLoaded  = true
                     playbackController.setRepeatMode(settings.repeatMode)
                 }
             } catch (t: Throwable) {
@@ -144,16 +141,16 @@ class MainActivity : ComponentActivity() {
                 lastPlaybackPosition = lastState.positionMs
                 val start = withContext(Dispatchers.IO) {
                     PlaybackQueueHelper.preparePlayingQueue(
-                        context = this@MainActivity,
-                        settingsRepository = settingsRepository,
-                        libRepo = libraryRepository,
+                        context              = this@MainActivity,
+                        settingsRepository   = settingsRepository,
+                        libRepo              = libraryRepository,
                         sharedAudioDataSource = sharedAudioDataSource
                     )
                 }
                 lastPlaybackAudio = if (start != null) {
                     val isAccessible = MediaUtils.isAudioFileAccessible(
-                        context = this@MainActivity,
-                        audioFileUri = start.uri,
+                        context              = this@MainActivity,
+                        audioFileUri         = start.uri,
                         permissionHandlerUseCase = permissionHandlerUseCase
                     )
                     if (isAccessible) start else null
@@ -164,7 +161,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // ── On-launch update check (throttled to once per 24 h) ──────────────────────
         uiScope.launch {
             try {
                 val lastCheck = settingsRepository.getLastUpdateCheckTimestamp()
@@ -174,7 +170,7 @@ class MainActivity : ComponentActivity() {
                     val info = checkForUpdateUseCase(BuildConfig.VERSION_NAME)
                     settingsRepository.updateLastUpdateCheckTimestamp(now)
                     if (info != null) {
-                        updateInfo      = info
+                        updateInfo       = info
                         showUpdateDialog = true
                     }
                 }
@@ -186,14 +182,9 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntent(intent)
 
         if (intent?.getBooleanExtra("OPEN_MIX_OF_THE_DAY", false) == true) {
-            mixOfTheDayPlaylistId = intent.getLongExtra(
-                "MIX_PLAYLIST_ID",
-                AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID
-            )
+            mixOfTheDayPlaylistId      = intent.getLongExtra("MIX_PLAYLIST_ID", AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID)
             navigateToMixOfTheDayOnStart = true
         }
-
-        // ── FIX: Catch the intent if the app is launched fresh from the notification ──
         if (intent?.getBooleanExtra("OPEN_DJ_MIX", false) == true) {
             navigateToDjMixOnStart = true
         }
@@ -206,7 +197,6 @@ class MainActivity : ComponentActivity() {
                 if (!globalScanTriggered && audioItems.isNotEmpty()) {
                     globalScanTriggered = true
                     GlobalBpmScanWorker.enqueue(this@MainActivity)
-                    Log.d(TAG, "Global BPM scan enqueued for ${audioItems.size} songs")
                 }
             }
 
@@ -231,17 +221,14 @@ class MainActivity : ComponentActivity() {
                             if (navController.currentDestination?.route != route) {
                                 navController.navigate(route) {
                                     launchSingleTop = true
-                                    restoreState = true
+                                    restoreState    = true
                                 }
                             }
                         } else {
-                            Log.w(TAG, "DJ active but no playlistId – fallback to graph")
                             navController.navigate(AppDestinations.DjMix.createRoute(-1)) {
                                 launchSingleTop = true
                             }
                         }
-                    } else {
-                        Log.w(TAG, "navigateToDjMix called but DJ not active")
                     }
                     Unit
                 }
@@ -277,9 +264,8 @@ class MainActivity : ComponentActivity() {
                                 playbackController.playPause()
                             } else {
                                 val lastState = settingsRepository.getLastPlaybackState().first()
-                                val startUri = lastPlaybackAudio?.uri
-                                if (startUri != null) {
-                                    playbackController.initiatePlayback(startUri, lastState.positionMs)
+                                lastPlaybackAudio?.uri?.let {
+                                    playbackController.initiatePlayback(it, lastState.positionMs)
                                 }
                             }
                         }
@@ -290,12 +276,9 @@ class MainActivity : ComponentActivity() {
                                 playbackController.skipToNext()
                             } else {
                                 val lastState = settingsRepository.getLastPlaybackState().first()
-                                val startUri = lastPlaybackAudio?.uri
-                                if (startUri != null) {
-                                    playbackController.initiatePlayback(startUri, lastState.positionMs)
-                                    if (playbackController.waitUntilReady(5000)) {
-                                        playbackController.skipToNext()
-                                    }
+                                lastPlaybackAudio?.uri?.let { uri ->
+                                    playbackController.initiatePlayback(uri, lastState.positionMs)
+                                    if (playbackController.waitUntilReady(5000)) playbackController.skipToNext()
                                 }
                             }
                         }
@@ -306,46 +289,35 @@ class MainActivity : ComponentActivity() {
                                 playbackController.skipToPrevious()
                             } else {
                                 val lastState = settingsRepository.getLastPlaybackState().first()
-                                val startUri = lastPlaybackAudio?.uri
-                                if (startUri != null) {
-                                    playbackController.initiatePlayback(startUri, lastState.positionMs)
-                                    if (playbackController.waitUntilReady(5000)) {
-                                        playbackController.skipToPrevious()
-                                    }
+                                lastPlaybackAudio?.uri?.let { uri ->
+                                    playbackController.initiatePlayback(uri, lastState.positionMs)
+                                    if (playbackController.waitUntilReady(5000)) playbackController.skipToPrevious()
                                 }
                             }
                         }
                     },
-                    playingAudioFile = playbackState.currentAudioFile,
-                    isPlaying = playbackState.isPlaying,
-                    context = this,
+                    playingAudioFile  = playbackState.currentAudioFile,
+                    isPlaying         = playbackState.isPlaying,
+                    context           = this,
                     onNavigateToNowPlaying = {
                         uiScope.launch {
                             if (playbackState.currentAudioFile == null) {
                                 val lastState = settingsRepository.getLastPlaybackState().first()
-                                val startUri = lastPlaybackAudio?.uri
-                                if (startUri != null) {
-                                    playbackController.initiatePlayback(startUri, lastState.positionMs)
-                                    if (!playbackController.waitUntilReady(5000)) {
-                                        return@launch
-                                    }
-                                } else {
-                                    return@launch
-                                }
+                                val startUri  = lastPlaybackAudio?.uri ?: return@launch
+                                playbackController.initiatePlayback(startUri, lastState.positionMs)
+                                if (!playbackController.waitUntilReady(5000)) return@launch
                             }
-                            navController.navigate(AppDestinations.NowPlaying.route) {
-                                launchSingleTop = true
-                            }
+                            navController.navigate(AppDestinations.NowPlaying.route) { launchSingleTop = true }
                         }
                     },
-                    onPlayAll = { PlaybackQueueHelper.playAll(this, sharedAudioDataSource, playbackController, settingsRepository) },
-                    onShuffleAll = { PlaybackQueueHelper.shuffleAll(this, sharedAudioDataSource, playbackController, settingsRepository) },
-                    audioItems = audioItems,
-                    onReleasePlayer = { uiScope.launch { playbackController.releasePlayer() } },
+                    onPlayAll         = { PlaybackQueueHelper.playAll(this, sharedAudioDataSource, playbackController, settingsRepository) },
+                    onShuffleAll      = { PlaybackQueueHelper.shuffleAll(this, sharedAudioDataSource, playbackController, settingsRepository) },
+                    audioItems        = audioItems,
+                    onReleasePlayer   = { uiScope.launch { playbackController.releasePlayer() } },
                     lastPlaybackAudio = lastPlaybackAudio,
-                    stopAfterCurrent = playbackState.stopAfterCurrent,
+                    stopAfterCurrent  = playbackState.stopAfterCurrent,
                     onToggleStopAfterCurrent = {
-                        if(playbackState.stopAfterCurrent.not()){
+                        if (!playbackState.stopAfterCurrent) {
                             Toast.makeText(this, "Playback will stop when current song ends", Toast.LENGTH_SHORT).show()
                         }
                         playbackController.toggleStopAfterCurrent()
@@ -364,40 +336,26 @@ class MainActivity : ComponentActivity() {
                     } else {
                         lastPlaybackAudio?.duration ?: 0L
                     },
-                    isDjMixActive = isDjMixActive,
+                    isDjMixActive     = isDjMixActive,
                     onNavigateToDjMix = navigateToDjMix
                 )
 
                 LaunchedEffect(externalPlaybackUri) {
-                    val uri = externalPlaybackUri
-                    if (uri != null) {
-                        val success = withContext(Dispatchers.IO) { initiatePlaybackFromExternalUri(uri) }
-                        if (success) {
-                            navController.navigate(AppDestinations.NowPlaying.route) {
-                                launchSingleTop = true
-                            }
-                        }
-                        externalPlaybackUri = null
+                    val uri = externalPlaybackUri ?: return@LaunchedEffect
+                    val success = withContext(Dispatchers.IO) { initiatePlaybackFromExternalUri(uri) }
+                    if (success) {
+                        navController.navigate(AppDestinations.NowPlaying.route) { launchSingleTop = true }
                     }
+                    externalPlaybackUri = null
                 }
 
-                // ── Update dialog ─────────────────────────────────────────────────────────────
                 val currentUpdateInfo = updateInfo
                 if (showUpdateDialog && currentUpdateInfo != null) {
                     UpdateDialog(
                         updateInfo    = currentUpdateInfo,
-                        onDownload    = {
-                            showUpdateDialog = false
-                            updateInfo = null
-                        },
-                        onRemindLater = {
-                            // User tapped Remind Later — just dismiss the dialog for now.
-                            showUpdateDialog = false
-                            updateInfo = null
-                        },
-                        onDismiss = {
-                            showUpdateDialog = false
-                        }
+                        onDownload    = { showUpdateDialog = false; updateInfo = null },
+                        onRemindLater = { showUpdateDialog = false; updateInfo = null },
+                        onDismiss     = { showUpdateDialog = false }
                     )
                 }
             }
@@ -406,28 +364,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        Log.d(TAG, "onNewIntent called")
         setIntent(intent)
         handleIncomingIntent(intent)
-        if (intent.getBooleanExtra("OPEN_DJ_MIX", false)) {
-            navigateToDjMixOnStart = true
-        }
+        if (intent.getBooleanExtra("OPEN_DJ_MIX", false)) navigateToDjMixOnStart = true
         if (intent.getBooleanExtra("OPEN_MIX_OF_THE_DAY", false)) {
-            mixOfTheDayPlaylistId = intent.getLongExtra(
-                "MIX_PLAYLIST_ID",
-                AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID
-            )
+            mixOfTheDayPlaylistId      = intent.getLongExtra("MIX_PLAYLIST_ID", AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID)
             navigateToMixOfTheDayOnStart = true
         }
-        uiScope.launch {
-            checkIntentForNewMusic(intent)
-        }
+        uiScope.launch { checkIntentForNewMusic(intent) }
     }
 
     private fun scheduleBackgroundScan() {
-        val workRequest = PeriodicWorkRequestBuilder<NewAudioScanWorker>(
-            15, TimeUnit.MINUTES
-        ).build()
+        val workRequest = PeriodicWorkRequestBuilder<NewAudioScanWorker>(15, TimeUnit.MINUTES).build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             NewAudioScanWorker.WORK_NAME,
             ExistingPeriodicWorkPolicy.KEEP,
@@ -435,33 +383,28 @@ class MainActivity : ComponentActivity() {
         )
         MixOfTheDayWorker.schedule(this)
         UpdateCheckWorker.schedule(this)
+        // schedule weekly pruning of song_play_events rows older than 90 days.
+        // Without this the table grows unbounded and the GROUP BY query gets slower.
+        PlayEventPruneWorker.schedule(this)
     }
 
     private suspend fun checkIntentForNewMusic(intent: Intent?) {
         if (intent?.getBooleanExtra("PLAY_NEW_SONGS", false) == true) {
-            if (sharedAudioDataSource.deviceAudioFiles.value.isEmpty()) {
-                delay(500)
-            }
-            val allSongs = sharedAudioDataSource.deviceAudioFiles.value.ifEmpty {
-                libraryRepository.getAllAudioFiles().first()
-            }
-            val newestSong = allSongs.maxByOrNull { it.dateAdded }
-            if (newestSong != null) {
-                val recentQueue = allSongs.sortedByDescending { it.dateAdded }.take(50)
-                sharedAudioDataSource.setPlayingQueue(recentQueue)
-                playbackController.initiatePlayback(newestSong.uri)
-                navigateToNowPlayingOnStart = true
-            }
+            if (sharedAudioDataSource.deviceAudioFiles.value.isEmpty()) delay(500)
+            val allSongs   = sharedAudioDataSource.deviceAudioFiles.value.ifEmpty { libraryRepository.getAllAudioFiles().first() }
+            val newestSong = allSongs.maxByOrNull { it.dateAdded } ?: return
+            val recentQueue = allSongs.sortedByDescending { it.dateAdded }.take(50)
+            sharedAudioDataSource.setPlayingQueue(recentQueue)
+            playbackController.initiatePlayback(newestSong.uri)
+            navigateToNowPlayingOnStart = true
         }
     }
 
-    private fun getRequiredReadPermission(): String {
-        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+    private fun getRequiredReadPermission(): String =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU)
             Manifest.permission.READ_MEDIA_AUDIO
-        } else {
+        else
             Manifest.permission.READ_EXTERNAL_STORAGE
-        }
-    }
 
     private fun handleIncomingIntent(intent: Intent?) {
         try {
@@ -469,7 +412,7 @@ class MainActivity : ComponentActivity() {
                 this,
                 intent,
                 ::getRequiredReadPermission,
-                { uri -> this.externalPlaybackUri = uri },
+                { uri -> this.externalPlaybackUri  = uri },
                 { pending -> this.pendingPlaybackUri = pending },
                 permissionLauncher,
                 ::tryOpenUriStream,
@@ -480,15 +423,11 @@ class MainActivity : ComponentActivity() {
             Log.e(TAG, "Error handling incoming intent: ${e.message}", e)
         }
 
-        // ── Notification tap: force an immediate update check ────────────────────
         if (intent?.getBooleanExtra("SHOW_UPDATE_DIALOG", false) == true) {
             uiScope.launch {
                 try {
                     val info = checkForUpdateUseCase(BuildConfig.VERSION_NAME)
-                    if (info != null) {
-                        updateInfo      = info
-                        showUpdateDialog = true
-                    }
+                    if (info != null) { updateInfo = info; showUpdateDialog = true }
                 } catch (t: Throwable) {
                     Log.w(TAG, "Notification-triggered update check failed: ${t.message}")
                 }
@@ -509,42 +448,56 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * replaced the manual busy-wait loop
+     *
+     *   while (System.currentTimeMillis() - start < 3_000 && !success) {
+     *       if (playbackState.currentAudioFile != null && ...) success = true
+     *       delay(200)
+     *   }
+     *
+     * with a reactive [withTimeoutOrNull] + [Flow.first] call. The old approach
+     * spun for up to 3 seconds polling a Compose state variable on the wrong
+     * dispatcher. The new approach suspends cleanly and cancels immediately once
+     * the condition is met — no wasted CPU cycles on slow devices.
+     */
     private suspend fun initiatePlaybackFromExternalUri(uri: Uri): Boolean {
-        try {
-            Log.d(TAG, "Attempt to initiate playback for external URI: $uri")
+        return try {
+            Log.d(TAG, "Initiating external URI playback: $uri")
+
             if (!playbackController.waitUntilReady()) {
                 withContext(Dispatchers.Main) {
                     Toast.makeText(this@MainActivity, "Player not ready. Please try again.", Toast.LENGTH_LONG).show()
                 }
                 return false
             }
+
             val audioFileFetchStatus = libraryRepository.getAudioFileByUri(uri)
-            val audioFileToPlay: AudioFile? = when (audioFileFetchStatus) {
-                is Resource.Success -> audioFileFetchStatus.data
-                else -> null
-            }
-            val finalAudioFile = audioFileToPlay ?: extractAudioMetadataFromUri(uri)
+            val audioFileToPlay: AudioFile? = (audioFileFetchStatus as? Resource.Success)?.data
+            val finalAudioFile  = audioFileToPlay ?: extractAudioMetadataFromUri(uri)
+
             if (finalAudioFile == null) {
-                Log.e(TAG, "Could not resolve audio file details.")
                 withContext(Dispatchers.Main) {
                     Toast.makeText(this@MainActivity, "Could not load audio file.", Toast.LENGTH_LONG).show()
                 }
                 return false
             }
+
             sharedAudioDataSource.setPlayingQueue(listOf(finalAudioFile))
             playbackController.initiatePlayback(uri)
-            val startTime = System.currentTimeMillis()
-            var success = false
-            while (System.currentTimeMillis() - startTime < 3_000 && !success) {
-                if (playbackState.currentAudioFile != null && (playbackState.isPlaying || playbackState.isLoading)) {
-                    success = true
-                }
-                delay(200)
+
+            // reactive wait — suspends until state satisfies condition or 3 s elapses.
+            val started = withTimeoutOrNull(3_000) {
+                playbackController.getPlaybackState()
+                    .first { state ->
+                        state.currentAudioFile != null && (state.isPlaying || state.isLoading)
+                    }
             }
-            return success
+            started != null
+
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start playback for external URI: ${e.message}", e)
-            return false
+            Log.e(TAG, "Failed to start external URI playback: ${e.message}", e)
+            false
         }
     }
 
@@ -558,29 +511,30 @@ class MainActivity : ComponentActivity() {
                 try {
                     contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                         if (cursor.moveToFirst()) {
-                            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-                            if (nameIndex != -1) fileName = cursor.getString(nameIndex)
-                            if (sizeIndex != -1) fileSize = cursor.getLong(sizeIndex)
+                            val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                            val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                            if (nameIdx != -1) fileName = cursor.getString(nameIdx)
+                            if (sizeIdx != -1) fileSize  = cursor.getLong(sizeIdx)
                         }
                     }
                 } catch (e: Exception) { Log.w(TAG, "Could not get file details: ${e.message}") }
-                val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: fileName
-                val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "<Unknown>"
-                val album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: "Unknown"
-                val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                val duration = durationStr?.toLongOrNull() ?: 0L
+
+                val title    = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: fileName
+                val artist   = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "<Unknown>"
+                val album    = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: "Unknown"
+                val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+
                 AudioFile(
-                    id = uri.hashCode().toLong(),
-                    title = title,
-                    artist = artist,
-                    artistId = null,
-                    album = album,
-                    duration = duration,
-                    uri = uri,
+                    id          = uri.hashCode().toLong(),
+                    title       = title,
+                    artist      = artist,
+                    artistId    = null,
+                    album       = album,
+                    duration    = duration,
+                    uri         = uri,
                     albumArtUri = null,
-                    dateAdded = System.currentTimeMillis() / 1000,
-                    size = fileSize
+                    dateAdded   = System.currentTimeMillis() / 1000,
+                    size        = fileSize
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Error extracting metadata from URI: ${e.message}")

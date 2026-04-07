@@ -5,7 +5,7 @@ import androidx.room.Room
 import com.engfred.musicplayer.core.domain.BpmScanScheduler
 import com.engfred.musicplayer.feature_dj_mix.data.bpm.BpmScanSchedulerImpl
 import com.engfred.musicplayer.feature_dj_mix.data.local.dao.BpmCacheDao
-import com.engfred.musicplayer.feature_dj_mix.data.local.db.DjMixDatabase
+import com.engfred.musicplayer.feature_dj_mix.data.local.db.AutoMixDatabase
 import com.engfred.musicplayer.feature_dj_mix.data.repository.AutoMixRepositoryImpl
 import com.engfred.musicplayer.feature_dj_mix.domain.repository.AutoMixRepository
 import dagger.Binds
@@ -20,7 +20,7 @@ import javax.inject.Singleton
  * Hilt module for :features:dj_mix.
  *
  * Wires:
- * - [DjMixDatabase]         — Room database (BPM cache).
+ * - [AutoMixDatabase]         — Room database (BPM cache).
  * - [BpmCacheDao]           — DAO from the database.
  * - [AutoMixRepository]       — bound to [AutoMixRepositoryImpl].
  *
@@ -48,21 +48,22 @@ abstract class AutoMixModule {
 
         @Provides
         @Singleton
-        fun provideDjMixDatabase(@ApplicationContext context: Context): DjMixDatabase =
-            Room.databaseBuilder(context, DjMixDatabase::class.java, "dj_mix_db")
+        fun provideDjMixDatabase(@ApplicationContext context: Context): AutoMixDatabase =
+            Room.databaseBuilder(context, AutoMixDatabase::class.java, "dj_mix_db")
                 .addMigrations(
-                    DjMixDatabase.MIGRATION_1_2,
-                    DjMixDatabase.MIGRATION_2_3,
-                    DjMixDatabase.MIGRATION_3_4,
-                    DjMixDatabase.MIGRATION_4_5,
-                    DjMixDatabase.MIGRATION_5_7
+                    AutoMixDatabase.MIGRATION_1_2,
+                    AutoMixDatabase.MIGRATION_2_3,
+                    AutoMixDatabase.MIGRATION_3_4,
+                    AutoMixDatabase.MIGRATION_4_5,
+                    AutoMixDatabase.MIGRATION_5_7,
+                    AutoMixDatabase.MIGRATION_7_8
                 )
                 .fallbackToDestructiveMigration(true)
                 .build()
 
         @Provides
         @Singleton
-        fun provideBpmCacheDao(database: DjMixDatabase): BpmCacheDao =
+        fun provideBpmCacheDao(database: AutoMixDatabase): BpmCacheDao =
             database.bpmCacheDao()
     }
 }
