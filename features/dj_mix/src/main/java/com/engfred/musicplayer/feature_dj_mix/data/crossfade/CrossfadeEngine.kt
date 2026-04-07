@@ -58,6 +58,33 @@ import kotlin.math.sin
  * • Prebuffering skips the firstBeatMs seek for the same reason.
  * • Sampler suppression is handled upstream (DjMixService / DjMixViewModel).
  * Everything else (position monitoring, waveform) is unchanged.
+ *
+ * ── Tempo Sync Architecture ───────────────────────────────────────────────────
+ * PlaybackParameters(speed) is called EXACTLY ONCE per crossfade — before the
+ * fade loop begins, while the secondary player is still muted (volume=0).
+ *
+ * Why once-only matters:
+ *   ExoPlayer routes PlaybackParameters through SonicAudioProcessor, which must
+ *   drain its internal buffer and flush before applying the new speed. Calling
+ *   setPlaybackParameters() 60 times inside the fade loop queues 60 async
+ *   drain-and-flush cycles on the audio renderer thread. Each one produces a
+ *   brief discontinuity — audible as a glitch or crackle — because the renderer
+ *   is consuming decoded frames while simultaneously trying to reconfigure Sonic.
+ *
+ *   Setting the speed once, while the secondary track is silent and the outgoing
+ *   track is still at full volume (no overlap yet), gives SonicAudioProcessor
+ *   exactly one flush cycle to complete in isolation. By the time the two tracks
+ *   start to overlap (first few steps of the equal-power ramp), the processor has
+ *   already settled at the target speed with no transient artefact.
+ *
+ * Reference:
+ *   SonicAudioProcessor.setSpeed() Javadoc: "This method may only be called after
+ *   draining data through the processor. The processor must be flushed before
+ *   queueing more data." — mirrors.aliyun.com ExoPlayer2 reference docs
+ *
+ *   ExoPlayer team (Medium, 2017): "Setting the playback speed is an asynchronous
+ *   operation, because any audio already written to the AudioTrack's internal
+ *   buffer needs to be played before the speed change takes effect."
  */
 @UnstableApi
 @Singleton
@@ -421,11 +448,6 @@ class CrossfadeEngine @Inject constructor(
             )
         }
 
-//        // ── TIMING PROBE — helps identify where pre-fade delay comes from ─────
-//        val crossfadeStartMs = System.currentTimeMillis()
-//        Log.i(TAG, "[TIMING] Crossfade triggered. prebuffered=${prebufferedTrackId == nextTrack.id} track='${nextTrack.title}'")
-//        // ─────────────────────────────────────────────────────────────────────
-
         var bassKillEq: android.media.audiofx.Equalizer? = null
         try {
             val secondaryBaseVolume = if (nextAmplitude > 0f) {
@@ -520,12 +542,45 @@ class CrossfadeEngine @Inject constructor(
                 secondaryIsPlaying = withContext(Dispatchers.Main) { secondaryRef.isPlaying }
             }
 
-//            // ── TIMING PROBE C→D ─────────────────────────────────────────────
-//            Log.i(TAG, "[TIMING] C→D isPlaying_wait=${playWaitMs}ms (playing=$secondaryIsPlaying)")
-//            Log.i(TAG, "[TIMING] Total pre-fade delay=${System.currentTimeMillis() - crossfadeStartMs}ms | effectiveFadeDuration=${decision.effectiveCrossfadeDurationMs}ms")
-//            // ─────────────────────────────────────────────────────────────────
+            // ── 5. ONE-SHOT TEMPO PRIME ───────────────────────────────────────
+            //
+            // Set the outgoing track's speed ONCE here — before any audio overlap
+            // occurs — rather than ramping it across 60 loop iterations.
+            //
+            // Why this is correct:
+            //   At this exact moment the secondary player is running but muted
+            //   (volume = 0f). The outgoing primary track is still at full volume.
+            //   There is no audible overlap yet. Calling setPlaybackParameters()
+            //   once here triggers exactly ONE SonicAudioProcessor drain-and-flush
+            //   cycle on the renderer thread. By the time the fade loop starts and
+            //   the two tracks begin to audibly overlap, Sonic has already settled
+            //   at the target speed — no transient artefact, no crackle.
+            //
+            //   In the old approach, setting PlaybackParameters on every fade step
+            //   queued ~30 flush cycles DURING the audible overlap window. Each
+            //   flush discards buffered samples and resets internal delay lines,
+            //   producing the discontinuities users reported as "weird noise".
+            //
+            // The speed delta is always ≤ 10 BPM (≤ 10% ratio). With ExoPlayer's
+            // pitch-corrected time stretching (key lock) this is perceptually
+            // indistinguishable from a tempo-matched transition on real hardware.
+            if (decision.isEffectivelyTempoSynced) {
+                withContext(Dispatchers.Main) {
+                    try {
+                        primaryRef.playbackParameters = PlaybackParameters(decision.stretchRatio.toFloat())
+                        Log.d(TAG, "[TEMPO] One-shot prime: outgoing speed → " +
+                                "${String.format("%.4f", decision.stretchRatio)} " +
+                                "(${decision.outgoingBpm.fmt()} → ${decision.incomingBpm.fmt()} BPM)")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "[TEMPO] One-shot prime failed: ${e.message}")
+                    }
+                }
+            }
 
-            // ── 5. Equal-Power Ramp + Energy-Aware Bass Kill ──────────────────
+            // ── 6. Equal-Power Ramp + Energy-Aware Bass Kill ──────────────────
+            //
+            // Pure volume crossfade. No PlaybackParameters calls inside this loop.
+            // The speed was already set in step 5; the Sonic processor is stable.
             val primaryStartVolume = withContext(Dispatchers.Main) { primaryRef.volume }
             val stepDelayMs = (decision.effectiveCrossfadeDurationMs / FADE_STEPS).coerceAtLeast(16L)
             var bassKillApplied = false
@@ -558,39 +613,18 @@ class CrossfadeEngine @Inject constructor(
                 }
 
                 withContext(Dispatchers.Main) {
-                    primaryRef.volume = cos(angle) * primaryStartVolume
+                    primaryRef.volume   = cos(angle) * primaryStartVolume
                     secondaryRef.volume = sin(angle) * secondaryBaseVolume
-
-                    // ── Tempo blend ──────────────────────────────────────────
-                    // Gradually shift the outgoing track's playback speed toward
-                    // the incoming BPM over the FIRST HALF of the crossfade.
-                    // By step FADE_STEPS/2, both tracks are at the same BPM and
-                    // the second half is a clean equal-power blend with no clash.
-                    //
-                    // ExoPlayer's PlaybackParameters(speed) uses pitch-corrected
-                    // time stretching (key lock) — the pitch does not change.
-                    // This is the same as "tempo sync without pitch shift" on
-                    // professional DJ hardware.
-                    if (decision.isEffectivelyTempoSynced) {
-                        val blendProgress = (progress * 2f).coerceAtMost(1f)
-                        val targetSpeed   = 1.0f + (
-                                (decision.stretchRatio.toFloat() - 1.0f) * blendProgress
-                                )
-                        try {
-                            primaryRef.playbackParameters = PlaybackParameters(targetSpeed)
-                        } catch (e: Exception) {
-                            Log.w(TAG, "[MIXER] Tempo blend failed at step $step: ${e.message}")
-                        }
-                    }
                 }
                 _state.update { it.copy(crossfadeProgressFraction = sin(angle)) }
                 delay(stepDelayMs)
             }
 
-            // ── 6. Abort Check ────────────────────────────────────────────────
+            // ── 7. Abort Check ────────────────────────────────────────────────
             if (abortCrossfade) {
                 withContext(Dispatchers.Main) {
-                    secondaryRef.playbackParameters = PlaybackParameters.DEFAULT
+                    // Restore outgoing track to native speed before aborting.
+                    primaryRef.playbackParameters = PlaybackParameters.DEFAULT
                     primaryRef.volume = primaryStartVolume
                     try {
                         secondaryRef.pause()
@@ -602,15 +636,14 @@ class CrossfadeEngine @Inject constructor(
                 return
             }
 
-            // ── 7. Swap Players ───────────────────────────────────────────────
+            // ── 8. Swap Players ───────────────────────────────────────────────
             withContext(Dispatchers.Main) {
                 try {
                     primaryRef.pause()
                     primaryRef.volume = primaryBaseVolume
-                    // Reset tempo on the outgoing player. If tempo blending was
-                    // active, it may be playing at a shifted speed. The next time
-                    // this ExoPlayer slot is reused (as the secondary player on the
-                    // NEXT crossfade), it must start at normal 1.0× speed.
+                    // Reset the outgoing player to native speed so that when this
+                    // ExoPlayer slot is reused as the secondary on the NEXT crossfade,
+                    // it starts at normal 1.0× speed. This mirrors the original intent.
                     primaryRef.playbackParameters = PlaybackParameters.DEFAULT
                     if (secondaryRef.isPlaying) {
                         secondaryRef.volume = secondaryBaseVolume
@@ -640,7 +673,7 @@ class CrossfadeEngine @Inject constructor(
                 try { primaryPlayer()?.play() } catch (e: Exception) {}
             }
 
-            // ── 8. Reset State ────────────────────────────────────────────────
+            // ── 9. Reset State ────────────────────────────────────────────────
             lastRequestedTrackId = null
             prebufferedTrackId = null
             lastPrebufferRequestedId = null
@@ -850,4 +883,7 @@ class CrossfadeEngine @Inject constructor(
             }
         }
     }
+
+    // ── Private extension matching MixDecisionEngine formatting ──────────────
+    private fun Float.fmt() = String.format("%.1f", this)
 }

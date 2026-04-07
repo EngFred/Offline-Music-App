@@ -8,7 +8,7 @@ data class CrossfadeEngineState(
     val currentDurationMs: Long = 0L,
     val crossfadeProgressFraction: Float = 0f,
     val waveform: List<Float> = emptyList(),
-    val currentMixStrategy: MixStrategy = MixStrategy.HARMONIC, // [was SMOOTH] — default updated for 2-strategy test
+    val currentMixStrategy: MixStrategy = MixStrategy.HARMONIC,
     val error: String? = null,
     val timeToNextMixMs: Long? = null
 )
@@ -16,30 +16,10 @@ data class CrossfadeEngineState(
 /**
  * Classifies the BPM relationship between outgoing and incoming tracks.
  * Each strategy drives different crossfade duration, tempo-sync behaviour, and EQ treatment.
- *
- * ── TEST BUILD ────────────────────────────────────────────────────────────────
- * TRANSPARENT, SMOOTH, and POWER_MIX are COMMENTED OUT for evaluation.
- * All three previously-separate cases now resolve to HARMONIC in [MixDecisionEngine].
- * To restore the full 5-strategy matrix, un-comment all [STRATEGY TEST] blocks
- * in this file AND in MixDecisionEngine, SamplerEngine, NowPlayingSection.
- * ─────────────────────────────────────────────────────────────────────────────
  */
 enum class MixStrategy {
 
-    // [STRATEGY TEST] Commented out for 2-strategy evaluation build.
-    // /** ≤3 BPM delta — transparent straight crossfade, no tempo adjustment. */
-    // TRANSPARENT,
-
-    // [STRATEGY TEST] Commented out for 2-strategy evaluation build.
-    // /** 3–8 BPM delta — tempo-sync + equal-power fade + ease-back. */
-    // SMOOTH,
-
-    // [STRATEGY TEST] Commented out for 2-strategy evaluation build.
-    // /** 8–15 BPM delta — early bass kill, extended fade, moderate tempo-sync. */
-    // POWER_MIX,
-
-    /** Harmonic ratio (half-time, double-time, 3:2, 4:3) — short clean fade, no tempo-sync.
-     *  In test build also absorbs all previously-TRANSPARENT, SMOOTH, and POWER_MIX cases. */
+    /** Harmonic ratio (half-time, double-time, 3:2, 4:3) — short clean fade, no tempo-sync.*/
     HARMONIC,
 
     /** >15 BPM delta — energy-valley technique, no tempo-sync, aggressive bass kill. */
