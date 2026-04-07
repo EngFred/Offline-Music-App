@@ -48,6 +48,13 @@ import kotlin.math.sqrt
  *      safer than starting mid-speech 28 seconds in.
  * 8. [snapToNearestOnset] validates the beat-0 position against local PCM energy.
  * 9. Add the onset-skip offset back to map beat-0 into full-track time.
+ * 10. FIRST-BEAT GUARD (fix — Issue #1):
+ *      If the resulting cue point is earlier than [FIRST_BEAT_MIN_OFFSET_MS]
+ *      (20 s), phase-advance it by whole beat intervals until it clears the
+ *      window. Beat grids are periodic, so phase alignment is preserved exactly.
+ *      This prevents the engine from cueing a track from its very first bar,
+ *      which sounds abrupt on a real dance floor — a DJ would always start the
+ *      incoming track a good distance into the intro.
  */
 @Singleton
 class BpmAnalyzer @Inject constructor(
@@ -142,6 +149,35 @@ class BpmAnalyzer @Inject constructor(
          * maximum, we consider it a gap and snap to the loudest nearby frame.
          */
         private const val SNAP_SILENCE_RATIO = 0.30f
+
+        // ── First-beat guard (Issue #1 fix) ───────────────────────────────────
+
+        /**
+         * Minimum position (ms) for the first-beat cue point returned by
+         * [analyzeBpm].
+         *
+         * aubio's beat tracker converges quickly and often extrapolates beat-0
+         * to the very first seconds of a track. While technically correct, a
+         * real DJ would never cue an incoming track from bar 1 — they want a
+         * position well into the intro so the listener hears the track "arriving"
+         * naturally rather than being slammed in from the top.
+         *
+         * If the computed [firstBeatMs] is earlier than this threshold it is
+         * phase-advanced by whole beat intervals until it clears the window.
+         * Because the beat grid is periodic (beat at T ≡ beat at T + N×interval),
+         * advancing by N intervals preserves phase alignment exactly — the
+         * CrossfadeEngine's phase-seek and beat-snap logic remains correct.
+         *
+         * 20 000 ms (20 s) gives the outgoing track room to breathe before the
+         * incoming track's first audible bar is cued, which matches typical
+         * professional DJ practice for long intros.
+         *
+         * NOTE: This guard is applied only when confidence is high enough to
+         * trust firstBeatMs (see [CONFIDENCE_THRESHOLD]). Low-confidence results
+         * already fall back to firstBeatMs = 0 and are unaffected.
+         */
+//        private const val FIRST_BEAT_MIN_OFFSET_MS = 20_000L
+        private const val FIRST_BEAT_MIN_OFFSET_MS = 15_000L
     }
 
     data class BpmAnalysisResult(
@@ -292,12 +328,43 @@ class BpmAnalyzer @Inject constructor(
                 0L
             }
 
+            // ── Step 12: First-beat guard (Issue #1 fix) ──────────────────────────
+            //
+            // aubio frequently extrapolates beat-0 to the first few seconds of the
+            // track. That is arithmetically correct (the beat grid IS periodic from
+            // bar 1), but cueing an incoming track from second 3 sounds abrupt — a
+            // real DJ always starts well into the intro.
+            //
+            // Fix: if firstBeatMs < FIRST_BEAT_MIN_OFFSET_MS (20 s), advance it
+            // by whole beat intervals until it clears the window. Adding N × interval
+            // is equivalent to choosing beat N on the same grid — phase alignment is
+            // preserved exactly, so the CrossfadeEngine's phase-seek and beat-snap
+            // logic continues to work without any other changes.
+            //
+            // The guard is skipped when:
+            //   • isConfident is false → firstBeatMs is already 0 (track plays from start).
+            //   • firstBeatMs is 0 → same as above (low-confidence fallback).
+            //   • firstBeatMs >= FIRST_BEAT_MIN_OFFSET_MS → already past the window.
+            val guardedFirstBeatMs: Long = if (isConfident && firstBeatMs in 1L until FIRST_BEAT_MIN_OFFSET_MS && bpm > 0f) {
+                val beatIntervalMs = (60_000.0 / bpm).toLong().coerceAtLeast(1L)
+                var adjusted = firstBeatMs
+                while (adjusted < FIRST_BEAT_MIN_OFFSET_MS) adjusted += beatIntervalMs
+                Log.d(TAG,
+                    "First-beat guard: ${firstBeatMs}ms → ${adjusted}ms " +
+                            "(threshold=${FIRST_BEAT_MIN_OFFSET_MS}ms, interval=${beatIntervalMs}ms)"
+                )
+                adjusted
+            } else {
+                firstBeatMs
+            }
+
             Log.d(TAG,
                 "BPM=$bpm " +
                         "beat0_native=${beat0Ms}ms " +
                         "beat0_snapped=${snappedRelativeMs}ms " +
                         "skipOffset=${(effectiveSkipSeconds * 1000f).toInt()}ms " +
                         "firstBeat_track=${firstBeatMs}ms " +
+                        "firstBeat_guarded=${guardedFirstBeatMs}ms " +
                         "confidence=${String.format("%.3f", confidence)} " +
                         "(${if (isConfident) "trusted" else "LOW — cue zeroed"}) " +
                         "kRms=${String.format("%.4f", amplitude)}"
@@ -305,7 +372,7 @@ class BpmAnalyzer @Inject constructor(
 
             BpmAnalysisResult(
                 bpm              = bpm,
-                firstBeatMs      = firstBeatMs,
+                firstBeatMs      = guardedFirstBeatMs,
                 amplitude        = amplitude,
                 waveformEnvelope = waveformEnvelope
             )

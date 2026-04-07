@@ -11,7 +11,7 @@ import com.engfred.musicplayer.feature_dj_mix.data.local.entity.BpmCacheEntity
 
 @Database(
     entities = [BpmCacheEntity::class],
-    version = 8,
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(FloatArrayTypeConverter::class)
@@ -47,6 +47,18 @@ abstract class AutoMixDatabase : RoomDatabase() {
         }
 
         val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DELETE FROM bpm_cache")
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DELETE FROM bpm_cache")
+            }
+        }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Wipe the cache again for the newest BPM analyzer update
                 // so tracks are re-analyzed from scratch.

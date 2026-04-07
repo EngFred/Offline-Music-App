@@ -17,12 +17,16 @@ android {
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 8
-        versionName = "2.8.1"
+        versionName = "2.8.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
+        debug {
+            // No splits for debug — emulators (x86_64) get all ABIs
+            // so libbpm_analyzer.so is always found
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -32,26 +36,32 @@ android {
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
     kotlin {
         compilerOptions {
             jvmTarget = JvmTarget.JVM_17
         }
     }
+
     buildFeatures {
         compose = true
         buildConfig = true
     }
+
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.composeBom.get()
     }
 
     splits {
         abi {
-            isEnable = true
+            // Only enable ABI splits for release builds.
+            // Debug builds carry all ABIs so x86_64 emulators work correctly.
+            isEnable = gradle.startParameter.taskNames.any { it.contains("Release") }
             reset()
             include("arm64-v8a", "armeabi-v7a")
             isUniversalApk = false
@@ -85,7 +95,7 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.navigation.compose)
 
-    //more material 3 icons
+    // More material 3 icons
     implementation(libs.androidx.material.icons.extended)
 
     // Hilt (Dependency Injection)
@@ -111,13 +121,13 @@ dependencies {
     // Coil for album artwork
     implementation(libs.coil.compose)
 
-    //splash screen
+    // Splash screen
     implementation(libs.androidx.core.splashscreen)
 
     // Landscapist with Coil engine
     implementation(libs.landscapist.coil)
 
-    //worker
+    // WorkManager
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)

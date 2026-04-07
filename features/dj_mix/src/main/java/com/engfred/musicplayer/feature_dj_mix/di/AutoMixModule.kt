@@ -56,7 +56,9 @@ abstract class AutoMixModule {
                     AutoMixDatabase.MIGRATION_3_4,
                     AutoMixDatabase.MIGRATION_4_5,
                     AutoMixDatabase.MIGRATION_5_7,
-                    AutoMixDatabase.MIGRATION_7_8
+                    AutoMixDatabase.MIGRATION_7_8,
+                    AutoMixDatabase.MIGRATION_8_9,
+                    AutoMixDatabase.MIGRATION_9_10
                 )
                 .fallbackToDestructiveMigration(true)
                 .build()
