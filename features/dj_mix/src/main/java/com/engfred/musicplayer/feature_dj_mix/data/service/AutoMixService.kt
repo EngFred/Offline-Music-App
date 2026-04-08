@@ -152,6 +152,19 @@ class AutoMixService : Service() {
         }
     }
 
+    /**
+     * Mirrors CrossfadeEngine settings from the persisted store.
+     *
+     * This observer is intentionally separate from MixStudioViewModel's
+     * observeSettings(). The ViewModel is destroyed when the UI goes to
+     * background; this ensures the engine stays in sync while the service
+     * continues running headlessly. When both are alive, writes are
+     * redundant but always consistent (same source flow, same values).
+     *
+     * ⚠️ If you add a new engine property to MixStudioSettings, add it
+     *    here AND in MixStudioViewModel.observeSettings(). The two blocks
+     *    must stay in sync.
+     */
     private fun observeEngineSettings() {
         serviceScope.launch {
             djSessionManager.settings.collect { settings ->
