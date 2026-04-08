@@ -47,44 +47,47 @@ import kotlin.math.sin
  * Pure volume-based crossfading without tempo stretching.
  *
  * 🚨 THREAD SAFETY 🚨
- * ALL ExoPlayer method calls (play, pause, getAudioSessionId, etc) MUST be executed
+ * ALL ExoPlayer method calls (play, pause, getAudioSessionId, etc.) MUST be executed
  * inside `withContext(Dispatchers.Main)`. Calling them on a background coroutine
  * throws IllegalStateException and crashes the app.
  *
+ * ── Cue Point Guard (moved here from BpmAnalyzer) ─────────────────────────────
+ *
+ * BpmAnalyzer now returns a RAW firstBeatMs (aubio beat-0, onset-offset included,
+ * but NO minimum-offset guard). The guard is applied in THIS class via
+ * [applyFirstBeatGuard], using the user-configurable [cuePointOffsetMs] (0–30 s).
+ *
+ * The single point-of-application rule:
+ *   EVERY use of firstBeatMs that comes from outside the engine (via
+ *   [updateCurrentBpmInfo], [prebufferTrack], or [queueNextTrack]) MUST pass
+ *   through [applyFirstBeatGuard] before the value is stored or passed to
+ *   ExoPlayer.seekTo(). Internal references to [currentTrackFirstBeatMs] are
+ *   always the already-guarded value.
+ *
+ * ── Mix-timing and cue-point interplay ────────────────────────────────────────
+ *
+ * The halfway-mix trigger formula in startPositionMonitoring is:
+ *
+ *     triggerMs = (trackDuration / 2) + currentTrackFirstBeatMs
+ *
+ * Because [currentTrackFirstBeatMs] is the GUARDED value (≈ cuePointOffsetMs),
+ * increasing the cue point naturally delays the mix trigger by approximately the
+ * same amount — the outgoing track plays longer to compensate for the unheard
+ * intro of the incoming track:
+ *
+ *   cue =  0 s → 3-min track triggers at 1:30
+ *   cue = 20 s → 3-min track triggers at 1:50
+ *
+ * No separate formula adjustment is needed; the interplay is automatic.
+ *
  * ── Continuous Play Mode (isRealMixMode = false) ──────────────────────────────
- * When Auto-Mix is OFF the engine runs in "Continuous Play" mode:
- * • Crossfade still executes (equal-power fade, bass-kill EQ, BPM-aware duration).
- * • First-beat seeking is SKIPPED — incoming tracks start from position 0.
- * • Prebuffering skips the firstBeatMs seek for the same reason.
- * • Sampler suppression is handled upstream (DjMixService / DjMixViewModel).
- * Everything else (position monitoring, waveform) is unchanged.
+ * First-beat seeking is SKIPPED — incoming tracks start from position 0.
+ * Prebuffering skips the firstBeatMs seek for the same reason.
  *
  * ── Tempo Sync Architecture ───────────────────────────────────────────────────
  * PlaybackParameters(speed) is called EXACTLY ONCE per crossfade — before the
  * fade loop begins, while the secondary player is still muted (volume=0).
- *
- * Why once-only matters:
- *   ExoPlayer routes PlaybackParameters through SonicAudioProcessor, which must
- *   drain its internal buffer and flush before applying the new speed. Calling
- *   setPlaybackParameters() 60 times inside the fade loop queues 60 async
- *   drain-and-flush cycles on the audio renderer thread. Each one produces a
- *   brief discontinuity — audible as a glitch or crackle — because the renderer
- *   is consuming decoded frames while simultaneously trying to reconfigure Sonic.
- *
- *   Setting the speed once, while the secondary track is silent and the outgoing
- *   track is still at full volume (no overlap yet), gives SonicAudioProcessor
- *   exactly one flush cycle to complete in isolation. By the time the two tracks
- *   start to overlap (first few steps of the equal-power ramp), the processor has
- *   already settled at the target speed with no transient artefact.
- *
- * Reference:
- *   SonicAudioProcessor.setSpeed() Javadoc: "This method may only be called after
- *   draining data through the processor. The processor must be flushed before
- *   queueing more data." — mirrors.aliyun.com ExoPlayer2 reference docs
- *
- *   ExoPlayer team (Medium, 2017): "Setting the playback speed is an asynchronous
- *   operation, because any audio already written to the AudioTrack's internal
- *   buffer needs to be played before the speed change takes effect."
+ * See inline comment at Step 5 for the full rationale.
  */
 @UnstableApi
 @Singleton
@@ -108,17 +111,21 @@ class CrossfadeEngine @Inject constructor(
 
         /**
          * In continuous mode (isRealMixMode = false), start the crossfade this
-         * many ms before the track ends. 12 seconds gives enough overlap for
-         * the listener to clearly hear the new song arriving naturally.
+         * many ms before the track ends.
          */
         private const val CONTINUOUS_TRIGGER_WINDOW_MS = 12_000L
 
         /**
          * In continuous mode, request prebuffering this many ms before track end.
-         * 30 seconds ensures the secondary player is fully ready before the
-         * 12-second trigger window opens, even on slow storage.
          */
         private const val CONTINUOUS_PREBUFFER_WINDOW_MS = 30_000L
+
+        /**
+         * Safety cap on the phase-advance loop in [applyFirstBeatGuard].
+         * Prevents an infinite loop if an absurd BPM value slips through.
+         * 1 000 iterations at 120 BPM = 500 s — far beyond any real track.
+         */
+        private const val GUARD_MAX_ITERATIONS = 1_000
     }
 
     private var engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -151,12 +158,42 @@ class CrossfadeEngine @Inject constructor(
     var maxTrackDurationMs: Long         = 120_000L
     @Volatile var useHalfwayMix: Boolean = true
 
+    /**
+     * User-configurable cue-point offset in milliseconds.
+     *
+     * This is the minimum position at which the incoming track's first audible
+     * beat is placed. The raw [BpmInfo.firstBeatMs] from the cache is phase-
+     * advanced by whole beat intervals until it clears this window.
+     *
+     * Set by [MixStudioViewModel] whenever [MixStudioSettings.cuePointOffsetSec]
+     * changes. Default (15 000 ms) matches the former hardcoded constant that
+     * was removed from BpmAnalyzer in DB version 11.
+     *
+     * Valid range: 0 – 30 000 ms (matching [CUE_POINT_OPTIONS_SEC]).
+     * A value of 0 means no guard — the raw aubio beat-0 is used as-is.
+     *
+     * ── Effect on mix timing ─────────────────────────────────────────────────
+     * Because [currentTrackFirstBeatMs] stores the guarded value and is added
+     * directly to the halfway-mix trigger:
+     *
+     *     triggerMs = (trackDuration / 2) + currentTrackFirstBeatMs
+     *
+     * raising cuePointOffsetMs by X pushes the trigger later by ~X ms.
+     * No other code paths need adjustment — the formula is self-correcting.
+     */
+    @Volatile var cuePointOffsetMs: Long = 15_000L
+
     // ── Internal Jobs & Metadata ──────────────────────────────────────────────
     private var positionMonitorJob: Job? = null
     private var crossfadeJob: Job?       = null
     private var waveformJob: Job?        = null
     private var prebufferJob: Job?       = null
 
+    /**
+     * Always the GUARDED firstBeatMs for the currently-playing track.
+     * Set via [updateCurrentBpmInfo], which calls [applyFirstBeatGuard] on
+     * the raw value from the cache. Never use a raw BpmInfo.firstBeatMs here.
+     */
     @Volatile private var currentTrackBpm: Float              = 0f
     @Volatile private var currentTrackFirstBeatMs: Long       = 0L
     @Volatile private var currentTrackBaseVolume: Float       = 1.0f
@@ -179,10 +216,70 @@ class CrossfadeEngine @Inject constructor(
 
     private data class PendingTrack(
         val audioFile: AudioFile,
-        val firstBeatMs: Long,
+        val rawFirstBeatMs: Long,
         val bpm: Float,
         val amplitude: Float
     )
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // CUE POINT GUARD
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Applies the user's cue-point guard to a raw firstBeatMs value from the
+     * BPM cache.
+     *
+     * ── What it does ─────────────────────────────────────────────────────────
+     * If [rawFirstBeatMs] is less than [cuePointOffsetMs], it is phase-advanced
+     * by whole beat intervals until it clears the offset. Adding N intervals is
+     * equivalent to choosing beat N on the same grid — phase alignment is
+     * preserved exactly, so the CrossfadeEngine's beat-snap and phase-seek logic
+     * continues to work without any further adjustments.
+     *
+     * ── When to call it ──────────────────────────────────────────────────────
+     * Call this ONCE, at the boundary where external raw data enters the engine:
+     *   • [updateCurrentBpmInfo]  — current track's beat grid
+     *   • [prebufferTrack]        — before seeking the secondary player
+     *   • [executeCrossfade]      — before the phase-aligned seek
+     *
+     * Do NOT call it on [currentTrackFirstBeatMs] — that field already stores
+     * the guarded value.
+     *
+     * ── Edge cases ───────────────────────────────────────────────────────────
+     * • rawFirstBeatMs == 0L  → returned as 0 (low-confidence track, plays from start)
+     * • bpm == 0f             → guard skipped, raw value returned (no beat grid)
+     * • cuePointOffsetMs == 0 → guard skipped (user chose "no minimum offset")
+     * • rawFirstBeatMs >= cuePointOffsetMs → already past window, returned unchanged
+     *
+     * @param rawFirstBeatMs  Unguarded beat-0 from [BpmInfo.firstBeatMs].
+     * @param bpm             Track BPM used to compute the beat interval.
+     * @return                Guarded firstBeatMs, always ≥ 0.
+     */
+    private fun applyFirstBeatGuard(rawFirstBeatMs: Long, bpm: Float): Long {
+        val offsetMs = cuePointOffsetMs
+
+        // Fast-path: guard disabled or no adjustment needed.
+        if (rawFirstBeatMs <= 0L || bpm <= 0f || offsetMs <= 0L) {
+            return rawFirstBeatMs.coerceAtLeast(0L)
+        }
+        if (rawFirstBeatMs >= offsetMs) return rawFirstBeatMs
+
+        val beatIntervalMs = (60_000.0 / bpm).toLong().coerceAtLeast(1L)
+        var adjusted = rawFirstBeatMs
+        var iterations = 0
+
+        while (adjusted < offsetMs && iterations < GUARD_MAX_ITERATIONS) {
+            adjusted += beatIntervalMs
+            iterations++
+        }
+
+        Log.d(TAG,
+            "[CUE] Guard applied: raw=${rawFirstBeatMs}ms → guarded=${adjusted}ms " +
+                    "(cueOffset=${offsetMs}ms, bpm=$bpm, " +
+                    "interval=${beatIntervalMs}ms, advances=$iterations)"
+        )
+        return adjusted
+    }
 
     // ═════════════════════════════════════════════════════════════════════════
     // INITIALIZATION & LIFECYCLE
@@ -336,14 +433,36 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
-    fun updateCurrentBpmInfo(bpm: Float, firstBeatMs: Long, amplitude: Float = 0f, waveformEnvelope: FloatArray = FloatArray(0), mixOutMs: Long? = null) {
+    /**
+     * Updates the beat-grid metadata for the currently-playing track.
+     *
+     * [rawFirstBeatMs] is the unguarded value straight from [BpmInfo.firstBeatMs].
+     * The cue-point guard ([applyFirstBeatGuard]) is applied here before storing
+     * [currentTrackFirstBeatMs], so that the mix-trigger formula and phase-seek
+     * always operate on the correct guarded position.
+     *
+     * @param rawFirstBeatMs  Unguarded beat-0 from the BPM cache. Do NOT pre-guard
+     *                        this value before calling — the engine applies the guard
+     *                        once, internally, to avoid double-guarding.
+     */
+    fun updateCurrentBpmInfo(
+        bpm: Float,
+        rawFirstBeatMs: Long,
+        amplitude: Float = 0f,
+        waveformEnvelope: FloatArray = FloatArray(0),
+        mixOutMs: Long? = null
+    ) {
         currentTrackBpm         = bpm
-        currentTrackFirstBeatMs = firstBeatMs
+        // Apply the user's cue-point guard once here; every internal reference to
+        // currentTrackFirstBeatMs is the guarded value from this point on.
+        currentTrackFirstBeatMs = applyFirstBeatGuard(rawFirstBeatMs, bpm)
         currentTrackAmplitude   = amplitude
         currentWaveformEnvelope = waveformEnvelope
         currentTrackBaseVolume  = if (amplitude > 0f) (0.15f / amplitude).coerceIn(0.2f, 1.0f) else 1.0f
         currentTrackMixOutMs    = mixOutMs
-        Log.d(TAG, "[METADATA] BPM=$bpm BeatMs=$firstBeatMs Vol=$currentTrackBaseVolume")
+        Log.d(TAG, "[METADATA] BPM=$bpm rawFirstBeat=${rawFirstBeatMs}ms " +
+                "guardedFirstBeat=${currentTrackFirstBeatMs}ms " +
+                "cueOffset=${cuePointOffsetMs}ms Vol=$currentTrackBaseVolume")
     }
 
     fun triggerMixNow() {
@@ -364,10 +483,20 @@ class CrossfadeEngine @Inject constructor(
     /**
      * Pre-buffers the next track into the secondary ExoPlayer.
      *
-     * In Continuous Play mode (isRealMixMode = false) the firstBeatMs seek is skipped
-     * so the track is ready at position 0 — consistent with executeCrossfade behaviour.
+     * [rawFirstBeatMs] is the unguarded value from [BpmInfo.firstBeatMs].
+     * The engine applies [applyFirstBeatGuard] internally before seeking, so
+     * callers must NOT pre-guard the value — doing so would result in
+     * double-guarding and a seek position that is too far into the track.
+     *
+     * In Continuous Play mode (isRealMixMode = false) the seek is skipped
+     * entirely — tracks start from position 0.
      */
-    fun prebufferTrack(audioFile: AudioFile, firstBeatMs: Long, bpm: Float, amplitude: Float) {
+    fun prebufferTrack(
+        audioFile: AudioFile,
+        rawFirstBeatMs: Long,
+        bpm: Float,
+        amplitude: Float
+    ) {
         if (isReleased || _state.value.isCrossfading) return
         if (isPrebufferingInProgress || prebufferedTrackId == audioFile.id) return
         isPrebufferingInProgress = true
@@ -384,14 +513,18 @@ class CrossfadeEngine @Inject constructor(
                 secondary.volume = 0f
                 secondary.prepare()
 
-                // ── Continuous Play: skip first-beat seek ─────────────────────
-                // When Auto-Mix is OFF we always start incoming tracks from position 0,
-                // so we intentionally do NOT seek here regardless of firstBeatMs.
-                if (isRealMixMode && firstBeatMs > 0L) {
-                    secondary.seekTo(firstBeatMs)
-                    Log.d(TAG, "[PREBUFFER] id=${audioFile.id} seeked to firstBeatMs=$firstBeatMs")
+                // Apply the cue-point guard before seeking so the secondary player
+                // is positioned at the correct audible entry point.
+                val guardedFirstBeatMs = applyFirstBeatGuard(rawFirstBeatMs, bpm)
+
+                if (isRealMixMode && guardedFirstBeatMs > 0L) {
+                    secondary.seekTo(guardedFirstBeatMs)
+                    Log.d(TAG, "[PREBUFFER] id=${audioFile.id} " +
+                            "raw=${rawFirstBeatMs}ms guarded=${guardedFirstBeatMs}ms")
                 } else {
-                    Log.d(TAG, "[PREBUFFER] id=${audioFile.id} continuous play — no seek")
+                    Log.d(TAG, "[PREBUFFER] id=${audioFile.id} " +
+                            if (!isRealMixMode) "continuous play — no seek"
+                            else "guardedFirstBeat=0 — no seek")
                 }
             }
             prebufferedTrackId = audioFile.id
@@ -399,15 +532,27 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
-    fun queueNextTrack(audioFile: AudioFile, firstBeatMs: Long = 0L, nextBpm: Float = 0f, nextAmplitude: Float = 0f) {
+    /**
+     * Queues the next track for crossfading.
+     *
+     * [rawFirstBeatMs] is the unguarded value from [BpmInfo.firstBeatMs].
+     * The cue-point guard is applied inside [executeCrossfade] via
+     * [applyFirstBeatGuard]. Do NOT pre-guard this value.
+     */
+    fun queueNextTrack(
+        audioFile: AudioFile,
+        rawFirstBeatMs: Long = 0L,
+        nextBpm: Float = 0f,
+        nextAmplitude: Float = 0f
+    ) {
         if (isReleased) return
         if (_state.value.isCrossfading) {
-            pendingNextTrack = PendingTrack(audioFile, firstBeatMs, nextBpm, nextAmplitude)
+            pendingNextTrack = PendingTrack(audioFile, rawFirstBeatMs, nextBpm, nextAmplitude)
             return
         }
         crossfadeJob?.cancel()
         crossfadeJob = engineScope.launch {
-            executeCrossfade(audioFile, firstBeatMs, nextBpm, nextAmplitude)
+            executeCrossfade(audioFile, rawFirstBeatMs, nextBpm, nextAmplitude)
         }
     }
 
@@ -415,9 +560,14 @@ class CrossfadeEngine @Inject constructor(
     // CROSSFADE EXECUTION
     // ═════════════════════════════════════════════════════════════════════════
 
+    /**
+     * @param rawFirstBeatMs  Unguarded firstBeatMs from [BpmInfo]. The cue-point
+     *                        guard ([applyFirstBeatGuard]) is applied internally.
+     *                        Do NOT pass a pre-guarded value here.
+     */
     private suspend fun executeCrossfade(
         nextTrack: AudioFile,
-        firstBeatMs: Long = 0L,
+        rawFirstBeatMs: Long = 0L,
         nextBpm: Float = 0f,
         nextAmplitude: Float = 0f
     ) {
@@ -427,9 +577,6 @@ class CrossfadeEngine @Inject constructor(
 
         abortCrossfade = false
 
-        // ── DJ BRAIN: Energy-aware decision ───────────────────────────────────
-        // The MixDecisionEngine still runs in both modes — it drives crossfade duration
-        // and bass-kill timing even in Continuous Play mode.
         val decision = mixDecisionEngine.computeMixDecision(
             currentTrackBpm,
             nextBpm,
@@ -482,37 +629,43 @@ class CrossfadeEngine @Inject constructor(
                 waitMs += 100L
             }
 
-            // ── TIMING PROBE A→B ─────────────────────────────────────────────
             Log.i(TAG, "[TIMING] A→B ready_wait=${waitMs}ms (ready=$ready, prebuffered=$alreadyPrebuffered)")
-            // ─────────────────────────────────────────────────────────────────
 
             // ── 3. PHASE-ALIGNED SEEK (Auto-Mix ON only) ──────────────────────
-            // In Continuous Play mode (isRealMixMode = false) we always start the
-            // incoming track from position 0 — no phase alignment, no first-beat seek.
+            //
+            // Guard the incoming firstBeatMs ONCE here so the phase calculation
+            // and the eventual seekTo() both use the same guarded position.
+            // This is the canonical single guard-application point for crossfades.
             val safeFirstBeatMs: Long = if (!isRealMixMode) {
                 Log.d(TAG, "[MIXER] Continuous Play mode — skipping first-beat seek")
                 0L
             } else {
+                val guardedIncomingFirstBeat = applyFirstBeatGuard(rawFirstBeatMs, nextBpm)
                 withContext(Dispatchers.Main) {
                     val secDuration = secondaryRef.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-                    if (secDuration <= 0L || firstBeatMs <= 0L || currentTrackBpm <= 0f || nextBpm <= 0f) {
-                        firstBeatMs
+                    if (secDuration <= 0L || guardedIncomingFirstBeat <= 0L ||
+                        currentTrackBpm <= 0f || nextBpm <= 0f) {
+                        guardedIncomingFirstBeat
                     } else {
+                        // Phase-align the incoming track to the outgoing track's
+                        // current beat position so the two grids lock on crossfade.
                         val primaryPos = primaryRef.currentPosition
                         val outgoingBeatLenMs = 60_000f / currentTrackBpm
-                        val primaryPhaseMs = ((primaryPos - currentTrackFirstBeatMs)
+                        val primaryPhaseMs = ((primaryPos - currentTrackFirstBeatMs) // guarded
                             .coerceAtLeast(0L) % outgoingBeatLenMs.toLong() + outgoingBeatLenMs.toLong()) % outgoingBeatLenMs.toLong()
 
                         val incomingBeatLenMs = 60_000f / nextBpm
                         val phaseFraction = primaryPhaseMs.toFloat() / outgoingBeatLenMs
                         val sourcePhaseMs = (phaseFraction * incomingBeatLenMs).toLong()
 
-                        var targetSeek = firstBeatMs + sourcePhaseMs
+                        var targetSeek = guardedIncomingFirstBeat + sourcePhaseMs
 
                         val minRemaining = decision.effectiveCrossfadeDurationMs * 2
                         val maxSafe = (secDuration - minRemaining).coerceAtLeast(0L)
                         targetSeek = targetSeek.coerceAtMost(maxSafe).coerceAtLeast(0L)
 
+                        Log.d(TAG, "[SEEK] guarded=${guardedIncomingFirstBeat}ms " +
+                                "phase=${sourcePhaseMs}ms target=${targetSeek}ms")
                         targetSeek
                     }
                 }
@@ -543,27 +696,8 @@ class CrossfadeEngine @Inject constructor(
             }
 
             // ── 5. ONE-SHOT TEMPO PRIME ───────────────────────────────────────
-            //
-            // Set the outgoing track's speed ONCE here — before any audio overlap
-            // occurs — rather than ramping it across 60 loop iterations.
-            //
-            // Why this is correct:
-            //   At this exact moment the secondary player is running but muted
-            //   (volume = 0f). The outgoing primary track is still at full volume.
-            //   There is no audible overlap yet. Calling setPlaybackParameters()
-            //   once here triggers exactly ONE SonicAudioProcessor drain-and-flush
-            //   cycle on the renderer thread. By the time the fade loop starts and
-            //   the two tracks begin to audibly overlap, Sonic has already settled
-            //   at the target speed — no transient artefact, no crackle.
-            //
-            //   In the old approach, setting PlaybackParameters on every fade step
-            //   queued ~30 flush cycles DURING the audible overlap window. Each
-            //   flush discards buffered samples and resets internal delay lines,
-            //   producing the discontinuities users reported as "weird noise".
-            //
-            // The speed delta is always ≤ 10 BPM (≤ 10% ratio). With ExoPlayer's
-            // pitch-corrected time stretching (key lock) this is perceptually
-            // indistinguishable from a tempo-matched transition on real hardware.
+            // Set outgoing speed once while secondary is muted — prevents Sonic
+            // flush artefacts during the audible overlap window.
             if (decision.isEffectivelyTempoSynced) {
                 withContext(Dispatchers.Main) {
                     try {
@@ -578,9 +712,6 @@ class CrossfadeEngine @Inject constructor(
             }
 
             // ── 6. Equal-Power Ramp + Energy-Aware Bass Kill ──────────────────
-            //
-            // Pure volume crossfade. No PlaybackParameters calls inside this loop.
-            // The speed was already set in step 5; the Sonic processor is stable.
             val primaryStartVolume = withContext(Dispatchers.Main) { primaryRef.volume }
             val stepDelayMs = (decision.effectiveCrossfadeDurationMs / FADE_STEPS).coerceAtLeast(16L)
             var bassKillApplied = false
@@ -623,13 +754,9 @@ class CrossfadeEngine @Inject constructor(
             // ── 7. Abort Check ────────────────────────────────────────────────
             if (abortCrossfade) {
                 withContext(Dispatchers.Main) {
-                    // Restore outgoing track to native speed before aborting.
                     primaryRef.playbackParameters = PlaybackParameters.DEFAULT
                     primaryRef.volume = primaryStartVolume
-                    try {
-                        secondaryRef.pause()
-                        secondaryRef.volume = 0f
-                    } catch (e: Exception) {}
+                    try { secondaryRef.pause(); secondaryRef.volume = 0f } catch (e: Exception) {}
                 }
                 abortCrossfade = false
                 _state.update { it.copy(isCrossfading = false, crossfadeProgressFraction = 0f) }
@@ -641,29 +768,18 @@ class CrossfadeEngine @Inject constructor(
                 try {
                     primaryRef.pause()
                     primaryRef.volume = primaryBaseVolume
-                    // Reset the outgoing player to native speed so that when this
-                    // ExoPlayer slot is reused as the secondary on the NEXT crossfade,
-                    // it starts at normal 1.0× speed. This mirrors the original intent.
                     primaryRef.playbackParameters = PlaybackParameters.DEFAULT
-                    if (secondaryRef.isPlaying) {
-                        secondaryRef.volume = secondaryBaseVolume
-                    }
+                    if (secondaryRef.isPlaying) secondaryRef.volume = secondaryBaseVolume
                 } catch (e: Exception) {}
             }
 
             val swapped = withContext(Dispatchers.Main) {
-                if (secondaryRef.isPlaying) {
-                    isPrimaryA = !isPrimaryA
-                    true
-                } else false
+                if (secondaryRef.isPlaying) { isPrimaryA = !isPrimaryA; true } else false
             }
 
             if (!swapped) {
                 withContext(Dispatchers.Main) {
-                    try {
-                        primaryRef.volume = primaryBaseVolume
-                        primaryRef.play()
-                    } catch (e: Exception) {}
+                    try { primaryRef.volume = primaryBaseVolume; primaryRef.play() } catch (e: Exception) {}
                 }
                 _state.update { it.copy(isCrossfading = false, crossfadeProgressFraction = 0f) }
                 return
@@ -693,17 +809,14 @@ class CrossfadeEngine @Inject constructor(
 
             pendingNextTrack?.let { pending ->
                 pendingNextTrack = null
-                executeCrossfade(pending.audioFile, pending.firstBeatMs, pending.bpm, pending.amplitude)
+                executeCrossfade(pending.audioFile, pending.rawFirstBeatMs, pending.bpm, pending.amplitude)
             }
 
         } finally {
             if (_state.value.isCrossfading) {
                 _state.update { it.copy(isCrossfading = false, crossfadeProgressFraction = 0f) }
             }
-            try {
-                bassKillEq?.release()
-                bassKillEq = null
-            } catch (e: Exception) {}
+            try { bassKillEq?.release(); bassKillEq = null } catch (e: Exception) {}
         }
     }
 
@@ -724,6 +837,7 @@ class CrossfadeEngine @Inject constructor(
 
                 val remaining    = duration - position
                 val bpm          = currentTrackBpm
+                // currentTrackFirstBeatMs is always the guarded value — safe to use directly.
                 val firstBeat    = currentTrackFirstBeatMs
                 val beatLengthMs = if (bpm > 0f) (60_000f / bpm).toLong() else 0L
 
@@ -742,15 +856,10 @@ class CrossfadeEngine @Inject constructor(
                     }
                 }
 
-                val mustTrigger     = beatLengthMs > 0L && remaining <= crossfadeDurationMs + beatLengthMs
-                val triggerWindow   = crossfadeDurationMs + beatLengthMs
-                val prebufferZone   = crossfadeDurationMs * 3 + beatLengthMs
-                // ── Effective trigger & prebuffer windows ────────────────────
-                // In Real Mix mode  : use beat-aligned windows (existing logic).
-                // In Continuous mode: use fixed minimum windows so the next track
-                //   is always heard coming in naturally, regardless of crossfade
-                //   duration setting. Beat/phrase alignment is a DJ concept and
-                //   does not apply to continuous background playback.
+                val mustTrigger   = beatLengthMs > 0L && remaining <= crossfadeDurationMs + beatLengthMs
+                val triggerWindow = crossfadeDurationMs + beatLengthMs
+                val prebufferZone = crossfadeDurationMs * 3 + beatLengthMs
+
                 val effectiveTriggerWindowMs = if (isRealMixMode) triggerWindow
                 else maxOf(triggerWindow, CONTINUOUS_TRIGGER_WINDOW_MS)
                 val effectivePrebufferZoneMs = if (isRealMixMode) prebufferZone
@@ -761,21 +870,32 @@ class CrossfadeEngine @Inject constructor(
                 val postGuardActive = System.currentTimeMillis() < postCrossfadeGuardUntilMs
                 val customMixOut    = currentTrackMixOutMs != null && position >= currentTrackMixOutMs!!
 
+                // ── Halfway-mix trigger ────────────────────────────────────────
+                //
+                // Formula: (duration / 2) + currentTrackFirstBeatMs
+                //
+                // currentTrackFirstBeatMs is the GUARDED first beat (≈ cuePointOffsetMs).
+                // Raising cuePointOffsetMs shifts this trigger later by approximately
+                // the same amount, compensating for the unheard cue-point intro of
+                // the incoming track. No separate adjustment is needed.
+                //
+                // Example — 3-min track, cuePointOffsetMs = 20 000:
+                //   guardedFirstBeat ≈ 20 000 ms
+                //   mixAtMs = 90 000 + 20 000 = 110 000 ms  (1:50, not 1:30)
                 val mixAtMs: Long? = if (isRealMixMode && duration > 0L) {
-                    if (useHalfwayMix) (duration / 2L) + currentTrackFirstBeatMs else maxTrackDurationMs
+                    if (useHalfwayMix) (duration / 2L) + currentTrackFirstBeatMs
+                    else maxTrackDurationMs
                 } else null
 
                 val isMaxTime = mixAtMs != null && position >= mixAtMs && remaining > crossfadeDurationMs
 
-                // approachingMaxTime only applies in Real Mix mode (mixAtMs is
-                // always null in continuous mode — continuous mode uses the wider
-                // inPrebufferZone window instead).
                 val approachingMaxTime = isRealMixMode &&
                         mixAtMs != null &&
                         position >= (mixAtMs - crossfadeDurationMs * 2) &&
                         position < mixAtMs
 
-                if ((inPrebufferZone || approachingMaxTime) && !_state.value.isCrossfading && prebufferedTrackId == null && !isPrebufferingInProgress) {
+                if ((inPrebufferZone || approachingMaxTime) && !_state.value.isCrossfading
+                    && prebufferedTrackId == null && !isPrebufferingInProgress) {
                     val id = _state.value.currentTrack?.id
                     if (id != null && id != lastPrebufferRequestedId) {
                         lastPrebufferRequestedId = id
@@ -783,12 +903,9 @@ class CrossfadeEngine @Inject constructor(
                     }
                 }
 
-                // In Real Mix mode: only trigger on a beat AND near a phrase boundary
-                //   (DJ precision — wrong bar = bad mix).
-                // In Continuous mode: trigger as soon as the track enters the window.
-                //   Beat/phrase alignment removed — irrelevant for background listening.
                 val beatAligned = !isRealMixMode || (isOnBeat && (isAtPhrase || mustTrigger))
-                val shouldTrigger = playing && !_state.value.isCrossfading && !postGuardActive && duration > 0L &&
+                val shouldTrigger = playing && !_state.value.isCrossfading && !postGuardActive
+                        && duration > 0L &&
                         (customMixOut || ((inTriggerZone || isMaxTime) && beatAligned))
 
                 if (shouldTrigger) {
@@ -884,6 +1001,5 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
-    // ── Private extension matching MixDecisionEngine formatting ──────────────
     private fun Float.fmt() = String.format("%.1f", this)
 }

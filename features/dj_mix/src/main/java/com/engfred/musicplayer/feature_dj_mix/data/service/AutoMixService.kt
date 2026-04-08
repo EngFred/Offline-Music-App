@@ -159,6 +159,7 @@ class AutoMixService : Service() {
                 crossfadeEngine.isRealMixMode       = settings.isRealMixMode
                 crossfadeEngine.maxTrackDurationMs  = settings.maxTrackDurationSec * 1000L
                 crossfadeEngine.useHalfwayMix       = !settings.useManualMaxDuration
+                crossfadeEngine.cuePointOffsetMs    = settings.cuePointOffsetSec * 1000L
                 samplerEngine.isAutoSamplerEnabled  = settings.autoSamplerEnabled && settings.isRealMixMode
                 samplerEngine.sampleVolume          = settings.sampleVolume
             }

@@ -559,12 +559,14 @@ fun MixStudioScreen(
                     modifier      = Modifier.padding(bottom = 24.dp)
                 )
                 ControlsSection(
-                    isRealMixMode         = uiState.settings.isRealMixMode,
-                    onToggleRealMixMode   = { viewModel.onEvent(MixStudioEvent.ToggleRealMixStudioMode(it)) },
-                    autoSamplerEnabled    = uiState.settings.autoSamplerEnabled,
-                    sampleVolume          = uiState.settings.sampleVolume,
-                    onToggleAutoSampler   = { viewModel.onEvent(MixStudioEvent.ToggleAutoSampler(it)) },
-                    onSampleVolumeChanged = { viewModel.onEvent(MixStudioEvent.UpdateSampleVolume(it)) },
+                    isRealMixMode           = uiState.settings.isRealMixMode,
+                    onToggleRealMixMode     = { viewModel.onEvent(MixStudioEvent.ToggleRealMixStudioMode(it)) },
+                    autoSamplerEnabled      = uiState.settings.autoSamplerEnabled,
+                    sampleVolume            = uiState.settings.sampleVolume,
+                    onToggleAutoSampler     = { viewModel.onEvent(MixStudioEvent.ToggleAutoSampler(it)) },
+                    onSampleVolumeChanged   = { viewModel.onEvent(MixStudioEvent.UpdateSampleVolume(it)) },
+                    cuePointOffsetSec       = uiState.settings.cuePointOffsetSec,
+                    onCuePointOffsetChanged = { viewModel.onEvent(MixStudioEvent.UpdateCuePointOffset(it)) },
                 )
                 Spacer(modifier = Modifier.height(48.dp))
             }

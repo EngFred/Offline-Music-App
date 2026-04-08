@@ -34,6 +34,19 @@ interface SettingsRepository {
     // ── DJ Mix ────────────────────────────────────────────────────────────
     suspend fun updateDjRealMixMode(enabled: Boolean)
 
+    /**
+     * Persists the user's chosen cue-point offset (in seconds).
+     *
+     * The cue point is the minimum position at which the incoming track's first
+     * audible beat is placed during a crossfade. The engine phase-advances the
+     * raw aubio beat until it clears this window without altering beat-grid phase.
+     *
+     * Valid values are defined by [CUE_POINT_OPTIONS_SEC] in MixStudioSettings.kt.
+     * Passing an out-of-range value is not validated here — callers are responsible
+     * for restricting input to the approved options list.
+     */
+    suspend fun updateDjCuePointOffset(sec: Int)
+
     // ── Mix of the Day ────────────────────────────────────────────────────────
     suspend fun getLastMixOfTheDayTimestamp(): Long
     suspend fun updateLastMixOfTheDayTimestamp(timestamp: Long)
@@ -43,7 +56,7 @@ interface SettingsRepository {
 
     suspend fun updateDjMixPlaylistFilter(filter: DjMixPlaylistFilter)
 
-    // ── App update ────────────────────────────────────────────────────────────────
+    // ── App update ────────────────────────────────────────────────────────────
     suspend fun getLastUpdateCheckTimestamp(): Long
     suspend fun updateLastUpdateCheckTimestamp(timestamp: Long)
 }

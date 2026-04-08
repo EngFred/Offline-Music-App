@@ -57,10 +57,21 @@ class SettingsRepositoryImpl @Inject constructor(
         private val DJ_AUTO_SAMPLER        = booleanPreferencesKey("dj_auto_sampler")
         private val DJ_SAMPLE_VOLUME       = floatPreferencesKey("dj_sample_volume")
 
+        /**
+         * Persisted key for the user's cue-point offset preference (seconds).
+         *
+         * Default: 15 s — matches the former hardcoded FIRST_BEAT_MIN_OFFSET_MS
+         * constant that was removed from BpmAnalyzer in DB version 11.
+         *
+         * The guard is no longer baked into the cached firstBeatMs. It is applied
+         * dynamically at runtime by CrossfadeEngine.applyFirstBeatGuard() using
+         * this value, so changing the preference takes effect immediately without
+         * requiring track re-analysis.
+         */
+        private val DJ_CUE_POINT_OFFSET_SEC = intPreferencesKey("dj_cue_point_offset_sec")
+
         private val LAST_MIX_OF_THE_DAY_TIMESTAMP = longPreferencesKey("last_mix_of_the_day_timestamp")
-
         private val DJ_MIX_PLAYLIST_FILTER = stringPreferencesKey("dj_mix_playlist_filter")
-
         private val LAST_UPDATE_CHECK_TIMESTAMP = longPreferencesKey("last_update_check_timestamp")
     }
 
@@ -111,7 +122,10 @@ class SettingsRepositoryImpl @Inject constructor(
                     djMixPlaylistFilter  = djMixFilter,
                     isRealMixMode        = preferences[DJ_REAL_MIX_MODE] ?: true,
                     autoSamplerEnabled   = preferences[DJ_AUTO_SAMPLER] ?: true,
-                    sampleVolume         = preferences[DJ_SAMPLE_VOLUME] ?: 1f
+                    sampleVolume         = preferences[DJ_SAMPLE_VOLUME] ?: 1f,
+                    // Default 15 matches the old hardcoded constant so existing users
+                    // experience no change until they explicitly update the setting.
+                    cuePointOffsetSec    = preferences[DJ_CUE_POINT_OFFSET_SEC] ?: 15,
                 )
             }
     }
@@ -231,6 +245,10 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun updateDjSampleVolume(volume: Float) {
         dataStore.edit { it[DJ_SAMPLE_VOLUME] = volume }
+    }
+
+    override suspend fun updateDjCuePointOffset(sec: Int) {
+        dataStore.edit { it[DJ_CUE_POINT_OFFSET_SEC] = sec }
     }
 
     override suspend fun getLastMixOfTheDayTimestamp(): Long {

@@ -33,28 +33,44 @@ import kotlin.math.sqrt
  *      • Sustain must hold for 250 ms.
  *      • Back up one window to preserve the attack transient.
  *
- * 5. LATE ONSET DETECTION (new):
+ * 5. LATE ONSET DETECTION:
  *      If the onset lands in the last [LATE_ONSET_THRESHOLD] fraction of the
- *      decoded window (i.e. audio is mostly intro/speech within 90s), re-decode
- *      up to [EXTENDED_ANALYSIS_DURATION_MS] and re-run onset detection.
- *      This covers the "Havana-style" scenario: YouTube rips with 1-2 minutes
- *      of acting/speech before the actual song begins.
+ *      decoded window, re-decode up to [EXTENDED_ANALYSIS_DURATION_MS] and
+ *      re-run onset detection. This covers "Havana-style" YouTube rips with
+ *      1–2 minutes of speech before the song begins.
  *
  * 6. Pass the onset-trimmed PCM to the native aubio beat tracker.
- * 7. CONFIDENCE GATING (new):
+ * 7. CONFIDENCE GATING:
  *      If aubio's confidence < [CONFIDENCE_THRESHOLD], set firstBeatMs = 0.
- *      The BPM itself is still cached (useful for queue ordering), but we do
- *      not trust a low-confidence cue point — starting from position 0 is
- *      safer than starting mid-speech 28 seconds in.
+ *      The BPM itself is still cached (useful for queue ordering).
  * 8. [snapToNearestOnset] validates the beat-0 position against local PCM energy.
  * 9. Add the onset-skip offset back to map beat-0 into full-track time.
- * 10. FIRST-BEAT GUARD (fix — Issue #1):
- *      If the resulting cue point is earlier than [FIRST_BEAT_MIN_OFFSET_MS]
- *      (20 s), phase-advance it by whole beat intervals until it clears the
- *      window. Beat grids are periodic, so phase alignment is preserved exactly.
- *      This prevents the engine from cueing a track from its very first bar,
- *      which sounds abrupt on a real dance floor — a DJ would always start the
- *      incoming track a good distance into the intro.
+ *
+ * ── IMPORTANT: No first-beat guard applied here ───────────────────────────────
+ *
+ * Previous versions of this class contained a hardcoded "first-beat guard"
+ * (FIRST_BEAT_MIN_OFFSET_MS = 15 000 ms) that phase-advanced firstBeatMs to
+ * a minimum position. That guard has been REMOVED and is now applied at
+ * runtime by CrossfadeEngine.applyFirstBeatGuard() using the user-configurable
+ * cue-point setting (0–30 s, default 15 s).
+ *
+ * WHY the guard was moved:
+ *   • Baking the guard into the cached value meant changing the cue-point
+ *     setting required wiping the BPM cache and re-analysing all tracks.
+ *   • Applying it dynamically in the engine makes the setting take effect
+ *     immediately with zero re-analysis cost.
+ *
+ * CONSEQUENCE for cache consumers:
+ *   The [BpmAnalysisResult.firstBeatMs] returned by this class — and therefore
+ *   [BpmCacheEntity.firstBeatMs] / [BpmInfo.firstBeatMs] — is now the RAW
+ *   aubio beat-0 position (after beat-snap and onset-offset, but WITHOUT any
+ *   minimum-offset guard). Do NOT pass it directly to ExoPlayer.seekTo().
+ *   Always go through CrossfadeEngine which applies the user's cue-point guard.
+ *
+ * DB version note:
+ *   The cache was wiped at DB version 11 so that any pre-existing entries
+ *   (which stored the old 15-second-guarded value) are re-analysed and the
+ *   raw value is stored correctly going forward.
  */
 @Singleton
 class BpmAnalyzer @Inject constructor(
@@ -68,10 +84,8 @@ class BpmAnalyzer @Inject constructor(
 
         /**
          * Extended analysis window used when a late onset is detected.
-         * 150s covers intros up to ~2.5 minutes (e.g. YouTube rips with
+         * 150 s covers intros up to ~2.5 minutes (e.g. YouTube rips with
          * acting/dialogue before the song begins).
-         * Only triggered when onset > [LATE_ONSET_THRESHOLD] × decoded window,
-         * so normal tracks are not affected.
          */
         private const val EXTENDED_ANALYSIS_DURATION_MS = 150_000L
 
@@ -99,38 +113,22 @@ class BpmAnalyzer @Inject constructor(
 
         /**
          * Energy-rise ratio for onset validation.
-         *
-         * A candidate onset window must have RMS ≥ this multiple of the RMS
-         * measured 200ms earlier (4 windows back). This single check is highly
-         * effective at rejecting sustained speech and ambient sound, which have
-         * relatively flat energy profiles, while accepting real musical onsets
-         * (drum hits, bass drops) that arrive with a sharp energy increase.
-         *
-         * A value of 1.20 means "energy must have grown by at least 20% in the
-         * 200ms leading up to the onset". This is deliberately conservative to
-         * avoid rejecting gradual music fade-ins.
+         * The candidate window's RMS must be ≥ this multiple of the RMS 200 ms
+         * earlier (4 windows back). Rejects sustained speech (flat energy profile)
+         * while accepting real musical onsets (sharp energy increase).
          */
         private const val ONSET_RISE_RATIO = 1.20f
 
         /**
          * If the onset is detected this far into the decoded window (as a fraction
          * of total decoded bytes), trigger a re-decode with the extended window.
-         *
-         * 0.72 = onset in the last 28% of decoded audio → likely a long intro
-         * that has pushed the real music toward or beyond the analysis boundary.
-         * Example: 90s window × 0.72 = onset after 64.8s. Anything later than
-         * that warrants an extended re-analysis.
+         * 0.72 = onset in the last 28% → likely a long intro near the boundary.
          */
         private const val LATE_ONSET_THRESHOLD = 0.72f
 
         /**
          * Minimum aubio confidence score required to trust the firstBeatMs cue.
-         *
-         * aubio returns a confidence value in [0, 1]. Below 0.30, the beat
-         * tracker likely converged on noise, speech, or very sparse transients
-         * rather than a real rhythmic pulse. In that case we keep the BPM estimate
-         * (still useful for queue ordering) but zero out firstBeatMs so playback
-         * starts from position 0 rather than an unreliable cue point.
+         * Below 0.30 we keep the BPM but zero out firstBeatMs.
          */
         private const val CONFIDENCE_THRESHOLD = 0.30f
 
@@ -139,49 +137,39 @@ class BpmAnalyzer @Inject constructor(
         /** Window width used by [snapToNearestOnset] to measure local RMS. */
         private const val SNAP_WINDOW_MS = 20L
 
-        /**
-         * Step size for the ±½-beat search in [snapToNearestOnset].
-         */
+        /** Step size for the ±½-beat search in [snapToNearestOnset]. */
         private const val SNAP_STEP_MS = 10L
 
         /**
          * If the candidate frame's RMS is below this fraction of the local
-         * maximum, we consider it a gap and snap to the loudest nearby frame.
+         * maximum, snap to the loudest nearby frame.
          */
         private const val SNAP_SILENCE_RATIO = 0.30f
 
-        // ── First-beat guard (Issue #1 fix) ───────────────────────────────────
-
-        /**
-         * Minimum position (ms) for the first-beat cue point returned by
-         * [analyzeBpm].
-         *
-         * aubio's beat tracker converges quickly and often extrapolates beat-0
-         * to the very first seconds of a track. While technically correct, a
-         * real DJ would never cue an incoming track from bar 1 — they want a
-         * position well into the intro so the listener hears the track "arriving"
-         * naturally rather than being slammed in from the top.
-         *
-         * If the computed [firstBeatMs] is earlier than this threshold it is
-         * phase-advanced by whole beat intervals until it clears the window.
-         * Because the beat grid is periodic (beat at T ≡ beat at T + N×interval),
-         * advancing by N intervals preserves phase alignment exactly — the
-         * CrossfadeEngine's phase-seek and beat-snap logic remains correct.
-         *
-         * 20 000 ms (20 s) gives the outgoing track room to breathe before the
-         * incoming track's first audible bar is cued, which matches typical
-         * professional DJ practice for long intros.
-         *
-         * NOTE: This guard is applied only when confidence is high enough to
-         * trust firstBeatMs (see [CONFIDENCE_THRESHOLD]). Low-confidence results
-         * already fall back to firstBeatMs = 0 and are unaffected.
-         */
-//        private const val FIRST_BEAT_MIN_OFFSET_MS = 20_000L
-        private const val FIRST_BEAT_MIN_OFFSET_MS = 15_000L
+        // ── REMOVED: FIRST_BEAT_MIN_OFFSET_MS ─────────────────────────────────
+        //
+        // The hardcoded first-beat guard (formerly 15 000 ms / 20 000 ms) has
+        // been removed from this class. It now lives in CrossfadeEngine as the
+        // user-configurable cue-point offset (default 15 s, range 0–30 s).
+        //
+        // If you need to enforce a minimum firstBeatMs position anywhere in this
+        // codebase, call CrossfadeEngine.applyFirstBeatGuard() — do NOT add
+        // a new hardcoded constant here.
+        // ─────────────────────────────────────────────────────────────────────
     }
 
     data class BpmAnalysisResult(
         val bpm: Float,
+        /**
+         * RAW beat-0 position in full-track milliseconds.
+         *
+         * This is the raw aubio result after beat-snap and onset-offset mapping.
+         * No minimum-offset guard has been applied. The guard is applied at runtime
+         * by CrossfadeEngine using the user's cue-point setting.
+         *
+         * Junior developers: do NOT use this value directly as a seek position.
+         * Always let CrossfadeEngine apply the guard first.
+         */
         val firstBeatMs: Long,
         val amplitude: Float,
         val waveformEnvelope: FloatArray = FloatArray(0)
@@ -206,10 +194,6 @@ class BpmAnalyzer @Inject constructor(
             val monoBytes = if (channelCount > 1) mixToMono(pcmBytes, channelCount) else pcmBytes
 
             // ── Steps 2 & 3: Amplitude + envelope from FULL initial PCM ─────────
-            // These are computed BEFORE onset trimming and BEFORE any extended
-            // re-decode. They represent the first MAX_ANALYSIS_DURATION_MS of the
-            // track, which is the most musically dense portion and the correct
-            // source for the waveform visualiser and auto-gain.
             val amplitude        = calculateKWeightedAmplitude(monoBytes, sampleRate)
             val waveformEnvelope = computeWaveformEnvelope(monoBytes)
 
@@ -217,14 +201,6 @@ class BpmAnalyzer @Inject constructor(
             var onsetSkipBytes = detectOnsetOffset(monoBytes, sampleRate)
 
             // ── Step 5: Late-onset check → extended re-decode if needed ──────────
-            //
-            // If the onset is in the last LATE_ONSET_THRESHOLD fraction of the
-            // decoded audio, the real music likely starts close to or beyond the
-            // 90-second boundary. Re-decode with an extended window and re-run
-            // onset detection on the longer PCM.
-            //
-            // The amplitude and waveformEnvelope are deliberately NOT recomputed
-            // from the extended decode — the initial window is fine for those.
             val analysisMonoBytes: ByteArray = run {
                 val isLateOnset = onsetSkipBytes > 0 &&
                         (onsetSkipBytes.toFloat() / monoBytes.size) >= LATE_ONSET_THRESHOLD
@@ -243,8 +219,7 @@ class BpmAnalyzer @Inject constructor(
                         val extMono = if (extChannelCount > 1) mixToMono(extPcm, extChannelCount) else extPcm
                         val extOnset = detectOnsetOffset(extMono, sampleRate)
                         val extOnsetMs = if (extOnset > 0) extOnset.toLong() / 2L * 1000L / sampleRate else 0L
-                        Log.d(TAG, "Extended decode onset at ~${extOnsetMs}ms " +
-                                "(was ~${onsetMs}ms in 90s window)")
+                        Log.d(TAG, "Extended decode onset at ~${extOnsetMs}ms (was ~${onsetMs}ms in 90s window)")
                         onsetSkipBytes = extOnset
                         extMono
                     } else {
@@ -293,12 +268,6 @@ class BpmAnalyzer @Inject constructor(
             val confidence = nativeResult[2]
 
             // ── Step 9: Confidence gating ─────────────────────────────────────────
-            //
-            // A low confidence score means aubio couldn't find a clear rhythmic
-            // pulse — this happens on speech, ambient sound, or very sparse music.
-            // We keep the BPM (still useful for rough queue ordering) but zero out
-            // firstBeatMs so the track plays from the start rather than an
-            // unreliable cue point deep inside intro speech.
             val isConfident = confidence >= CONFIDENCE_THRESHOLD
             if (!isConfident) {
                 Log.w(TAG,
@@ -322,40 +291,15 @@ class BpmAnalyzer @Inject constructor(
             }
 
             // ── Step 11: Map back to full-track time ──────────────────────────────
+            //
+            // This is the RAW firstBeatMs — no minimum-offset guard is applied.
+            // The guard (user-configurable cue point: 0–30 s) is applied at
+            // runtime by CrossfadeEngine.applyFirstBeatGuard() so that changing
+            // the setting in the UI takes effect immediately without re-analysis.
             val firstBeatMs = if (isConfident) {
                 snappedRelativeMs + (effectiveSkipSeconds * 1000f).toLong()
             } else {
                 0L
-            }
-
-            // ── Step 12: First-beat guard (Issue #1 fix) ──────────────────────────
-            //
-            // aubio frequently extrapolates beat-0 to the first few seconds of the
-            // track. That is arithmetically correct (the beat grid IS periodic from
-            // bar 1), but cueing an incoming track from second 3 sounds abrupt — a
-            // real DJ always starts well into the intro.
-            //
-            // Fix: if firstBeatMs < FIRST_BEAT_MIN_OFFSET_MS (20 s), advance it
-            // by whole beat intervals until it clears the window. Adding N × interval
-            // is equivalent to choosing beat N on the same grid — phase alignment is
-            // preserved exactly, so the CrossfadeEngine's phase-seek and beat-snap
-            // logic continues to work without any other changes.
-            //
-            // The guard is skipped when:
-            //   • isConfident is false → firstBeatMs is already 0 (track plays from start).
-            //   • firstBeatMs is 0 → same as above (low-confidence fallback).
-            //   • firstBeatMs >= FIRST_BEAT_MIN_OFFSET_MS → already past the window.
-            val guardedFirstBeatMs: Long = if (isConfident && firstBeatMs in 1L until FIRST_BEAT_MIN_OFFSET_MS && bpm > 0f) {
-                val beatIntervalMs = (60_000.0 / bpm).toLong().coerceAtLeast(1L)
-                var adjusted = firstBeatMs
-                while (adjusted < FIRST_BEAT_MIN_OFFSET_MS) adjusted += beatIntervalMs
-                Log.d(TAG,
-                    "First-beat guard: ${firstBeatMs}ms → ${adjusted}ms " +
-                            "(threshold=${FIRST_BEAT_MIN_OFFSET_MS}ms, interval=${beatIntervalMs}ms)"
-                )
-                adjusted
-            } else {
-                firstBeatMs
             }
 
             Log.d(TAG,
@@ -363,8 +307,7 @@ class BpmAnalyzer @Inject constructor(
                         "beat0_native=${beat0Ms}ms " +
                         "beat0_snapped=${snappedRelativeMs}ms " +
                         "skipOffset=${(effectiveSkipSeconds * 1000f).toInt()}ms " +
-                        "firstBeat_track=${firstBeatMs}ms " +
-                        "firstBeat_guarded=${guardedFirstBeatMs}ms " +
+                        "firstBeat_raw=${firstBeatMs}ms [NO GUARD — guard applied in engine] " +
                         "confidence=${String.format("%.3f", confidence)} " +
                         "(${if (isConfident) "trusted" else "LOW — cue zeroed"}) " +
                         "kRms=${String.format("%.4f", amplitude)}"
@@ -372,7 +315,7 @@ class BpmAnalyzer @Inject constructor(
 
             BpmAnalysisResult(
                 bpm              = bpm,
-                firstBeatMs      = guardedFirstBeatMs,
+                firstBeatMs      = firstBeatMs, // raw — guard applied later by CrossfadeEngine
                 amplitude        = amplitude,
                 waveformEnvelope = waveformEnvelope
             )
@@ -397,12 +340,10 @@ class BpmAnalyzer @Inject constructor(
      *  3. Scan forward. The first window whose RMS ≥ [ONSET_ENERGY_THRESHOLD] × peak,
      *     sustained for [ONSET_SUSTAIN_WINDOWS] consecutive windows (250 ms), is
      *     a candidate onset.
-     *  4. ENERGY RISE CHECK (new): the candidate window's RMS must be ≥
-     *     [ONSET_RISE_RATIO] × the RMS 200ms earlier (4 windows back). This
-     *     rejects sustained speech/ambient that crosses the threshold without any
-     *     sharp energy increase.
-     *  5. Return the byte offset of the window ONE before the validated onset (to
-     *     preserve the attack transient). If no onset is found, return 0.
+     *  4. ENERGY RISE CHECK: the candidate window's RMS must be ≥
+     *     [ONSET_RISE_RATIO] × the RMS 200 ms earlier (4 windows back).
+     *  5. Return the byte offset of the window ONE before the validated onset.
+     *     If no onset is found, return 0.
      *
      * @param monoBytes  16-bit little-endian mono PCM.
      * @param sampleRate Sample rate of [monoBytes].
@@ -411,7 +352,7 @@ class BpmAnalyzer @Inject constructor(
     private fun detectOnsetOffset(monoBytes: ByteArray, sampleRate: Int): Int {
         val windowSamples = (sampleRate * ONSET_WINDOW_SEC).toInt()
         val windowBytes   = windowSamples * 2
-        val minTotalBytes = windowBytes * (ONSET_SUSTAIN_WINDOWS + 6) // +6 for rise lookback
+        val minTotalBytes = windowBytes * (ONSET_SUSTAIN_WINDOWS + 6)
 
         if (monoBytes.size < minTotalBytes) {
             Log.d(TAG, "detectOnsetOffset: track too short for onset scan — returning 0")
@@ -421,7 +362,6 @@ class BpmAnalyzer @Inject constructor(
         val numWindows = monoBytes.size / windowBytes
         val rms        = FloatArray(numWindows)
 
-        // ── Pass 1: compute per-window RMS ──────────────────────────────────
         for (w in 0 until numWindows) {
             val offset = w * windowBytes
             val bbuf   = ByteBuffer.wrap(monoBytes, offset, windowBytes)
@@ -444,22 +384,6 @@ class BpmAnalyzer @Inject constructor(
                     "windows=$numWindows (${(numWindows * ONSET_WINDOW_SEC * 1000).toLong()}ms)"
         )
 
-        // ── Pass 2: find first sustained, energy-rising threshold crossing ───
-        //
-        // For each window w, we check:
-        //   a) The next ONSET_SUSTAIN_WINDOWS windows are all above threshold.
-        //   b) Energy at w is ≥ ONSET_RISE_RATIO × energy 4 windows earlier.
-        //      (4 windows × 50ms = 200ms lookback)
-        //
-        // Check (b) rejects sustained speech/ambient:
-        //   • A speech sentence that happens to be loud will be at a steady
-        //     RMS level. w and w-4 will have similar RMS → ratio ≈ 1.0 → rejected.
-        //   • A real drum hit or bass drop has a sharp attack. RMS at w will be
-        //     significantly higher than RMS 200ms earlier → ratio > 1.20 → accepted.
-        //
-        // Edge case: w < 4 (very start of track). In that case, we skip the rise
-        // check because there is no prior context — if the track truly starts with
-        // music on the first beat, that is valid.
         val scanLimit = numWindows - ONSET_SUSTAIN_WINDOWS
         for (w in 0 until scanLimit) {
             val allAbove = (0 until ONSET_SUSTAIN_WINDOWS).all { offset ->
@@ -467,17 +391,14 @@ class BpmAnalyzer @Inject constructor(
             }
 
             if (allAbove) {
-                // Energy rise validation
-                val lookbackWindow = 4 // 4 × 50ms = 200ms
+                val lookbackWindow = 4
                 val isEnergyRising = if (w < lookbackWindow) {
-                    // No prior context — accept onset at track start without rise check
                     true
                 } else {
                     rms[w] >= rms[w - lookbackWindow] * ONSET_RISE_RATIO
                 }
 
                 if (!isEnergyRising) {
-                    // Log at first rejection to aid debugging
                     Log.d(TAG,
                         "detectOnsetOffset: candidate at window $w " +
                                 "(${(w * ONSET_WINDOW_SEC * 1000).toInt()}ms) rejected — " +
@@ -488,7 +409,6 @@ class BpmAnalyzer @Inject constructor(
                     continue
                 }
 
-                // Back up one window to preserve the attack transient
                 val onsetWindow     = maxOf(0, w - 1)
                 val onsetByteOffset = onsetWindow * windowBytes
 
@@ -510,10 +430,6 @@ class BpmAnalyzer @Inject constructor(
     // BEAT-SNAP PASS
     // ═════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Validates [candidateMs] against local PCM energy and snaps it to the
-     * nearest real onset if the candidate position falls in a transient gap.
-     */
     private fun snapToNearestOnset(
         candidateMs: Long,
         halfBeatMs:  Long,
@@ -683,15 +599,6 @@ class BpmAnalyzer @Inject constructor(
     // PCM DECODING
     // ═════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Decodes PCM from [uri] up to [maxDurationMs] milliseconds.
-     *
-     * The [maxDurationMs] parameter defaults to [MAX_ANALYSIS_DURATION_MS] (90s)
-     * for normal analysis, but can be set to [EXTENDED_ANALYSIS_DURATION_MS]
-     * (150s) for the late-onset re-decode pass.
-     *
-     * @return Triple(pcmBytes, sampleRate, channelCount) or null on failure.
-     */
     private fun decodeToPcm(
         uri: Uri,
         maxDurationMs: Long = MAX_ANALYSIS_DURATION_MS
