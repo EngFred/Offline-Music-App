@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- This is a simple placeholder. Ideally, you'd use your actual app icon's foreground. -->
-    <!-- Or a custom Animated Vector Drawable for a more dynamic splash. -->
     <item android:drawable="@mipmap/ic_launcher_foreground" />
 </layer-list>

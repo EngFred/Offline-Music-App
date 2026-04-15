@@ -36,43 +36,34 @@ class SettingsRepositoryImpl @Inject constructor(
 ) : SettingsRepository {
 
     companion object {
-        private val SELECTED_THEME                = stringPreferencesKey("selected_theme")
-        private val SELECTED_PLAYER_LAYOUT        = stringPreferencesKey("selected_player_layout")
-        private val PLAYLIST_LAYOUT_TYPE          = stringPreferencesKey("playlist_layout_type")
-        private val PLAYLIST_SORT_OPTION          = stringPreferencesKey("playlist_sort_option")
-        private val SELECTED_FILTER_OPTION        = stringPreferencesKey("selected_filter_option")
-        private val REPEAT_MODE                   = stringPreferencesKey("repeat_mode")
-        private val SELECTED_AUDIO_PRESET         = stringPreferencesKey("selected_audio_preset")
-        private val SELECT_WIDGET_BACKGROUND_MODE = stringPreferencesKey("widget_background_mode")
-        private val AUDIO_FILE_TYPE_FILTER        = stringPreferencesKey("audio_file_type_filter")
+        private val SELECTED_THEME                    = stringPreferencesKey("selected_theme")
+        private val SELECTED_PLAYER_LAYOUT            = stringPreferencesKey("selected_player_layout")
+        private val PLAYLIST_LAYOUT_TYPE              = stringPreferencesKey("playlist_layout_type")
+        private val PLAYLIST_SORT_OPTION              = stringPreferencesKey("playlist_sort_option")
+        private val SELECTED_FILTER_OPTION            = stringPreferencesKey("selected_filter_option")
+        private val REPEAT_MODE                       = stringPreferencesKey("repeat_mode")
+        private val SELECTED_AUDIO_PRESET             = stringPreferencesKey("selected_audio_preset")
+        private val SELECT_WIDGET_BACKGROUND_MODE     = stringPreferencesKey("widget_background_mode")
+        private val AUDIO_FILE_TYPE_FILTER            = stringPreferencesKey("audio_file_type_filter")
 
-        private val LAST_PLAYED_AUDIO_ID          = longPreferencesKey("last_played_audio_id")
-        private val LAST_POSITION_MS              = longPreferencesKey("last_position_ms")
-        private val LAST_QUEUE_IDS                = stringPreferencesKey("last_queue_ids")
+        private val LAST_PLAYED_AUDIO_ID              = longPreferencesKey("last_played_audio_id")
+        private val LAST_POSITION_MS                  = longPreferencesKey("last_position_ms")
+        private val LAST_QUEUE_IDS                    = stringPreferencesKey("last_queue_ids")
 
-        private val LAST_SCAN_TIMESTAMP           = longPreferencesKey("last_scan_timestamp")
+        private val LAST_SCAN_TIMESTAMP               = longPreferencesKey("last_scan_timestamp")
+
+        // ── Mix of the Day ────────────────────────────────────────────────────
+        private val MIX_OF_THE_DAY_FILTER_BY_DURATION = booleanPreferencesKey("mix_of_the_day_filter_by_duration")
 
         // ── DJ Mix ────────────────────────────────────────────────────────────
         private val DJ_REAL_MIX_MODE       = booleanPreferencesKey("dj_real_mix_mode")
         private val DJ_AUTO_SAMPLER        = booleanPreferencesKey("dj_auto_sampler")
         private val DJ_SAMPLE_VOLUME       = floatPreferencesKey("dj_sample_volume")
-
-        /**
-         * Persisted key for the user's cue-point offset preference (seconds).
-         *
-         * Default: 15 s — matches the former hardcoded FIRST_BEAT_MIN_OFFSET_MS
-         * constant that was removed from BpmAnalyzer in DB version 11.
-         *
-         * The guard is no longer baked into the cached firstBeatMs. It is applied
-         * dynamically at runtime by CrossfadeEngine.applyFirstBeatGuard() using
-         * this value, so changing the preference takes effect immediately without
-         * requiring track re-analysis.
-         */
         private val DJ_CUE_POINT_OFFSET_SEC = intPreferencesKey("dj_cue_point_offset_sec")
 
-        private val LAST_MIX_OF_THE_DAY_TIMESTAMP = longPreferencesKey("last_mix_of_the_day_timestamp")
-        private val DJ_MIX_PLAYLIST_FILTER = stringPreferencesKey("dj_mix_playlist_filter")
-        private val LAST_UPDATE_CHECK_TIMESTAMP = longPreferencesKey("last_update_check_timestamp")
+        private val LAST_MIX_OF_THE_DAY_TIMESTAMP     = longPreferencesKey("last_mix_of_the_day_timestamp")
+        private val DJ_MIX_PLAYLIST_FILTER            = stringPreferencesKey("dj_mix_playlist_filter")
+        private val LAST_UPDATE_CHECK_TIMESTAMP        = longPreferencesKey("last_update_check_timestamp")
     }
 
     override fun getAppSettings(): Flow<AppSettings> {
@@ -106,26 +97,24 @@ class SettingsRepositoryImpl @Inject constructor(
                         preferences[PLAYLIST_SORT_OPTION] ?: PlaylistSortOption.DATE_CREATED_ASC.name
                     )
                 } catch (_: Exception) { PlaylistSortOption.DATE_CREATED_ASC }
-
                 val widgetMode = preferences[SELECT_WIDGET_BACKGROUND_MODE]?.let {
                     try { WidgetBackgroundMode.valueOf(it) } catch (_: Exception) { WidgetBackgroundMode.STATIC }
                 } ?: WidgetBackgroundMode.STATIC
 
                 AppSettings(
-                    selectedTheme        = selectedTheme,
-                    selectedPlayerLayout = selectedPlayerLayout,
-                    playlistLayoutType   = playlistLayoutType,
-                    playlistSortOption   = playlistSortOption,
-                    repeatMode           = repeatMode,
-                    audioPreset          = selectedAudioPreset,
-                    widgetBackgroundMode = widgetMode,
-                    djMixPlaylistFilter  = djMixFilter,
-                    isRealMixMode        = preferences[DJ_REAL_MIX_MODE] ?: true,
-                    autoSamplerEnabled   = preferences[DJ_AUTO_SAMPLER] ?: true,
-                    sampleVolume         = preferences[DJ_SAMPLE_VOLUME] ?: 1f,
-                    // Default 15 matches the old hardcoded constant so existing users
-                    // experience no change until they explicitly update the setting.
-                    cuePointOffsetSec    = preferences[DJ_CUE_POINT_OFFSET_SEC] ?: 15,
+                    selectedTheme              = selectedTheme,
+                    selectedPlayerLayout       = selectedPlayerLayout,
+                    playlistLayoutType         = playlistLayoutType,
+                    playlistSortOption         = playlistSortOption,
+                    repeatMode                 = repeatMode,
+                    audioPreset                = selectedAudioPreset,
+                    widgetBackgroundMode       = widgetMode,
+                    djMixPlaylistFilter        = djMixFilter,
+                    isRealMixMode              = preferences[DJ_REAL_MIX_MODE] ?: true,
+                    autoSamplerEnabled         = preferences[DJ_AUTO_SAMPLER] ?: true,
+                    sampleVolume               = preferences[DJ_SAMPLE_VOLUME] ?: 1f,
+                    cuePointOffsetSec          = preferences[DJ_CUE_POINT_OFFSET_SEC] ?: 15,
+                    mixOfTheDayFilterByDuration = preferences[MIX_OF_THE_DAY_FILTER_BY_DURATION] ?: false,
                 )
             }
     }
@@ -223,6 +212,10 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun updateWidgetBackgroundMode(mode: WidgetBackgroundMode) {
         dataStore.edit { it[SELECT_WIDGET_BACKGROUND_MODE] = mode.name }
+    }
+
+    override suspend fun updateMixOfTheDayFilterByDuration(enabled: Boolean) {
+        dataStore.edit { it[MIX_OF_THE_DAY_FILTER_BY_DURATION] = enabled }
     }
 
     override suspend fun getLastScanTimestamp(): Long {

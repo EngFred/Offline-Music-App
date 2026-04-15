@@ -10,6 +10,7 @@ import com.engfred.musicplayer.feature_settings.domain.usecases.GetAppSettingsUs
 import com.engfred.musicplayer.feature_settings.domain.usecases.GetAudioFileTypeFilterUseCase
 import com.engfred.musicplayer.feature_settings.domain.usecases.UpdateAudioFileTypeFilterUseCase
 import com.engfred.musicplayer.feature_settings.domain.usecases.UpdateAudioPresetUseCase
+import com.engfred.musicplayer.feature_settings.domain.usecases.UpdateMixOfTheDayFilterByDurationUseCase
 import com.engfred.musicplayer.feature_settings.domain.usecases.UpdatePlayerLayoutUseCase
 import com.engfred.musicplayer.feature_settings.domain.usecases.UpdatePlaylistLayoutUseCase
 import com.engfred.musicplayer.feature_settings.domain.usecases.UpdateThemeUseCase
@@ -35,6 +36,7 @@ class SettingsViewModel @Inject constructor(
     private val updateAudioPresetUseCase: UpdateAudioPresetUseCase,
     private val updateAudioFileTypeFilterUseCase: UpdateAudioFileTypeFilterUseCase,
     private val updateWidgetBackgroundModeUseCase: UpdateWidgetBackgroundModeUseCase,
+    private val updateMixOfTheDayFilterByDurationUseCase: UpdateMixOfTheDayFilterByDurationUseCase,
     private val checkForUpdateUseCase: CheckForUpdateUseCase,
     @Named("versionName") private val versionName: String
 ) : ViewModel() {
@@ -43,32 +45,30 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsScreenState> = _uiState.asStateFlow()
 
     init {
-        // Observe app settings from the repository via the use case
         getAppSettingsUseCase().onEach { appSettings ->
             _uiState.update {
                 it.copy(
-                    selectedTheme = appSettings.selectedTheme,
-                    selectedPlayerLayout = appSettings.selectedPlayerLayout,
-                    playlistLayoutType = appSettings.playlistLayoutType,
-                    audioPreset = appSettings.audioPreset,
-                    widgetBackgroundMode = appSettings.widgetBackgroundMode,
+                    selectedTheme               = appSettings.selectedTheme,
+                    selectedPlayerLayout        = appSettings.selectedPlayerLayout,
+                    playlistLayoutType          = appSettings.playlistLayoutType,
+                    audioPreset                 = appSettings.audioPreset,
+                    widgetBackgroundMode        = appSettings.widgetBackgroundMode,
+                    mixOfTheDayFilterByDuration = appSettings.mixOfTheDayFilterByDuration,
                 )
             }
         }.launchIn(viewModelScope)
 
         getAudioFileTypeFilterUseCase().onEach { filter ->
-            _uiState.update {
-                it.copy(audioFileTypeFilter = filter)
-            }
+            _uiState.update { it.copy(audioFileTypeFilter = filter) }
         }.launchIn(viewModelScope)
 
-        // Silently checks for updates when Settings opens
+        // Silently check for updates when Settings opens
         viewModelScope.launch {
             try {
                 val info = checkForUpdateUseCase(versionName)
                 _uiState.update { it.copy(updateInfo = info) }
             } catch (e: Exception) {
-                // Ignore silently, we don't want to show errors for background update checks
+                // Swallow — background update checks must never surface errors to the user
             }
         }
     }
@@ -81,9 +81,7 @@ class SettingsViewModel @Inject constructor(
                     try {
                         updateThemeUseCase(event.theme)
                     } catch (e: Exception) {
-                        _uiState.update {
-                            it.copy(error = "Failed to update theme: ${e.localizedMessage}")
-                        }
+                        _uiState.update { it.copy(error = "Failed to update theme: ${e.localizedMessage}") }
                     }
                 }
                 is SettingsEvent.UpdatePlayerLayout -> {
@@ -91,9 +89,7 @@ class SettingsViewModel @Inject constructor(
                     try {
                         updatePlayerLayoutUseCase(event.layout)
                     } catch (e: Exception) {
-                        _uiState.update {
-                            it.copy(error = "Failed to update player layout: ${e.localizedMessage}")
-                        }
+                        _uiState.update { it.copy(error = "Failed to update player layout: ${e.localizedMessage}") }
                     }
                 }
                 is SettingsEvent.UpdatePlaylistLayout -> {
@@ -101,9 +97,7 @@ class SettingsViewModel @Inject constructor(
                     try {
                         updatePlaylistLayoutUseCase(event.layout)
                     } catch (e: Exception) {
-                        _uiState.update {
-                            it.copy(error = "Failed to update playlist layout: ${e.localizedMessage}")
-                        }
+                        _uiState.update { it.copy(error = "Failed to update playlist layout: ${e.localizedMessage}") }
                     }
                 }
                 is SettingsEvent.UpdateAudioPreset -> {
@@ -111,9 +105,7 @@ class SettingsViewModel @Inject constructor(
                     try {
                         updateAudioPresetUseCase(event.preset)
                     } catch (e: Exception) {
-                        _uiState.update {
-                            it.copy(error = "Failed to update audio preset: ${e.localizedMessage}")
-                        }
+                        _uiState.update { it.copy(error = "Failed to update audio preset: ${e.localizedMessage}") }
                     }
                 }
                 is SettingsEvent.UpdateAudioFileTypeFilter -> {
@@ -121,9 +113,7 @@ class SettingsViewModel @Inject constructor(
                     try {
                         updateAudioFileTypeFilterUseCase(event.filter)
                     } catch (e: Exception) {
-                        _uiState.update {
-                            it.copy(error = "Failed to update audio filter: ${e.localizedMessage}")
-                        }
+                        _uiState.update { it.copy(error = "Failed to update audio filter: ${e.localizedMessage}") }
                     }
                 }
                 is SettingsEvent.UpdateWidgetBackgroundMode -> {
@@ -131,14 +121,13 @@ class SettingsViewModel @Inject constructor(
                     _uiState.update { it.copy(isLoading = true) }
                     try {
                         updateWidgetBackgroundModeUseCase(event.mode)
-                        // Notify widget provider in the app module. Use strings so we don't depend on that module.
                         try {
                             val intent = Intent().apply {
                                 component = ComponentName(
                                     appContext.packageName,
                                     "com.engfred.musicplayer.widget.PlayerWidgetProvider"
                                 )
-                                action = "com.engfred.musicplayer.ACTION_UPDATE_WIDGET"
+                                action  = "com.engfred.musicplayer.ACTION_UPDATE_WIDGET"
                                 `package` = appContext.packageName
                             }
                             appContext.sendBroadcast(intent)
@@ -146,9 +135,15 @@ class SettingsViewModel @Inject constructor(
                             Log.w("SettingsViewModel", "Failed to notify widget provider: ${bex.message}")
                         }
                     } catch (e: Exception) {
-                        _uiState.update {
-                            it.copy(error = "Failed to update widget mode: ${e.localizedMessage}")
-                        }
+                        _uiState.update { it.copy(error = "Failed to update widget mode: ${e.localizedMessage}") }
+                    }
+                }
+                is SettingsEvent.UpdateMixOfTheDayFilterByDuration -> {
+                    _uiState.update { it.copy(isLoading = true) }
+                    try {
+                        updateMixOfTheDayFilterByDurationUseCase(event.enabled)
+                    } catch (e: Exception) {
+                        _uiState.update { it.copy(error = "Failed to update Mix of the Day setting: ${e.localizedMessage}") }
                     }
                 }
             }

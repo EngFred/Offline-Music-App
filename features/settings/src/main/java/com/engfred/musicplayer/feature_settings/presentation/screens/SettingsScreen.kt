@@ -2,11 +2,9 @@ package com.engfred.musicplayer.feature_settings.presentation.screens
 
 import android.annotation.SuppressLint
 import android.content.Intent
-import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +26,7 @@ import androidx.compose.material.icons.rounded.Brush
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.Equalizer
+import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.HorizontalDivider
@@ -48,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.core.net.toUri
 import com.engfred.musicplayer.core.domain.model.AudioFileTypeFilter
 import com.engfred.musicplayer.core.domain.model.AudioPreset
 import com.engfred.musicplayer.core.domain.model.UpdateInfo
@@ -57,7 +57,6 @@ import com.engfred.musicplayer.feature_settings.presentation.components.AppVersi
 import com.engfred.musicplayer.feature_settings.presentation.components.SettingsSection
 import com.engfred.musicplayer.feature_settings.presentation.viewmodel.SettingsEvent
 import com.engfred.musicplayer.feature_settings.presentation.viewmodel.SettingsViewModel
-import androidx.core.net.toUri
 
 @Composable
 fun SettingsScreen(
@@ -151,6 +150,16 @@ fun SettingsScreen(
                     }
                 )
 
+                FlatToggleRow(
+                    title = "Mix of the Day — Short Tracks Only",
+                    subtitle = "Limit daily mixes to tracks under 5 minutes for tighter, faster-paced sets.",
+                    icon = Icons.Rounded.HourglassTop,
+                    isChecked = uiState.mixOfTheDayFilterByDuration,
+                    onCheckedChange = { isChecked ->
+                        viewModel.onEvent(SettingsEvent.UpdateMixOfTheDayFilterByDuration(isChecked))
+                    }
+                )
+
                 SettingsActionRow(
                     title = "Find Duplicates",
                     subtitle = "Free up space by safely removing identical audio files.",
@@ -177,7 +186,6 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.weight(1f, fill = false).height(32.dp))
 
-            // App Version
             Box(modifier = Modifier.padding(horizontal = 24.dp)) {
                 AppVersionSection(
                     copyrightText = "© 2026 Engineer Fred",
@@ -211,9 +219,7 @@ private fun UpdateAvailableBanner(
                 modifier = Modifier.size(28.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
-
             Spacer(Modifier.width(16.dp))
-
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Update Available",
@@ -227,9 +233,7 @@ private fun UpdateAvailableBanner(
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                 )
             }
-
             Spacer(Modifier.width(16.dp))
-
             Icon(
                 imageVector = Icons.Rounded.ChevronRight,
                 contentDescription = "Download",
@@ -260,9 +264,7 @@ private fun FlatToggleRow(
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(24.dp)
         )
-
         Spacer(modifier = Modifier.width(16.dp))
-
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
@@ -278,9 +280,7 @@ private fun FlatToggleRow(
                 lineHeight = 18.sp
             )
         }
-
         Spacer(modifier = Modifier.width(16.dp))
-
         Switch(
             checked = isChecked,
             onCheckedChange = onCheckedChange
@@ -308,9 +308,7 @@ private fun SettingsActionRow(
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(24.dp)
         )
-
         Spacer(modifier = Modifier.width(16.dp))
-
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
@@ -326,9 +324,7 @@ private fun SettingsActionRow(
                 lineHeight = 18.sp
             )
         }
-
         Spacer(modifier = Modifier.width(16.dp))
-
         Icon(
             imageVector = Icons.Rounded.ChevronRight,
             contentDescription = "Navigate",

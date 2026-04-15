@@ -17,6 +17,14 @@ data class AppSettings(
     val audioPreset: AudioPreset = AudioPreset.NONE,
     val widgetBackgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.STATIC,
 
+    // ── Mix of the Day ─────────────────────────────────────────────────────────
+    /**
+     * When true, only tracks whose duration is ≤ [MIX_OF_THE_DAY_MAX_DURATION_MS]
+     * are eligible for the daily mix. Disabled by default so the mix draws
+     * from the full library until the user opts in.
+     */
+    val mixOfTheDayFilterByDuration: Boolean = false,
+
     // ── DJ Mix settings ────────────────────────────────────────────────────────
     val crossfadeDurationSec: Int     = 5,
     val bpmTolerance: Float           = 10f,
@@ -39,15 +47,6 @@ data class AppSettings(
      *
      * Allowed values: see [CUE_POINT_OPTIONS_SEC] in MixStudioSettings.
      * Default: 15 s (matches the previous hardcoded default).
-     *
-     * Mix-timing implication:
-     *   The halfway-mix trigger formula is:  triggerMs = duration/2 + guardedFirstBeatMs
-     *   Because guardedFirstBeatMs ≈ cuePointOffsetSec × 1000, a larger cue point
-     *   pushes the mix trigger later — giving the outgoing track more room to breathe
-     *   and compensating for the unheard intro of the incoming track.
-     *
-     *   Example — 3-minute track, cue = 20 s:
-     *     triggerMs = 90 000 + 20 000 = 110 000 ms (1:50), not 1:30.
      */
     val cuePointOffsetSec: Int        = 15,
 
@@ -57,4 +56,9 @@ data class AppSettings(
     // ── Sampler settings ───────────────────────────────────────────────────────
     val autoSamplerEnabled: Boolean   = true,
     val sampleVolume: Float           = 1.0f,
-)
+) {
+    companion object {
+        /** 5 minutes in milliseconds — the hard cap applied when [mixOfTheDayFilterByDuration] is true. */
+        const val MIX_OF_THE_DAY_MAX_DURATION_MS: Long = 5 * 60 * 1_000L
+    }
+}

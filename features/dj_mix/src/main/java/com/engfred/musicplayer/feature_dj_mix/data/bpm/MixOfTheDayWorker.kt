@@ -17,6 +17,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.engfred.musicplayer.core.domain.model.AppSettings
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.model.AutomaticPlaylistType
 import com.engfred.musicplayer.core.domain.model.Playlist
@@ -36,6 +37,10 @@ import kotlin.math.min
  * Periodic worker (24 h) that builds a BPM-aware Mix of the Day from the user's library
  * and persists it atomically to Room under the reserved ID
  * [AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID].
+ *
+ * When the user enables "Short Tracks Only" in Settings, any track whose duration
+ * exceeds [AppSettings.MIX_OF_THE_DAY_MAX_DURATION_MS] (5 minutes) is excluded
+ * from the candidate pool before BPM scoring begins.
  */
 @HiltWorker
 class MixOfTheDayWorker @AssistedInject constructor(
@@ -52,8 +57,6 @@ class MixOfTheDayWorker @AssistedInject constructor(
         private const val TAG = "MixOfTheDayWorker"
         const val WORK_NAME = "mix_of_the_day"
         private const val MAX_TRACKS = 35
-
-        // Reuses the notification channel created in MusicPlayerApplication.onCreate().
         private const val CHANNEL_ID = "new_music_channel"
         private const val NOTIFICATION_ID = 1002
 
@@ -94,6 +97,8 @@ class MixOfTheDayWorker @AssistedInject constructor(
             return Result.failure()
         }
 
+        val settings = settingsRepository.getAppSettings().first()
+
         val allFiles = libraryRepository.getAllAudioFiles().first()
         if (allFiles.isEmpty()) {
             Log.d(TAG, "No audio files found — skipping")
@@ -104,11 +109,27 @@ class MixOfTheDayWorker @AssistedInject constructor(
             .filter { !it.analysisFailed && it.bpm > 0f }
             .associate { it.audioFileId to it.bpm }
 
-        val eligibleFiles = allFiles.filter { validBpmMap.containsKey(it.id) }
-        Log.d(TAG, "${eligibleFiles.size} / ${allFiles.size} files have valid BPM data")
+        // ── Duration guard ────────────────────────────────────────────────────
+        // Applied before BPM scoring so the mix algorithm never even sees
+        // long tracks when the user has opted into the short-tracks filter.
+        val durationFiltered = if (settings.mixOfTheDayFilterByDuration) {
+            allFiles.filter { it.duration <= AppSettings.MIX_OF_THE_DAY_MAX_DURATION_MS }
+                .also { filtered ->
+                    Log.d(
+                        TAG,
+                        "Duration filter active: ${filtered.size} / ${allFiles.size} tracks " +
+                                "are ≤ ${AppSettings.MIX_OF_THE_DAY_MAX_DURATION_MS / 1_000}s"
+                    )
+                }
+        } else {
+            allFiles
+        }
+
+        val eligibleFiles = durationFiltered.filter { validBpmMap.containsKey(it.id) }
+        Log.d(TAG, "${eligibleFiles.size} / ${durationFiltered.size} duration-eligible files have valid BPM data")
 
         if (eligibleFiles.isEmpty()) {
-            Log.d(TAG, "No BPM-analysed files yet — mix skipped until next run")
+            Log.d(TAG, "No BPM-analysed files in the eligible pool — mix skipped until next run")
             return Result.success()
         }
 
@@ -119,14 +140,13 @@ class MixOfTheDayWorker @AssistedInject constructor(
         }
 
         val mixPlaylist = Playlist(
-            id = AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID,
-            name = "Mix of the Day",
+            id        = AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID,
+            name      = "Mix of the Day",
             isAutomatic = true,
-            type = AutomaticPlaylistType.MIX_OF_THE_DAY,
+            type      = AutomaticPlaylistType.MIX_OF_THE_DAY,
             createdAt = System.currentTimeMillis()
         )
         playlistRepository.replaceMixOfTheDay(mixPlaylist, mixTracks)
-
         settingsRepository.updateLastMixOfTheDayTimestamp(System.currentTimeMillis())
 
         Log.d(TAG, "Mix of the Day saved — ${mixTracks.size} tracks")
@@ -145,13 +165,10 @@ class MixOfTheDayWorker @AssistedInject constructor(
         val pool = eligible.toMutableList()
         val result = mutableListOf<AudioFile>()
 
-        // ── Daily seed: same day = same mix, different day = different mix ────────
-        // Use year + day-of-year so the mix refreshes at midnight, not at 08:00.
         val today = Calendar.getInstance()
         val daySeed = today.get(Calendar.YEAR) * 1000L + today.get(Calendar.DAY_OF_YEAR)
         val rng = java.util.Random(daySeed)
 
-        // ── Opener: random track within the 20th–40th BPM percentile ─────────────
         val sorted = pool.sortedBy { bpmMap[it.id]!! }
         val n = sorted.size
         val lowerIdx = (n * 0.20).toInt().coerceIn(0, n - 1)
@@ -168,15 +185,13 @@ class MixOfTheDayWorker @AssistedInject constructor(
 
         while (result.size < cap && pool.isNotEmpty()) {
             val lastBpm = bpmMap[result.last().id] ?: 120f
-
-            // Pick via weighted random from the top-3 scored candidates
             val next = selectWeightedTopN(
-                currentBpm          = lastBpm,
-                pool                = pool,
-                bpmMap              = bpmMap,
-                recentBpms          = recentBpms.toList(),
-                rng                 = rng,
-                topN                = 3
+                currentBpm = lastBpm,
+                pool       = pool,
+                bpmMap     = bpmMap,
+                recentBpms = recentBpms.toList(),
+                rng        = rng,
+                topN       = 3
             ) ?: pool.first()
 
             result.add(next)
@@ -192,13 +207,6 @@ class MixOfTheDayWorker @AssistedInject constructor(
         return result
     }
 
-    /**
-     * Scores all BPM-eligible candidates in [pool], takes the top [topN],
-     * then samples one proportionally to score (softmax-style).
-     *
-     * This keeps quality high (bad tracks rarely win) while ensuring every
-     * qualifying track eventually has a chance across days.
-     */
     private fun selectWeightedTopN(
         currentBpm: Float,
         pool: MutableList<AudioFile>,
@@ -212,7 +220,6 @@ class MixOfTheDayWorker @AssistedInject constructor(
         val candidates = pool
             .filter { bpmMap.containsKey(it.id) }
             .map { track ->
-                // For direct scoring we replicate the scoring inline here:
                 val bpm = bpmMap[track.id]!!
                 val harmonic = getSmartNextTrackUseCase.isHarmonicallyCompatible(currentBpm, bpm)
                 val delta = getSmartNextTrackUseCase.minimumHarmonicDelta(currentBpm, bpm)
@@ -228,7 +235,6 @@ class MixOfTheDayWorker @AssistedInject constructor(
         if (candidates.isEmpty()) return null
         if (candidates.size == 1) return candidates[0].track
 
-        // Shift scores so minimum = 1 (all weights positive), then sample
         val minScore = candidates.minOf { it.score }
         val weights = candidates.map { (it.score - minScore + 1f) }
         val total = weights.sum()

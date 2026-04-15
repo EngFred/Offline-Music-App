@@ -46,6 +46,7 @@ import com.engfred.musicplayer.helpers.IntentPermissionHelper
 import com.engfred.musicplayer.helpers.PlaybackQueueHelper
 import com.engfred.musicplayer.navigation.AppDestinations
 import com.engfred.musicplayer.navigation.AppNavHost
+import com.engfred.musicplayer.ui.CustomSplashScreen
 import com.engfred.musicplayer.update.UpdateCheckWorker
 import com.engfred.musicplayer.update.UpdateDialog
 import dagger.hilt.android.AndroidEntryPoint
@@ -200,8 +201,27 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // ── NEW: gate the full UI behind the custom splash ────────────────
+            // splashComplete is a plain remember — it does NOT need to survive
+            // process death, and we never want the splash to replay on back-stack
+            // restoration. Resetting appSettingsLoaded resets the gate naturally.
+            var splashComplete by remember { mutableStateOf(false) }
+            // ─────────────────────────────────────────────────────────────────
+
             val selectedTheme = initialAppSettings?.selectedTheme ?: AppThemeType.NEON_DARK
             MusicPlayerAppTheme(selectedTheme = selectedTheme) {
+
+                // ── NEW: show splash until CustomSplashScreen calls onSplashComplete ──
+                if (!splashComplete) {
+                    CustomSplashScreen(
+                        isReady = appSettingsLoaded,
+                        onSplashComplete = { splashComplete = true },
+                    )
+                    return@MusicPlayerAppTheme   // ← skip building the nav graph while splash is visible
+                }
+                // ──────────────────────────────────────────────────────────────
+
+                // ── Everything below is UNCHANGED from your original code ─────
                 val navController = androidx.navigation.compose.rememberNavController()
 
                 LaunchedEffect(navigateToNowPlayingOnStart) {
