@@ -137,7 +137,10 @@ class PlaybackService : MediaSessionService() {
                 setHandleAudioBecomingNoisy(true)
             }
 
-            val intent = Intent().setClassName(this, "${packageName}.MainActivity")
+            // SINGLE_TOP and CLEAR_TOP flags so it resumes the existing activity smoothly
+            val intent = Intent().setClassName(this, "${packageName}.MainActivity").apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
             val flags = PendingIntent.FLAG_UPDATE_CURRENT or
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
             val pendingIntent = PendingIntent.getActivity(this, 0, intent, flags)

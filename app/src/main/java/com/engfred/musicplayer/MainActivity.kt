@@ -59,8 +59,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
-private const val TAG = "MainActivity"
-
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
@@ -201,11 +199,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // ── NEW: gate the full UI behind the custom splash ────────────────
-            // splashComplete is a plain remember — it does NOT need to survive
-            // process death, and we never want the splash to replay on back-stack
-            // restoration. Resetting appSettingsLoaded resets the gate naturally.
-            var splashComplete by remember { mutableStateOf(false) }
+            // ── gate the full UI behind the custom splash ────────────────
+            // Initialize from our static session tracker. If the app process is
+            // alive (because music is playing), this will instantly be true!
+            var splashComplete by remember { mutableStateOf(hasShownSplashThisSession) }
             // ─────────────────────────────────────────────────────────────────
 
             val selectedTheme = initialAppSettings?.selectedTheme ?: AppThemeType.NEON_DARK
@@ -215,7 +212,10 @@ class MainActivity : ComponentActivity() {
                 if (!splashComplete) {
                     CustomSplashScreen(
                         isReady = appSettingsLoaded,
-                        onSplashComplete = { splashComplete = true },
+                        onSplashComplete = {
+                            splashComplete = true
+                            hasShownSplashThisSession = true // Mark it as shown for this session
+                        },
                     )
                     return@MusicPlayerAppTheme   // ← skip building the nav graph while splash is visible
                 }
@@ -471,10 +471,10 @@ class MainActivity : ComponentActivity() {
     /**
      * replaced the manual busy-wait loop
      *
-     *   while (System.currentTimeMillis() - start < 3_000 && !success) {
-     *       if (playbackState.currentAudioFile != null && ...) success = true
-     *       delay(200)
-     *   }
+     * while (System.currentTimeMillis() - start < 3_000 && !success) {
+     * if (playbackState.currentAudioFile != null && ...) success = true
+     * delay(200)
+     * }
      *
      * with a reactive [withTimeoutOrNull] + [Flow.first] call. The old approach
      * spun for up to 3 seconds polling a Compose state variable on the wrong
@@ -563,5 +563,11 @@ class MainActivity : ComponentActivity() {
                 retriever.release()
             }
         }
+    }
+
+    companion object {
+        private const val TAG = "MainActivity"
+        // Keeps track of the splash screen across the entire app process lifecycle
+        private var hasShownSplashThisSession = false
     }
 }

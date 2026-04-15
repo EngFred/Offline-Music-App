@@ -37,6 +37,7 @@ import com.engfred.musicplayer.feature_dj_mix.presentation.components.NowPlaying
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.SmartQueueItem
 import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.MixStudioEvent
 import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.MixStudioViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @UnstableApi
@@ -85,6 +86,21 @@ fun MixStudioScreen(
             MaterialTheme.colorScheme.background
         )
     )
+
+    // ── Auto-scroll to top when a fresh mix session starts ──
+    // We track the previous track ID to ensure we only scroll when going
+    // from "No Track" to "Playing Track", so we don't annoy the user by
+    // yanking their screen to the top on every subsequent song change.
+    var previousTrackId by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(uiState.currentTrack?.id) {
+        val newTrackId = uiState.currentTrack?.id
+        if (previousTrackId == null && newTrackId != null) {
+            // Give the LazyColumn a split-second to insert the NowPlaying component into the tree
+            delay(150)
+            lazyListState.animateScrollToItem(0)
+        }
+        previousTrackId = newTrackId
+    }
 
     if (isLandscape) {
         // ══════════════════════════════════════════════════════════════

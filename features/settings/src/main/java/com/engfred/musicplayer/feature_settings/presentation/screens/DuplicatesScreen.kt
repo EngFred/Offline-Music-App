@@ -235,8 +235,9 @@ fun DuplicateFileItem(
         Spacer(modifier = Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = audioFile.uri.lastPathSegment ?: "Unknown file name",
+                text = audioFile.title,
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
