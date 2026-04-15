@@ -39,8 +39,9 @@ import kotlin.math.min
  * and persists it atomically to Room under the reserved ID
  * [AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID].
  *
+ * Excludes interludes/skits by strictly ignoring tracks under [MIN_TRACK_DURATION_MS] (1m 30s).
  * When the user enables "Short Tracks Only" in Settings, any track whose duration
- * exceeds [AppSettings.MIX_OF_THE_DAY_MAX_DURATION_MS] (5 minutes) is excluded
+ * exceeds [AppSettings.MIX_OF_THE_DAY_MAX_DURATION_MS] (5 minutes) is also excluded
  * from the candidate pool before BPM scoring begins.
  */
 @HiltWorker
@@ -60,6 +61,9 @@ class MixOfTheDayWorker @AssistedInject constructor(
         private const val MAX_TRACKS = 35
         private const val CHANNEL_ID = "new_music_channel"
         private const val NOTIFICATION_ID = 1002
+
+        // Hard floor to prevent interludes, intros, and drops from ruining the mix.
+        private const val MIN_TRACK_DURATION_MS = 90_000L // 1 minute 30 seconds
 
         fun schedule(context: Context) {
             val now = System.currentTimeMillis()
@@ -111,19 +115,27 @@ class MixOfTheDayWorker @AssistedInject constructor(
             .associate { it.audioFileId to it.bpm }
 
         // ── Duration guard ────────────────────────────────────────────────────
-        // Applied before BPM scoring so the mix algorithm never even sees
-        // long tracks when the user has opted into the short-tracks filter.
+        // Applied before BPM scoring so the mix algorithm never sees tracks that
+        // are too short (under 1m 30s) or too long (if user opted into the filter).
+
+        val baseFilteredFiles = allFiles.filter { it.duration >= MIN_TRACK_DURATION_MS }
+
+        if (baseFilteredFiles.isEmpty()) {
+            Log.d(TAG, "No files met the minimum duration of 1m 30s — skipping")
+            return Result.success()
+        }
+
         val durationFiltered = if (settings.mixOfTheDayFilterByDuration) {
-            allFiles.filter { it.duration <= AppSettings.MIX_OF_THE_DAY_MAX_DURATION_MS }
+            baseFilteredFiles.filter { it.duration <= AppSettings.MIX_OF_THE_DAY_MAX_DURATION_MS }
                 .also { filtered ->
                     Log.d(
                         TAG,
-                        "Duration filter active: ${filtered.size} / ${allFiles.size} tracks " +
+                        "Duration filter active: ${filtered.size} / ${baseFilteredFiles.size} tracks " +
                                 "are ≤ ${AppSettings.MIX_OF_THE_DAY_MAX_DURATION_MS / 1_000}s"
                     )
                 }
         } else {
-            allFiles
+            baseFilteredFiles
         }
 
         val eligibleFiles = durationFiltered.filter { validBpmMap.containsKey(it.id) }
