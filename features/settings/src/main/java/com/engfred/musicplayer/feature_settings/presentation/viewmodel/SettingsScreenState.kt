@@ -7,6 +7,7 @@ import com.engfred.musicplayer.core.domain.model.PlayerLayout
 import com.engfred.musicplayer.core.domain.model.PlaylistLayoutType
 import com.engfred.musicplayer.core.domain.model.WidgetBackgroundMode
 import com.engfred.musicplayer.core.domain.model.FilterOption
+import com.engfred.musicplayer.core.domain.model.UpdateInfo
 
 data class SettingsScreenState(
     val selectedTheme: AppThemeType = AppThemeType.CLASSIC_BLUE,
@@ -17,5 +18,6 @@ data class SettingsScreenState(
     val widgetBackgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.STATIC,
     val isLoading: Boolean = false,
     val error: String? = null,
-    val audioFileTypeFilter: AudioFileTypeFilter = AudioFileTypeFilter.ALL
+    val audioFileTypeFilter: AudioFileTypeFilter = AudioFileTypeFilter.ALL,
+    val updateInfo: UpdateInfo? = null
 )

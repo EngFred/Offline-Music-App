@@ -26,6 +26,7 @@ import com.engfred.musicplayer.feature_player.presentation.screens.NowPlayingScr
 import com.engfred.musicplayer.feature_playlist.presentation.screens.CreatePlaylistScreen
 import com.engfred.musicplayer.feature_playlist.presentation.screens.PlaylistDetailScreen
 import com.engfred.musicplayer.feature_playlist.presentation.viewmodel.detail.PlaylistDetailArgs
+import com.engfred.musicplayer.feature_settings.presentation.screens.DuplicatesScreen
 import com.engfred.musicplayer.ui.MainScreen
 
 @UnstableApi
@@ -97,13 +98,23 @@ fun AppNavHost(
                 onOpenMixOfTheDay = { playlistId ->
                     rootNavController.navigate(AppDestinations.DjMix.createRoute(playlistId))
                 },
-                // ── DJ Mix Launcher → DJ Studio ───────────────────────────────
-                // When the user selects a playlist from the bottom-nav DJ tab,
-                // we navigate to the full DjMixScreen in the root back stack.
                 onDjMixPlaylistSelected = { playlistId ->
                     rootNavController.navigate(AppDestinations.DjMix.createRoute(playlistId))
+                },
+                onNavigateToDuplicates = {
+                    rootNavController.navigate(AppDestinations.FindDuplicates.route)
                 }
             )
+        }
+
+        composable(
+            route = AppDestinations.FindDuplicates.route,
+            enterTransition = { slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(400)) },
+            exitTransition = { slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(400)) },
+            popEnterTransition = { slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(400)) },
+            popExitTransition = { slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(400)) }
+        ) {
+            DuplicatesScreen(onNavigateUp = { rootNavController.navigateUp() })
         }
 
         composable(

@@ -11,7 +11,7 @@ import com.engfred.musicplayer.feature_dj_mix.data.local.entity.BpmCacheEntity
 
 @Database(
     entities = [BpmCacheEntity::class],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 @TypeConverters(FloatArrayTypeConverter::class)
@@ -90,6 +90,12 @@ abstract class AutoMixDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Wipe cache — entries stored the old guarded firstBeatMs value.
                 // Re-analysis will store raw firstBeatMs going forward.
+                db.execSQL("DELETE FROM bpm_cache")
+            }
+        }
+
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DELETE FROM bpm_cache")
             }
         }

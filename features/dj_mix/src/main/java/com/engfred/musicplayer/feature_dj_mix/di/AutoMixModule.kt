@@ -72,6 +72,7 @@ abstract class AutoMixModule {
                     AutoMixDatabase.MIGRATION_8_9,
                     AutoMixDatabase.MIGRATION_9_10,
                     AutoMixDatabase.MIGRATION_10_11, // raw firstBeatMs — cue guard moved to engine
+                    AutoMixDatabase.MIGRATION_11_12,
                 )
                 .fallbackToDestructiveMigration(true)
                 .build()

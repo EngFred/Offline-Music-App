@@ -26,23 +26,23 @@ import kotlin.math.sqrt
  * 3. Compute K-weighted amplitude (EBU R128) and waveform envelope from the
  *    FULL decoded PCM — these always reflect the initial decode window.
  * 4. Detect the musical onset via [detectOnsetOffset]:
- *      • Scan 50 ms RMS windows forward.
- *      • Return the byte offset of the first window whose RMS ≥ 20% of peak
- *        AND energy is visibly rising (≥ 120% of energy 200ms prior).
- *        The rise check filters sustained speech/ambient from real musical onsets.
- *      • Sustain must hold for 250 ms.
- *      • Back up one window to preserve the attack transient.
+ *    • Scan 50 ms RMS windows forward.
+ *    • Return the byte offset of the first window whose RMS ≥ 20% of peak
+ *      AND energy is visibly rising (≥ 120% of energy 200ms prior).
+ *      The rise check filters sustained speech/ambient from real musical onsets.
+ *    • Sustain must hold for 250 ms.
+ *    • Back up one window to preserve the attack transient.
  *
  * 5. LATE ONSET DETECTION:
- *      If the onset lands in the last [LATE_ONSET_THRESHOLD] fraction of the
- *      decoded window, re-decode up to [EXTENDED_ANALYSIS_DURATION_MS] and
- *      re-run onset detection. This covers "Havana-style" YouTube rips with
- *      1–2 minutes of speech before the song begins.
+ *    If the onset lands in the last [LATE_ONSET_THRESHOLD] fraction of the
+ *    decoded window, re-decode up to [EXTENDED_ANALYSIS_DURATION_MS] and
+ *    re-run onset detection. This covers "Havana-style" YouTube rips with
+ *    1–2 minutes of speech before the song begins.
  *
  * 6. Pass the onset-trimmed PCM to the native aubio beat tracker.
  * 7. CONFIDENCE GATING:
- *      If aubio's confidence < [CONFIDENCE_THRESHOLD], set firstBeatMs = 0.
- *      The BPM itself is still cached (useful for queue ordering).
+ *    If aubio's confidence < [CONFIDENCE_THRESHOLD], set firstBeatMs = 0.
+ *    The BPM itself is still cached (useful for queue ordering).
  * 8. [snapToNearestOnset] validates the beat-0 position against local PCM energy.
  * 9. Add the onset-skip offset back to map beat-0 into full-track time.
  *
@@ -55,22 +55,22 @@ import kotlin.math.sqrt
  * cue-point setting (0–30 s, default 15 s).
  *
  * WHY the guard was moved:
- *   • Baking the guard into the cached value meant changing the cue-point
- *     setting required wiping the BPM cache and re-analysing all tracks.
- *   • Applying it dynamically in the engine makes the setting take effect
- *     immediately with zero re-analysis cost.
+ * • Baking the guard into the cached value meant changing the cue-point
+ *   setting required wiping the BPM cache and re-analysing all tracks.
+ * • Applying it dynamically in the engine makes the setting take effect
+ *   immediately with zero re-analysis cost.
  *
  * CONSEQUENCE for cache consumers:
- *   The [BpmAnalysisResult.firstBeatMs] returned by this class — and therefore
- *   [BpmCacheEntity.firstBeatMs] / [BpmInfo.firstBeatMs] — is now the RAW
- *   aubio beat-0 position (after beat-snap and onset-offset, but WITHOUT any
- *   minimum-offset guard). Do NOT pass it directly to ExoPlayer.seekTo().
- *   Always go through CrossfadeEngine which applies the user's cue-point guard.
+ * The [BpmAnalysisResult.firstBeatMs] returned by this class — and therefore
+ * [BpmCacheEntity.firstBeatMs] / [BpmInfo.firstBeatMs] — is now the RAW
+ * aubio beat-0 position (after beat-snap and onset-offset, but WITHOUT any
+ * minimum-offset guard). Do NOT pass it directly to ExoPlayer.seekTo().
+ * Always go through CrossfadeEngine which applies the user's cue-point guard.
  *
  * DB version note:
- *   The cache was wiped at DB version 11 so that any pre-existing entries
- *   (which stored the old 15-second-guarded value) are re-analysed and the
- *   raw value is stored correctly going forward.
+ * The cache was wiped at DB version 11 so that any pre-existing entries
+ * (which stored the old 15-second-guarded value) are re-analysed and the
+ * raw value is stored correctly going forward.
  */
 @Singleton
 class BpmAnalyzer @Inject constructor(
@@ -188,13 +188,11 @@ class BpmAnalyzer @Inject constructor(
     suspend fun analyzeBpm(uri: Uri): BpmAnalysisResult? = withContext(Dispatchers.IO) {
         try {
             // ── Step 1: Initial decode (up to MAX_ANALYSIS_DURATION_MS) ─────────
-            val (pcmBytes, sampleRate, channelCount) = decodeToPcm(uri)
-                ?: return@withContext null
-
+            val (pcmBytes, sampleRate, channelCount) = decodeToPcm(uri) ?: return@withContext null
             val monoBytes = if (channelCount > 1) mixToMono(pcmBytes, channelCount) else pcmBytes
 
             // ── Steps 2 & 3: Amplitude + envelope from FULL initial PCM ─────────
-            val amplitude        = calculateKWeightedAmplitude(monoBytes, sampleRate)
+            val amplitude = calculateKWeightedAmplitude(monoBytes, sampleRate)
             val waveformEnvelope = computeWaveformEnvelope(monoBytes)
 
             // ── Step 4: Initial onset detection ─────────────────────────────────
@@ -202,17 +200,12 @@ class BpmAnalyzer @Inject constructor(
 
             // ── Step 5: Late-onset check → extended re-decode if needed ──────────
             val analysisMonoBytes: ByteArray = run {
-                val isLateOnset = onsetSkipBytes > 0 &&
-                        (onsetSkipBytes.toFloat() / monoBytes.size) >= LATE_ONSET_THRESHOLD
-
+                val isLateOnset = onsetSkipBytes > 0 && (onsetSkipBytes.toFloat() / monoBytes.size) >= LATE_ONSET_THRESHOLD
                 if (isLateOnset) {
                     val onsetMs = (onsetSkipBytes.toLong() / 2L * 1000L / sampleRate)
-                    Log.d(TAG,
-                        "Late onset at ~${onsetMs}ms " +
-                                "(${(onsetSkipBytes.toFloat() / monoBytes.size * 100).toInt()}% of window) — " +
-                                "re-decoding with extended ${EXTENDED_ANALYSIS_DURATION_MS / 1000}s window"
-                    )
-
+                    Log.d(TAG, "Late onset at ~${onsetMs}ms " +
+                            "(${(onsetSkipBytes.toFloat() / monoBytes.size * 100).toInt()}% of window) — " +
+                            "re-decoding with extended ${EXTENDED_ANALYSIS_DURATION_MS / 1000}s window")
                     val extended = decodeToPcm(uri, EXTENDED_ANALYSIS_DURATION_MS)
                     if (extended != null) {
                         val (extPcm, _, extChannelCount) = extended
@@ -249,42 +242,46 @@ class BpmAnalyzer @Inject constructor(
             }
 
             // ── Step 7: Convert trimmed bytes → float[] for native ──────────────
-            val numSamples   = analysisBytes.size / 2
+            val numSamples = analysisBytes.size / 2
             val floatSamples = FloatArray(numSamples)
-            val buf          = ByteBuffer.wrap(analysisBytes).order(ByteOrder.LITTLE_ENDIAN)
+            val buf = ByteBuffer.wrap(analysisBytes).order(ByteOrder.LITTLE_ENDIAN)
             for (i in 0 until numSamples) {
                 floatSamples[i] = buf.short.toFloat() / Short.MAX_VALUE
             }
 
             // ── Step 8: Native beat tracking (aubio) ─────────────────────────────
-            val nativeResult = analyzeBeatsNative(floatSamples, sampleRate)
-                ?: run {
-                    Log.w(TAG, "analyzeBeatsNative returned null for $uri")
-                    return@withContext null
-                }
-
-            val bpm        = nativeResult[0].coerceIn(MIN_BPM, MAX_BPM)
-            val beat0Ms    = nativeResult[1].toLong().coerceAtLeast(0L)
+            val nativeResult = analyzeBeatsNative(floatSamples, sampleRate) ?: run {
+                Log.w(TAG, "analyzeBeatsNative returned null for $uri")
+                return@withContext null
+            }
+            val bpm = nativeResult[0].coerceIn(MIN_BPM, MAX_BPM)
+            val beat0Ms = nativeResult[1].toLong().coerceAtLeast(0L)
             val confidence = nativeResult[2]
 
             // ── Step 9: Confidence gating ─────────────────────────────────────────
-            val isConfident = confidence >= CONFIDENCE_THRESHOLD
-            if (!isConfident) {
-                Log.w(TAG,
-                    "Low confidence (${String.format("%.3f", confidence)}) for $uri — " +
-                            "BPM=$bpm retained, firstBeatMs forced to 0"
-                )
-            }
+            // REMOVED: Low-confidence zeroing of firstBeatMs.
+            // We now ALWAYS trust aubio's beat0Ms / snapped position,
+            // even if confidence is below CONFIDENCE_THRESHOLD.
+            // The BPM is still clamped and cached as before.
+            //
+            // Old code (commented out):
+            // val isConfident = confidence >= CONFIDENCE_THRESHOLD
+            // if (!isConfident) {
+            //     Log.w(TAG, "Low confidence (${String.format("%.3f", confidence)}) for $uri — " +
+            //         "BPM=$bpm retained, firstBeatMs forced to 0" )
+            // }
+            //
+            // New behaviour: always treat as confident
+            val isConfident = true
 
             // ── Step 10: Beat-snap validation (skipped if low confidence) ────────
             val halfBeatMs = (30_000f / bpm).toLong()
-
             val snappedRelativeMs = if (isConfident) {
                 snapToNearestOnset(
                     candidateMs = beat0Ms,
-                    halfBeatMs  = halfBeatMs,
-                    monoBytes   = analysisBytes,
-                    sampleRate  = sampleRate
+                    halfBeatMs = halfBeatMs,
+                    monoBytes = analysisBytes,
+                    sampleRate = sampleRate
                 )
             } else {
                 0L
@@ -302,24 +299,21 @@ class BpmAnalyzer @Inject constructor(
                 0L
             }
 
-            Log.d(TAG,
-                "BPM=$bpm " +
-                        "beat0_native=${beat0Ms}ms " +
-                        "beat0_snapped=${snappedRelativeMs}ms " +
-                        "skipOffset=${(effectiveSkipSeconds * 1000f).toInt()}ms " +
-                        "firstBeat_raw=${firstBeatMs}ms [NO GUARD — guard applied in engine] " +
-                        "confidence=${String.format("%.3f", confidence)} " +
-                        "(${if (isConfident) "trusted" else "LOW — cue zeroed"}) " +
-                        "kRms=${String.format("%.4f", amplitude)}"
-            )
+            Log.d(TAG, "BPM=$bpm " +
+                    "beat0_native=${beat0Ms}ms " +
+                    "beat0_snapped=${snappedRelativeMs}ms " +
+                    "skipOffset=${(effectiveSkipSeconds * 1000f).toInt()}ms " +
+                    "firstBeat_raw=${firstBeatMs}ms [NO GUARD — guard applied in engine] " +
+                    "confidence=${String.format("%.3f", confidence)} " +
+                    "(${if (isConfident) "trusted" else "LOW — cue zeroed"}) " +
+                    "kRms=${String.format("%.4f", amplitude)}")
 
             BpmAnalysisResult(
-                bpm              = bpm,
-                firstBeatMs      = firstBeatMs, // raw — guard applied later by CrossfadeEngine
-                amplitude        = amplitude,
+                bpm = bpm,
+                firstBeatMs = firstBeatMs, // raw — guard applied later by CrossfadeEngine
+                amplitude = amplitude,
                 waveformEnvelope = waveformEnvelope
             )
-
         } catch (e: Exception) {
             Log.e(TAG, "BPM analysis failed for $uri", e)
             null
@@ -335,38 +329,36 @@ class BpmAnalyzer @Inject constructor(
      * using short-term RMS energy with an energy-rise validation step.
      *
      * Algorithm:
-     *  1. Divide [monoBytes] into [ONSET_WINDOW_SEC]-wide RMS windows.
-     *  2. Compute the per-window RMS and the global peak RMS.
-     *  3. Scan forward. The first window whose RMS ≥ [ONSET_ENERGY_THRESHOLD] × peak,
-     *     sustained for [ONSET_SUSTAIN_WINDOWS] consecutive windows (250 ms), is
-     *     a candidate onset.
-     *  4. ENERGY RISE CHECK: the candidate window's RMS must be ≥
-     *     [ONSET_RISE_RATIO] × the RMS 200 ms earlier (4 windows back).
-     *  5. Return the byte offset of the window ONE before the validated onset.
-     *     If no onset is found, return 0.
+     * 1. Divide [monoBytes] into [ONSET_WINDOW_SEC]-wide RMS windows.
+     * 2. Compute the per-window RMS and the global peak RMS.
+     * 3. Scan forward. The first window whose RMS ≥ [ONSET_ENERGY_THRESHOLD] × peak,
+     *    sustained for [ONSET_SUSTAIN_WINDOWS] consecutive windows (250 ms), is
+     *    a candidate onset.
+     * 4. ENERGY RISE CHECK: the candidate window's RMS must be ≥
+     *    [ONSET_RISE_RATIO] × the RMS 200 ms earlier (4 windows back).
+     * 5. Return the byte offset of the window ONE before the validated onset.
+     *    If no onset is found, return 0.
      *
-     * @param monoBytes  16-bit little-endian mono PCM.
+     * @param monoBytes 16-bit little-endian mono PCM.
      * @param sampleRate Sample rate of [monoBytes].
      * @return Byte offset into [monoBytes] to start analysis from, or 0.
      */
     private fun detectOnsetOffset(monoBytes: ByteArray, sampleRate: Int): Int {
         val windowSamples = (sampleRate * ONSET_WINDOW_SEC).toInt()
-        val windowBytes   = windowSamples * 2
+        val windowBytes = windowSamples * 2
         val minTotalBytes = windowBytes * (ONSET_SUSTAIN_WINDOWS + 6)
-
         if (monoBytes.size < minTotalBytes) {
             Log.d(TAG, "detectOnsetOffset: track too short for onset scan — returning 0")
             return 0
         }
 
         val numWindows = monoBytes.size / windowBytes
-        val rms        = FloatArray(numWindows)
-
+        val rms = FloatArray(numWindows)
         for (w in 0 until numWindows) {
             val offset = w * windowBytes
-            val bbuf   = ByteBuffer.wrap(monoBytes, offset, windowBytes)
+            val bbuf = ByteBuffer.wrap(monoBytes, offset, windowBytes)
                 .order(ByteOrder.LITTLE_ENDIAN)
-            var sumSq  = 0.0
+            var sumSq = 0.0
             repeat(windowSamples) {
                 val s = bbuf.short.toFloat() / Short.MAX_VALUE
                 sumSq += s * s
@@ -376,20 +368,17 @@ class BpmAnalyzer @Inject constructor(
 
         val peakRms = rms.maxOrNull() ?: return 0
         if (peakRms == 0f) return 0
-        val threshold = peakRms * ONSET_ENERGY_THRESHOLD
 
-        Log.d(TAG,
-            "detectOnsetOffset: peakRms=${String.format("%.4f", peakRms)} " +
-                    "threshold=${String.format("%.4f", threshold)} " +
-                    "windows=$numWindows (${(numWindows * ONSET_WINDOW_SEC * 1000).toLong()}ms)"
-        )
+        val threshold = peakRms * ONSET_ENERGY_THRESHOLD
+        Log.d(TAG, "detectOnsetOffset: peakRms=${String.format("%.4f", peakRms)} " +
+                "threshold=${String.format("%.4f", threshold)} " +
+                "windows=$numWindows (${(numWindows * ONSET_WINDOW_SEC * 1000).toLong()}ms)")
 
         val scanLimit = numWindows - ONSET_SUSTAIN_WINDOWS
         for (w in 0 until scanLimit) {
             val allAbove = (0 until ONSET_SUSTAIN_WINDOWS).all { offset ->
                 rms[w + offset] >= threshold
             }
-
             if (allAbove) {
                 val lookbackWindow = 4
                 val isEnergyRising = if (w < lookbackWindow) {
@@ -397,31 +386,23 @@ class BpmAnalyzer @Inject constructor(
                 } else {
                     rms[w] >= rms[w - lookbackWindow] * ONSET_RISE_RATIO
                 }
-
                 if (!isEnergyRising) {
-                    Log.d(TAG,
-                        "detectOnsetOffset: candidate at window $w " +
-                                "(${(w * ONSET_WINDOW_SEC * 1000).toInt()}ms) rejected — " +
-                                "no energy rise (rms[w]=${String.format("%.4f", rms[w])} " +
-                                "rms[w-4]=${String.format("%.4f", rms[w - lookbackWindow])} " +
-                                "required×${ONSET_RISE_RATIO})"
-                    )
+                    Log.d(TAG, "detectOnsetOffset: candidate at window $w " +
+                            "(${(w * ONSET_WINDOW_SEC * 1000).toInt()}ms) rejected — " +
+                            "no energy rise (rms[w]=${String.format("%.4f", rms[w])} " +
+                            "rms[w-4]=${String.format("%.4f", rms[w - lookbackWindow])} " +
+                            "required×${ONSET_RISE_RATIO})")
                     continue
                 }
-
-                val onsetWindow     = maxOf(0, w - 1)
+                val onsetWindow = maxOf(0, w - 1)
                 val onsetByteOffset = onsetWindow * windowBytes
-
-                Log.d(TAG,
-                    "detectOnsetOffset: validated onset at window $w " +
-                            "(${(w * ONSET_WINDOW_SEC * 1000).toInt()}ms), " +
-                            "backed up to window $onsetWindow " +
-                            "(${(onsetWindow * ONSET_WINDOW_SEC * 1000).toInt()}ms)"
-                )
+                Log.d(TAG, "detectOnsetOffset: validated onset at window $w " +
+                        "(${(w * ONSET_WINDOW_SEC * 1000).toInt()}ms), " +
+                        "backed up to window $onsetWindow " +
+                        "(${(onsetWindow * ONSET_WINDOW_SEC * 1000).toInt()}ms)")
                 return onsetByteOffset
             }
         }
-
         Log.d(TAG, "detectOnsetOffset: no clear onset — returning 0")
         return 0
     }
@@ -432,14 +413,14 @@ class BpmAnalyzer @Inject constructor(
 
     private fun snapToNearestOnset(
         candidateMs: Long,
-        halfBeatMs:  Long,
-        monoBytes:   ByteArray,
-        sampleRate:  Int
+        halfBeatMs: Long,
+        monoBytes: ByteArray,
+        sampleRate: Int
     ): Long {
         val windowSamples = (sampleRate * SNAP_WINDOW_MS / 1000L).toInt().coerceAtLeast(1)
-        val windowBytes   = windowSamples * 2
-        val totalSamples  = monoBytes.size / 2
-        val durationMs    = totalSamples.toLong() * 1000L / sampleRate
+        val windowBytes = windowSamples * 2
+        val totalSamples = monoBytes.size / 2
+        val durationMs = totalSamples.toLong() * 1000L / sampleRate
 
         fun rmsAt(ms: Long): Float {
             val startSample = (ms * sampleRate / 1000L).toInt()
@@ -458,15 +439,16 @@ class BpmAnalyzer @Inject constructor(
         }
 
         val safeCandidate = candidateMs.coerceIn(0L, durationMs)
-        val searchStart   = (safeCandidate - halfBeatMs).coerceAtLeast(0L)
-        val searchEnd     = (safeCandidate + halfBeatMs)
+        val searchStart = (safeCandidate - halfBeatMs).coerceAtLeast(0L)
+        val searchEnd = (safeCandidate + halfBeatMs)
             .coerceAtMost((durationMs - SNAP_WINDOW_MS).coerceAtLeast(0L))
 
         val candidateRms = rmsAt(safeCandidate)
-
         var localPeak = candidateRms
         var t = searchStart
-        while (t <= searchEnd) { val r = rmsAt(t); if (r > localPeak) localPeak = r; t += SNAP_STEP_MS }
+        while (t <= searchEnd) {
+            val r = rmsAt(t); if (r > localPeak) localPeak = r; t += SNAP_STEP_MS
+        }
 
         if (localPeak == 0f || candidateRms >= localPeak * SNAP_SILENCE_RATIO) return safeCandidate
 
@@ -478,17 +460,15 @@ class BpmAnalyzer @Inject constructor(
             t += SNAP_STEP_MS
         }
 
-        Log.d(TAG,
-            "snapToNearestOnset: ${safeCandidate}ms → ${bestMs}ms " +
-                    "(candidateRms=${String.format("%.4f", candidateRms)} " +
-                    "localPeak=${String.format("%.4f", localPeak)} " +
-                    "bestRms=${String.format("%.4f", bestRms)})"
-        )
+        Log.d(TAG, "snapToNearestOnset: ${safeCandidate}ms → ${bestMs}ms " +
+                "(candidateRms=${String.format("%.4f", candidateRms)} " +
+                "localPeak=${String.format("%.4f", localPeak)} " +
+                "bestRms=${String.format("%.4f", bestRms)})")
         return bestMs
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // K-WEIGHTED AMPLITUDE  (EBU R128 / ITU-R BS.1770-4)
+    // K-WEIGHTED AMPLITUDE (EBU R128 / ITU-R BS.1770-4)
     // ═════════════════════════════════════════════════════════════════════════
 
     private data class BiquadCoeffs(
@@ -497,37 +477,33 @@ class BpmAnalyzer @Inject constructor(
     )
 
     private fun designHighShelf(fc: Double, gainDb: Double, sampleRate: Double): BiquadCoeffs {
-        val A          = Math.pow(10.0, gainDb / 40.0)
-        val w0         = 2.0 * Math.PI * fc / sampleRate
-        val cosW0      = Math.cos(w0)
-        val sinW0      = Math.sin(w0)
-        val sqrtA      = Math.sqrt(A)
-        val alpha      = sinW0 * 0.7071067811865476
+        val A = Math.pow(10.0, gainDb / 40.0)
+        val w0 = 2.0 * Math.PI * fc / sampleRate
+        val cosW0 = Math.cos(w0)
+        val sinW0 = Math.sin(w0)
+        val sqrtA = Math.sqrt(A)
+        val alpha = sinW0 * 0.7071067811865476
         val twoSqrtAAlpha = 2.0 * sqrtA * alpha
-
-        val b0 = A  * ((A + 1) + (A - 1) * cosW0 + twoSqrtAAlpha)
+        val b0 = A * ((A + 1) + (A - 1) * cosW0 + twoSqrtAAlpha)
         val b1 = -2.0 * A * ((A - 1) + (A + 1) * cosW0)
-        val b2 = A  * ((A + 1) + (A - 1) * cosW0 - twoSqrtAAlpha)
-        val a0 =       (A + 1) - (A - 1) * cosW0 + twoSqrtAAlpha
+        val b2 = A * ((A + 1) + (A - 1) * cosW0 - twoSqrtAAlpha)
+        val a0 = (A + 1) - (A - 1) * cosW0 + twoSqrtAAlpha
         val a1 = 2.0 * ((A - 1) - (A + 1) * cosW0)
-        val a2 =       (A + 1) - (A - 1) * cosW0 - twoSqrtAAlpha
-
+        val a2 = (A + 1) - (A - 1) * cosW0 - twoSqrtAAlpha
         return BiquadCoeffs(b0/a0, b1/a0, b2/a0, a1/a0, a2/a0)
     }
 
     private fun designHighPass2nd(fc: Double, sampleRate: Double): BiquadCoeffs {
-        val w0    = 2.0 * Math.PI * fc / sampleRate
+        val w0 = 2.0 * Math.PI * fc / sampleRate
         val cosW0 = Math.cos(w0)
         val sinW0 = Math.sin(w0)
         val alpha = sinW0 * 0.7071067811865476
-
         val b0 = (1.0 + cosW0) / 2.0
         val b1 = -(1.0 + cosW0)
         val b2 = (1.0 + cosW0) / 2.0
         val a0 = 1.0 + alpha
         val a1 = -2.0 * cosW0
         val a2 = 1.0 - alpha
-
         return BiquadCoeffs(b0/a0, b1/a0, b2/a0, a1/a0, a2/a0)
     }
 
@@ -535,10 +511,10 @@ class BpmAnalyzer @Inject constructor(
         val output = FloatArray(input.size)
         var w1 = 0.0; var w2 = 0.0
         for (i in input.indices) {
-            val x  = input[i].toDouble()
-            val y  = c.b0 * x + w1
-            w1     = c.b1 * x - c.a1 * y + w2
-            w2     = c.b2 * x - c.a2 * y
+            val x = input[i].toDouble()
+            val y = c.b0 * x + w1
+            w1 = c.b1 * x - c.a1 * y + w2
+            w2 = c.b2 * x - c.a2 * y
             output[i] = y.toFloat()
         }
         return output
@@ -548,15 +524,12 @@ class BpmAnalyzer @Inject constructor(
         if (pcmBytes.isEmpty()) return 0f
         val numSamples = pcmBytes.size / 2
         if (numSamples == 0) return 0f
-
-        val buf     = ByteBuffer.wrap(pcmBytes).order(ByteOrder.LITTLE_ENDIAN)
+        val buf = ByteBuffer.wrap(pcmBytes).order(ByteOrder.LITTLE_ENDIAN)
         val samples = FloatArray(numSamples) { buf.short.toFloat() / Short.MAX_VALUE }
-
-        val fs       = sampleRate.toDouble()
-        val stage1   = designHighShelf(1681.974, 4.0, fs)
-        val stage2   = designHighPass2nd(38.134, fs)
+        val fs = sampleRate.toDouble()
+        val stage1 = designHighShelf(1681.974, 4.0, fs)
+        val stage2 = designHighPass2nd(38.134, fs)
         val filtered = applyBiquad(applyBiquad(samples, stage1), stage2)
-
         var sumSq = 0.0
         for (s in filtered) sumSq += s.toDouble() * s
         return sqrt(sumSq / numSamples).toFloat()
@@ -568,13 +541,11 @@ class BpmAnalyzer @Inject constructor(
 
     private fun computeWaveformEnvelope(monoBytes: ByteArray, numBars: Int = 128): FloatArray {
         if (monoBytes.size < 2) return FloatArray(numBars) { 0.1f }
-
-        val numSamples    = monoBytes.size / 2
+        val numSamples = monoBytes.size / 2
         val samplesPerBar = (numSamples.toFloat() / numBars).toInt().coerceAtLeast(1)
-        val buf           = ByteBuffer.wrap(monoBytes).order(ByteOrder.LITTLE_ENDIAN)
-        val rawEnvelope   = FloatArray(numBars)
-        var maxRms        = 0f
-
+        val buf = ByteBuffer.wrap(monoBytes).order(ByteOrder.LITTLE_ENDIAN)
+        val rawEnvelope = FloatArray(numBars)
+        var maxRms = 0f
         for (bar in 0 until numBars) {
             var sumSq = 0.0; var count = 0
             while (count < samplesPerBar && buf.hasRemaining()) {
@@ -587,9 +558,10 @@ class BpmAnalyzer @Inject constructor(
                 if (rms > maxRms) maxRms = rms
             }
         }
-
         return if (maxRms > 0f) {
-            FloatArray(numBars) { i -> (rawEnvelope[i] / maxRms).coerceIn(0f, 1f) }
+            FloatArray(numBars) { i ->
+                (rawEnvelope[i] / maxRms).coerceIn(0f, 1f)
+            }
         } else {
             FloatArray(numBars) { 0.1f }
         }
@@ -607,15 +579,14 @@ class BpmAnalyzer @Inject constructor(
         var codec: MediaCodec? = null
         return try {
             extractor.setDataSource(context, uri, null)
-
             var audioTrackIndex = -1
             var mediaFormat: MediaFormat? = null
             for (i in 0 until extractor.trackCount) {
-                val fmt  = extractor.getTrackFormat(i)
+                val fmt = extractor.getTrackFormat(i)
                 val mime = fmt.getString(MediaFormat.KEY_MIME) ?: continue
                 if (mime.startsWith("audio/")) {
                     audioTrackIndex = i
-                    mediaFormat     = fmt
+                    mediaFormat = fmt
                     break
                 }
             }
@@ -623,48 +594,41 @@ class BpmAnalyzer @Inject constructor(
                 Log.w(TAG, "No audio track found in $uri")
                 return null
             }
-
             extractor.selectTrack(audioTrackIndex)
-            val mime         = mediaFormat.getString(MediaFormat.KEY_MIME)!!
-            val sampleRate   = mediaFormat.getIntegerSafe(MediaFormat.KEY_SAMPLE_RATE, 44100)
+            val mime = mediaFormat.getString(MediaFormat.KEY_MIME)!!
+            val sampleRate = mediaFormat.getIntegerSafe(MediaFormat.KEY_SAMPLE_RATE, 44100)
             val channelCount = mediaFormat.getIntegerSafe(MediaFormat.KEY_CHANNEL_COUNT, 1)
-
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(mediaFormat, null, null, 0)
             codec.start()
-
-            val output     = ByteArrayOutputStream()
+            val output = ByteArrayOutputStream()
             val bufferInfo = MediaCodec.BufferInfo()
-            var inputEos   = false
-            var outputEos  = false
-
+            var inputEos = false
+            var outputEos = false
             while (!outputEos) {
                 if (!inputEos) {
                     val inputIdx = codec.dequeueInputBuffer(10_000L)
                     if (inputIdx >= 0) {
-                        val inBuf      = codec.getInputBuffer(inputIdx)!!
+                        val inBuf = codec.getInputBuffer(inputIdx)!!
                         val sampleSize = extractor.readSampleData(inBuf, 0)
                         when {
                             sampleSize < 0 -> {
-                                codec.queueInputBuffer(inputIdx, 0, 0, 0L,
-                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                codec.queueInputBuffer(inputIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                                 inputEos = true
                             }
                             extractor.sampleTime / 1_000 >= maxDurationMs -> {
-                                codec.queueInputBuffer(inputIdx, 0, 0, 0L,
-                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                codec.queueInputBuffer(inputIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                                 inputEos = true
                             }
                             else -> {
-                                codec.queueInputBuffer(inputIdx, 0, sampleSize,
-                                    extractor.sampleTime, 0)
+                                codec.queueInputBuffer(inputIdx, 0, sampleSize, extractor.sampleTime, 0)
                                 extractor.advance()
                             }
                         }
                     }
                 }
                 when (val outputIdx = codec.dequeueOutputBuffer(bufferInfo, 10_000L)) {
-                    MediaCodec.INFO_TRY_AGAIN_LATER       -> Unit
+                    MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
                     MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> Unit
                     else -> if (outputIdx >= 0) {
                         val outBuf = codec.getOutputBuffer(outputIdx)
@@ -681,7 +645,6 @@ class BpmAnalyzer @Inject constructor(
                 }
             }
             Triple(output.toByteArray(), sampleRate, channelCount)
-
         } catch (e: Exception) {
             Log.e(TAG, "PCM decode failed for $uri (maxDurationMs=$maxDurationMs)", e)
             null
@@ -693,10 +656,10 @@ class BpmAnalyzer @Inject constructor(
 
     private fun mixToMono(pcm: ByteArray, channelCount: Int): ByteArray {
         val bytesPerFrame = channelCount * 2
-        val frameCount    = pcm.size / bytesPerFrame
-        val mono          = ByteArray(frameCount * 2)
-        val src           = ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN)
-        val dst           = ByteBuffer.wrap(mono).order(ByteOrder.LITTLE_ENDIAN)
+        val frameCount = pcm.size / bytesPerFrame
+        val mono = ByteArray(frameCount * 2)
+        val src = ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN)
+        val dst = ByteBuffer.wrap(mono).order(ByteOrder.LITTLE_ENDIAN)
         repeat(frameCount) {
             var sum = 0L
             repeat(channelCount) { sum += src.short.toLong() }

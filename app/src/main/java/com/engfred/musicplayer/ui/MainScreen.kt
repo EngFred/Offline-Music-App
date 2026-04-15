@@ -73,8 +73,8 @@ fun MainScreen(
     isDjMixActive: Boolean,
     onNavigateToDjMix: () -> Unit,
     onOpenMixOfTheDay: (Long) -> Unit,
-    /** Called when the user picks a playlist from the DJ Mix Launcher tab. */
     onDjMixPlaylistSelected: (Long) -> Unit,
+    onNavigateToDuplicates: () -> Unit
 ) {
     val bottomNavController = rememberNavController()
     val bottomNavItems = listOf(
@@ -232,16 +232,16 @@ fun MainScreen(
                     onCreatePlaylist = onCreatePlaylist
                 )
             }
-            // ── DJ Mix Launcher tab ───────────────────────────────────────────
             composable(AppDestinations.BottomNavItem.DjMix.baseRoute) {
                 MixStudioLauncherScreen(
                     onPlaylistSelected = onDjMixPlaylistSelected,
                 )
             }
             composable(AppDestinations.BottomNavItem.Settings.baseRoute) {
-                SettingsScreen()
+                SettingsScreen(
+                    onNavigateToDuplicates = onNavigateToDuplicates
+                )
             }
         }
     }
-
 }

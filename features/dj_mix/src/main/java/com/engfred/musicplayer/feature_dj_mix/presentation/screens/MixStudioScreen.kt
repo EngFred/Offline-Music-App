@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -74,6 +75,9 @@ fun MixStudioScreen(
     val coroutineScope = rememberCoroutineScope()
     val analysedCount = (uiState.analysisProgress * uiState.totalSongs).toInt()
 
+    // Scroll behavior allows the transparent top bar to become solid when content scrolls under it
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+
     val backgroundBrush = Brush.verticalGradient(
         colors = listOf(
             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
@@ -112,10 +116,10 @@ fun MixStudioScreen(
                             ),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Mini top bar embedded in the panel
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .statusBarsPadding() // Correct in Landscape
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -216,6 +220,7 @@ fun MixStudioScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .navigationBarsPadding()
                                     .padding(horizontal = 20.dp, vertical = 12.dp),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -234,10 +239,7 @@ fun MixStudioScreen(
                                     }
                                 } else {
                                     ExtendedFloatingActionButton(
-                                        onClick = {
-                                            viewModel.onEvent(MixStudioEvent.PlayPause)
-                                            coroutineScope.launch { lazyListState.animateScrollToItem(0) }
-                                        },
+                                        onClick = { viewModel.onEvent(MixStudioEvent.PlayPause) },
                                         containerColor = if (uiState.pendingAutoStartAfterAnalysis)
                                             MaterialTheme.colorScheme.secondaryContainer
                                         else
@@ -252,7 +254,7 @@ fun MixStudioScreen(
                                         Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                                         Spacer(Modifier.width(8.dp))
                                         Text(
-                                            fabLabel!!,
+                                            fabLabel ?: "",
                                             fontWeight    = FontWeight.Black,
                                             letterSpacing = 1.sp
                                         )
@@ -282,6 +284,7 @@ fun MixStudioScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .statusBarsPadding()
                                 .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -309,7 +312,9 @@ fun MixStudioScreen(
                         LazyColumn(
                             state          = lazyListState,
                             modifier       = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 16.dp)
+                            contentPadding = PaddingValues(
+                                bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                            )
                         ) {
                             itemsIndexed(
                                 items = uiState.smartQueue,
@@ -337,7 +342,10 @@ fun MixStudioScreen(
         //  PORTRAIT  — Original single-column scroll layout
         // ══════════════════════════════════════════════════════════════
         Scaffold(
+            // FIX: Tie the Scaffold's nested scroll to the TopAppBar so it knows when to change colors
+            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
             topBar = {
+                // FIX: Use TopAppBar natively without the Box wrapper, enabling native status bar insets
                 TopAppBar(
                     title = {
                         Column(
@@ -381,6 +389,10 @@ fun MixStudioScreen(
                             )
                         }
                     },
+                    // FIX: Ensure status bar insets are respected natively
+                    windowInsets = WindowInsets.statusBars,
+                    // FIX: Make TopAppBar solid when scrolling so the vinyl doesn't peek through the text
+                    scrollBehavior = scrollBehavior,
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor         = Color.Transparent,
                         scrolledContainerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
@@ -394,7 +406,8 @@ fun MixStudioScreen(
                         onClick        = { viewModel.onEvent(MixStudioEvent.PlayPause) },
                         containerColor = MaterialTheme.colorScheme.surfaceVariant,
                         contentColor   = MaterialTheme.colorScheme.onSurfaceVariant,
-                        shape          = RoundedCornerShape(percent = 50)
+                        shape          = RoundedCornerShape(percent = 50),
+                        modifier       = Modifier.navigationBarsPadding()
                     ) {
                         Icon(
                             imageVector        = if (uiState.isPlaying) Icons.Rounded.Pause
@@ -409,10 +422,7 @@ fun MixStudioScreen(
                         "START MIX"
 
                     ExtendedFloatingActionButton(
-                        onClick = {
-                            viewModel.onEvent(MixStudioEvent.PlayPause)
-                            coroutineScope.launch { lazyListState.animateScrollToItem(0) }
-                        },
+                        onClick = { viewModel.onEvent(MixStudioEvent.PlayPause) },
                         containerColor = if (uiState.pendingAutoStartAfterAnalysis)
                             MaterialTheme.colorScheme.secondaryContainer
                         else
@@ -422,7 +432,9 @@ fun MixStudioScreen(
                         else
                             MaterialTheme.colorScheme.onPrimary,
                         shape    = RoundedCornerShape(percent = 50),
-                        modifier = Modifier.padding(bottom = 16.dp)
+                        modifier = Modifier
+                            .padding(bottom = 16.dp)
+                            .navigationBarsPadding()
                     ) {
                         Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
@@ -442,7 +454,7 @@ fun MixStudioScreen(
                     modifier       = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
                         top    = paddingValues.calculateTopPadding() + 16.dp,
-                        bottom = 120.dp
+                        bottom = 120.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     ),
                     verticalArrangement = Arrangement.spacedBy(32.dp)
                 ) {
@@ -548,6 +560,7 @@ fun MixStudioScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .padding(horizontal = 24.dp, vertical = 16.dp)
             ) {
                 Text(

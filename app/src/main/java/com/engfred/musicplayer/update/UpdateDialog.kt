@@ -44,6 +44,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.engfred.musicplayer.BuildConfig
 import com.engfred.musicplayer.core.domain.model.UpdateInfo
+import androidx.core.net.toUri
 
 @Composable
 fun UpdateDialog(
@@ -165,7 +166,7 @@ fun UpdateDialog(
                         onClick = {
                             val intent = Intent(
                                 Intent.ACTION_VIEW,
-                                Uri.parse(updateInfo.downloadUrl)
+                                updateInfo.downloadUrl.toUri()
                             )
                             context.startActivity(intent)
                             onDownload()

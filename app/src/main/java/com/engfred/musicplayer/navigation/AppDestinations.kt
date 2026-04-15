@@ -13,6 +13,8 @@ sealed class AppDestinations(val route: String) {
     data object MainGraph : AppDestinations("main_graph")
     data object NowPlaying : AppDestinations("now_playing")
 
+    data object FindDuplicates : AppDestinations("find_duplicates")
+
     data object TrimAudio : AppDestinations("trim/{audioUri}") {
         fun createRoute(audioUri: String) = "trim/${Uri.encode(audioUri)}"
     }
@@ -28,7 +30,7 @@ sealed class AppDestinations(val route: String) {
     data object CreatePlaylist : AppDestinations("create_playlist")
 
     /** Auto Mix screen — entered from PlaylistDetailScreen for user-created playlists,
-     *  OR from DjMixLauncherScreen when navigated via the bottom nav bar. */
+     * OR from DjMixLauncherScreen when navigated via the bottom nav bar. */
     data object DjMix : AppDestinations("dj_mix/{playlistId}") {
         fun createRoute(playlistId: Long) = "dj_mix/$playlistId"
     }

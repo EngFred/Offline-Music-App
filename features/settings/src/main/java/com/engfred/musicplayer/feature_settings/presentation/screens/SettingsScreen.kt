@@ -1,6 +1,11 @@
 package com.engfred.musicplayer.feature_settings.presentation.screens
 
 import android.annotation.SuppressLint
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,7 +25,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.Brush
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.Equalizer
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -34,6 +42,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -41,16 +50,19 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.engfred.musicplayer.core.domain.model.AudioFileTypeFilter
 import com.engfred.musicplayer.core.domain.model.AudioPreset
+import com.engfred.musicplayer.core.domain.model.UpdateInfo
 import com.engfred.musicplayer.core.domain.model.WidgetBackgroundMode
 import com.engfred.musicplayer.core.ui.theme.AppThemeType
 import com.engfred.musicplayer.feature_settings.presentation.components.AppVersionSection
 import com.engfred.musicplayer.feature_settings.presentation.components.SettingsSection
 import com.engfred.musicplayer.feature_settings.presentation.viewmodel.SettingsEvent
 import com.engfred.musicplayer.feature_settings.presentation.viewmodel.SettingsViewModel
+import androidx.core.net.toUri
 
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
+    onNavigateToDuplicates: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -64,11 +76,9 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                // Removed horizontal padding so interactive rows can bleed edge-to-edge
                 .padding(top = innerPadding.calculateTopPadding() + 16.dp, bottom = 48.dp),
-            verticalArrangement = Arrangement.spacedBy(32.dp) // Generous spacing between major sections
+            verticalArrangement = Arrangement.spacedBy(32.dp)
         ) {
-            // Error message if any
             if (uiState.error != null) {
                 Surface(
                     modifier = Modifier
@@ -82,6 +92,21 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = uiState.updateInfo != null,
+                enter = fadeIn() + expandVertically()
+            ) {
+                uiState.updateInfo?.let { info ->
+                    UpdateAvailableBanner(
+                        updateInfo = info,
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_VIEW, info.downloadUrl.toUri())
+                            context.startActivity(intent)
+                        }
                     )
                 }
             }
@@ -125,6 +150,13 @@ fun SettingsScreen(
                         viewModel.onEvent(SettingsEvent.UpdateWidgetBackgroundMode(newMode, context))
                     }
                 )
+
+                SettingsActionRow(
+                    title = "Find Duplicates",
+                    subtitle = "Free up space by safely removing identical audio files.",
+                    icon = Icons.Rounded.CleaningServices,
+                    onClick = onNavigateToDuplicates
+                )
             }
 
             HorizontalDivider(
@@ -148,16 +180,65 @@ fun SettingsScreen(
             // App Version
             Box(modifier = Modifier.padding(horizontal = 24.dp)) {
                 AppVersionSection(
-                    copyrightText = "© 2026 Engineer Fred", // Updated to current year ;)
+                    copyrightText = "© 2026 Engineer Fred",
                 )
             }
         }
     }
 }
 
-/**
- * A clean, flat edge-to-edge toggle row replacing the bulky card UI.
- */
+@Composable
+private fun UpdateAvailableBanner(
+    updateInfo: UpdateInfo,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, end = 24.dp, bottom = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { onClick() },
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.SystemUpdate,
+                contentDescription = "Update Available",
+                modifier = Modifier.size(28.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Update Available",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "Version ${updateInfo.latestVersion} is ready to download.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                )
+            }
+
+            Spacer(Modifier.width(16.dp))
+
+            Icon(
+                imageVector = Icons.Rounded.ChevronRight,
+                contentDescription = "Download",
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
 @Composable
 private fun FlatToggleRow(
     title: String,
@@ -169,7 +250,6 @@ private fun FlatToggleRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            // Clickable applied before padding ensures the ripple hits the screen edges
             .clickable { onCheckedChange(!isChecked) }
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -204,6 +284,55 @@ private fun FlatToggleRow(
         Switch(
             checked = isChecked,
             onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+@Composable
+private fun SettingsActionRow(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp)
+        )
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 18.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Icon(
+            imageVector = Icons.Rounded.ChevronRight,
+            contentDescription = "Navigate",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
