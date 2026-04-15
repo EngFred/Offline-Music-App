@@ -47,12 +47,16 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import android.app.Activity
+import android.content.pm.ActivityInfo
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * Duration (ms) the splash screen is shown regardless of how fast the app loads.
  * Keeps the branding visible even on fast devices / cached state.
  */
-private const val MIN_SPLASH_DURATION_MS = 2_500L
+private const val MIN_SPLASH_DURATION_MS = 3_000L
 
 /**
  * Custom animated splash screen shown after the native splash screen while the
@@ -76,6 +80,23 @@ fun CustomSplashScreen(
     isReady: Boolean,
     onSplashComplete: () -> Unit,
 ) {
+
+    // ─── Orientation Lock ───────────────────────────────────────────────────
+    val context = LocalContext.current
+    DisposableEffect(Unit) {
+        val activity = context as? Activity
+        // Save the original orientation to restore it later
+        val originalOrientation = activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+
+        // Lock the screen to portrait mode
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+
+        onDispose {
+            // Restore the original orientation when the splash screen is removed
+            activity?.requestedOrientation = originalOrientation
+        }
+    }
+
     // ─── animation-phase flags ──────────────────────────────────────────────
     var logoVisible     by remember { mutableStateOf(false) }
     var eqVisible       by remember { mutableStateOf(false) }

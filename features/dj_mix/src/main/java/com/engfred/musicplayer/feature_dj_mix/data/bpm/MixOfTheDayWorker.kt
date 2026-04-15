@@ -24,6 +24,7 @@ import com.engfred.musicplayer.core.domain.model.Playlist
 import com.engfred.musicplayer.core.domain.repository.LibraryRepository
 import com.engfred.musicplayer.core.domain.repository.PlaylistRepository
 import com.engfred.musicplayer.core.domain.repository.SettingsRepository
+import com.engfred.musicplayer.feature_dj_mix.R
 import com.engfred.musicplayer.feature_dj_mix.data.local.dao.BpmCacheDao
 import com.engfred.musicplayer.feature_dj_mix.domain.usecases.GetSmartNextTrackUseCase
 import dagger.assisted.Assisted
@@ -271,7 +272,7 @@ class MixOfTheDayWorker @AssistedInject constructor(
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_headset)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Your Mix of the Day is ready 🎵")
             .setContentText("$trackCount tracks, perfectly BPM-matched.")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

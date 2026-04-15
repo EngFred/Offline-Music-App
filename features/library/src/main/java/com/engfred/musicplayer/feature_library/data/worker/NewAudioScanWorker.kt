@@ -17,6 +17,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkerParameters
 import com.engfred.musicplayer.core.domain.BpmScanScheduler
 import com.engfred.musicplayer.core.domain.repository.SettingsRepository
+import com.engfred.musicplayer.feature_library.R
 import com.engfred.musicplayer.feature_library.data.source.local.ContentResolverDataSource
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -105,7 +106,8 @@ class NewAudioScanWorker @AssistedInject constructor(
             "$count new songs added including $firstSongName"
         }
 
-        val iconResId = android.R.drawable.stat_sys_headset
+//        val iconResId = android.R.drawable.stat_sys_headset
+        val iconResId = R.drawable.ic_notification
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(iconResId)
