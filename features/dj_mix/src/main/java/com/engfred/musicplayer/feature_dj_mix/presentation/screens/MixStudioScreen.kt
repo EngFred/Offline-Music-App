@@ -33,6 +33,7 @@ import com.engfred.musicplayer.feature_dj_mix.data.service.AutoMixService
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.AnalysisInProgressDialog
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.BpmAnalysisSection
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.ControlsSection
+import com.engfred.musicplayer.feature_dj_mix.presentation.components.MixNowRow
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.NowPlayingSection
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.SmartQueueItem
 import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.MixStudioEvent
@@ -220,6 +221,17 @@ fun MixStudioScreen(
                                         timeToNextMixMs    = uiState.timeToNextMixMs,
                                         nextTrack          = uiState.nextTrack,
                                         modifier           = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+
+                            // ── Mix Now button — only visible when playing in Real Mix Mode ────────────
+                            if (uiState.currentTrack != null && uiState.settings.isRealMixMode) {
+                                item(key = "mix_now_row") {
+                                    MixNowRow(
+                                        isCrossfading = uiState.isCrossfading,
+                                        onMixNow      = { viewModel.onEvent(MixStudioEvent.MixStudioNow) },
+                                        modifier      = Modifier.fillMaxWidth()
                                     )
                                 }
                             }
@@ -509,6 +521,17 @@ fun MixStudioScreen(
                         }
                     }
 
+                    // ── Mix Now button — only visible when playing in Real Mix Mode ────────────
+                    if (uiState.currentTrack != null && uiState.settings.isRealMixMode) {
+                        item(key = "mix_now_row") {
+                            MixNowRow(
+                                isCrossfading = uiState.isCrossfading,
+                                onMixNow      = { viewModel.onEvent(MixStudioEvent.MixStudioNow) },
+                                modifier      = Modifier.padding(horizontal = 24.dp)
+                            )
+                        }
+                    }
+
                     item(key = "queue_header") {
                         Row(
                             modifier          = Modifier
@@ -596,6 +619,8 @@ fun MixStudioScreen(
                     onSampleVolumeChanged   = { viewModel.onEvent(MixStudioEvent.UpdateSampleVolume(it)) },
                     cuePointOffsetSec       = uiState.settings.cuePointOffsetSec,
                     onCuePointOffsetChanged = { viewModel.onEvent(MixStudioEvent.UpdateCuePointOffset(it)) },
+                    crossfadeDurationSec       = uiState.settings.crossfadeDurationSec,
+                    onCrossfadeDurationChanged = { viewModel.onEvent(MixStudioEvent.UpdateCrossfadeDuration(it)) },
                 )
                 Spacer(modifier = Modifier.height(48.dp))
             }

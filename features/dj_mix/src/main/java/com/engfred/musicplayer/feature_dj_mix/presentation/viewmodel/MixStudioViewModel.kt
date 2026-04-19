@@ -240,6 +240,23 @@ class MixStudioViewModel @Inject constructor(
                         "(${clampedSec * 1000}ms). " +
                         "Mix trigger for current track recalculated.")
             }
+
+            is MixStudioEvent.UpdateCrossfadeDuration -> {
+                // Clamp to the valid engine range (MixDecisionEngine caps effective duration to 14 s,
+                // so offering 15 s as a ceiling is safe and gives headroom for HARMONIC × 0.80).
+                val clampedSec = event.sec.coerceIn(3, 15)
+                val s = _uiState.value.settings.copy(crossfadeDurationSec = clampedSec)
+
+                // Push into engine immediately — no restart required.
+                crossfadeEngine.crossfadeDurationMs = clampedSec * 1000L
+
+                _uiState.update { it.copy(settings = s) }
+                djSessionManager.updateSettings(s)
+                viewModelScope.launch {
+                    settingsRepository.updateDjCrossfadeDuration(clampedSec)
+                    Log.d(TAG, "[SETTINGS] CrossfadeDuration → ${clampedSec}s")
+                }
+            }
         }
     }
 

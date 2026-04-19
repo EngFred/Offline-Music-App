@@ -59,6 +59,7 @@ class AutoMixService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private var engineReleased = false
+    @Volatile private var lastSkipTimestampMs: Long = 0L
 
     companion object {
         private const val TAG = "DjMixService"
@@ -68,6 +69,8 @@ class AutoMixService : Service() {
         const val ACTION_PLAY_PAUSE = "com.engfred.musicplayer.dj.PLAY_PAUSE"
         const val ACTION_NEXT       = "com.engfred.musicplayer.dj.NEXT"
         const val ACTION_STOP       = "com.engfred.musicplayer.dj.STOP"
+
+        private const val SKIP_DEBOUNCE_MS = 1_500L
     }
 
     override fun onCreate() {
@@ -91,13 +94,42 @@ class AutoMixService : Service() {
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay()  { crossfadeEngine.playPause() }
                 override fun onPause() { crossfadeEngine.playPause() }
+
                 override fun onSkipToNext() {
-                    val currentId = crossfadeEngine.state.value.currentTrack?.id ?: return
-                    val next = djSessionManager.selectNextTrack(currentId) ?: return
-                    val (firstBeatMs, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(next)
-                    djSessionManager.markTrackPlayed(next.id)
-                    crossfadeEngine.queueNextTrack(next, firstBeatMs, bpm, amplitude)
+                    val now = System.currentTimeMillis()
+
+                    // ── Debounce guard ────────────────────────────────────────────
+                    // Prevents rapid double-taps from stacking crossfades.
+                    // 1 500 ms is enough time for the UI to update and the user to
+                    // see the state change; short enough not to feel sluggish.
+                    if (now - lastSkipTimestampMs < SKIP_DEBOUNCE_MS) {
+                        Log.d(TAG, "[SKIP] Debounced (${now - lastSkipTimestampMs}ms < ${SKIP_DEBOUNCE_MS}ms)")
+                        return
+                    }
+                    lastSkipTimestampMs = now
+
+                    // ── Already crossfading guard ─────────────────────────────────
+                    // queueNextTrack() already stores a pending track when isCrossfading
+                    // is true, but we want to skip against the ACTUAL upcoming track
+                    // (the one that will be "current" after the in-progress fade),
+                    // not the one that is currently fading out.
+                    // Reading currentTrack while crossfading gives the outgoing track —
+                    // the incoming track is not yet reflected in state. So we only
+                    // allow one pending queue-up during an active crossfade.
+                    val engineState = crossfadeEngine.state.value
+                    if (engineState.isCrossfading) {
+                        Log.d(TAG, "[SKIP] Crossfade in progress — skip ignored (one pending slot already handled by engine)")
+                        return
+                    }
+
+                    val currentId = engineState.currentTrack?.id ?: return
+                    val nextTrack = djSessionManager.selectNextTrack(currentId) ?: return
+                    val (firstBeatMs, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(nextTrack)
+                    djSessionManager.markTrackPlayed(nextTrack.id)
+                    crossfadeEngine.queueNextTrack(nextTrack, firstBeatMs, bpm, amplitude)
+                    Log.d(TAG, "[SKIP] Manual skip → '${nextTrack.title}'")
                 }
+
                 override fun onStop() { releaseAndStop() }
             })
         }

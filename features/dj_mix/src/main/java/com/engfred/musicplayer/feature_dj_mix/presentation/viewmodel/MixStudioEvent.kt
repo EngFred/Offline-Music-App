@@ -34,6 +34,9 @@ sealed interface MixStudioEvent {
      */
     data class UpdateCuePointOffset(val sec: Int) : MixStudioEvent
 
+    // Add alongside existing events:
+    data class UpdateCrossfadeDuration(val sec: Int) : MixStudioEvent
+
     // ── Analysis-in-progress dialog ───────────────────────────────────────────
 
     /**

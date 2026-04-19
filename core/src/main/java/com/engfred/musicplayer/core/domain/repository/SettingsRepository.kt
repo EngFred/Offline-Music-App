@@ -38,6 +38,8 @@ interface SettingsRepository {
     // ── DJ Mix ────────────────────────────────────────────────────────────
     suspend fun updateDjRealMixMode(enabled: Boolean)
 
+    suspend fun updateDjCrossfadeDuration(sec: Int)
+
     /**
      * Persists the user's chosen cue-point offset (in seconds).
      *
