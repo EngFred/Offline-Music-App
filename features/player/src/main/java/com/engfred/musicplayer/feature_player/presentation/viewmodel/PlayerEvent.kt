@@ -25,4 +25,6 @@ sealed class PlayerEvent {
     data class RemovedFromQueue(val audioFile: AudioFile) : PlayerEvent()
 
     data object ToggleStopAfterCurrent : PlayerEvent()
+
+    data class SetCustomBackground(val uri: String?) : PlayerEvent()
 }

@@ -56,6 +56,8 @@ data class AppSettings(
     // ── Sampler settings ───────────────────────────────────────────────────────
     val autoSamplerEnabled: Boolean   = true,
     val sampleVolume: Float           = 1.0f,
+
+    val customPlayerBackgroundUri: String? = null,
 ) {
     companion object {
         /** 5 minutes in milliseconds — the hard cap applied when [mixOfTheDayFilterByDuration] is true. */

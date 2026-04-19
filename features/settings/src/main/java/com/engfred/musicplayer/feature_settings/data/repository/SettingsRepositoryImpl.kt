@@ -66,6 +66,8 @@ class SettingsRepositoryImpl @Inject constructor(
         private val LAST_MIX_OF_THE_DAY_TIMESTAMP     = longPreferencesKey("last_mix_of_the_day_timestamp")
         private val DJ_MIX_PLAYLIST_FILTER            = stringPreferencesKey("dj_mix_playlist_filter")
         private val LAST_UPDATE_CHECK_TIMESTAMP        = longPreferencesKey("last_update_check_timestamp")
+
+        private val CUSTOM_PLAYER_BACKGROUND_URI = stringPreferencesKey("custom_player_background_uri")
     }
 
     override fun getAppSettings(): Flow<AppSettings> {
@@ -118,6 +120,7 @@ class SettingsRepositoryImpl @Inject constructor(
                     cuePointOffsetSec          = preferences[DJ_CUE_POINT_OFFSET_SEC] ?: 15,
                     crossfadeDurationSec       = preferences[DJ_CROSSFADE_DURATION_SEC] ?: 5,
                     mixOfTheDayFilterByDuration = preferences[MIX_OF_THE_DAY_FILTER_BY_DURATION] ?: false,
+                    customPlayerBackgroundUri = preferences[CUSTOM_PLAYER_BACKGROUND_URI],
                 )
             }
     }
@@ -269,5 +272,12 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun updateLastUpdateCheckTimestamp(timestamp: Long) {
         dataStore.edit { it[LAST_UPDATE_CHECK_TIMESTAMP] = timestamp }
+    }
+
+    override suspend fun updateCustomPlayerBackground(uri: String?) {
+        dataStore.edit { prefs ->
+            if (uri != null) prefs[CUSTOM_PLAYER_BACKGROUND_URI] = uri
+            else prefs.remove(CUSTOM_PLAYER_BACKGROUND_URI)
+        }
     }
 }

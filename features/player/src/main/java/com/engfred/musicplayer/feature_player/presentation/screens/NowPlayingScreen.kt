@@ -31,24 +31,17 @@ fun NowPlayingScreen(
 ) {
     val uiState: PlaybackState by viewModel.uiState.collectAsState()
     val selectedLayout: PlayerLayout? by viewModel.playerLayoutState.collectAsState()
+    val customBackgroundUri: String? by viewModel.customBackgroundUri.collectAsState()
 
     val context = LocalContext.current
-    // Keep the latest lambda reference safe for use inside LaunchedEffect
     val currentOnNavigateUp by rememberUpdatedState(onNavigateUp)
 
-    // When we are in "loading" (no currentAudioFile), start a 2s timer.
-    // If after 2s still loading, show a toast and navigate up.
     LaunchedEffect(key1 = uiState.currentAudioFile) {
         if (uiState.currentAudioFile == null) {
-            // wait 2 seconds
             delay(3000L)
-            // If still null after delay, show toast and navigate up
             if (uiState.currentAudioFile == null) {
-//                Toast.makeText(context, "Unable to load track — returning.", Toast.LENGTH_SHORT).show()
                 currentOnNavigateUp()
             }
-        } else {
-            // audio file became available, no action needed (timer automatically cancelled)
         }
     }
 
@@ -84,6 +77,7 @@ fun NowPlayingScreen(
                         repeatMode = uiState.repeatMode,
                     )
                 }
+
                 PlayerLayout.IMMERSIVE_CANVAS -> selectedLayout?.let {
                     ImmersiveCanvasLayout(
                         uiState = uiState,
@@ -105,8 +99,13 @@ fun NowPlayingScreen(
                             }
                         },
                         repeatMode = uiState.repeatMode,
+                        customBackgroundUri = customBackgroundUri,
+                        onCustomBackgroundSelected = { uri ->
+                            viewModel.onEvent(PlayerEvent.SetCustomBackground(uri))
+                        },
                     )
                 }
+
                 PlayerLayout.MINIMALIST_GROOVE -> selectedLayout?.let {
                     MinimalistGrooveLayout(
                         uiState = uiState,
@@ -130,6 +129,7 @@ fun NowPlayingScreen(
                         },
                     )
                 }
+
                 null -> {}
             }
         }

@@ -20,10 +20,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/**
- * ViewModel for the now playing screen, managing UI state related to audio playback.
- * It interacts with the PlaybackController, PlaylistRepository, and SettingsRepository.
- */
 @UnstableApi
 @HiltViewModel
 class NowPlayingViewModel @Inject constructor(
@@ -32,27 +28,24 @@ class NowPlayingViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
-    // State flows to expose to the UI
     private val _uiState = MutableStateFlow(PlaybackState())
     val uiState: StateFlow<PlaybackState> = _uiState.asStateFlow()
 
     private val _playerLayoutState = MutableStateFlow<PlayerLayout?>(null)
     val playerLayoutState: StateFlow<PlayerLayout?> = _playerLayoutState.asStateFlow()
 
+    private val _customBackgroundUri = MutableStateFlow<String?>(null)
+    val customBackgroundUri: StateFlow<String?> = _customBackgroundUri.asStateFlow()
+
     private var favoritesId: Long = -1L
 
     init {
         viewModelScope.launch {
-            // Ensure a "Favorites" playlist exists and retrieve its ID
             favoritesId = ensureFavoritesPlaylist()
-
-            // Collect playback state from the controller and update UI state
             playbackController.getPlaybackState().collect { playbackState ->
                 val isFavorite = if (playbackState.currentAudioFile != null) {
                     isSongInFavorites(playbackState.currentAudioFile!!.id)
-                } else {
-                    false
-                }
+                } else false
                 _uiState.update { currentState ->
                     playbackState.copy(
                         isLoading = if (playbackState.currentAudioFile != currentState.currentAudioFile) {
@@ -67,48 +60,40 @@ class NowPlayingViewModel @Inject constructor(
             }
         }
 
-        // Load saved player layout from settings
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val appSettings = settingsRepository.getAppSettings().first()
                 _playerLayoutState.value = appSettings.selectedPlayerLayout
-                Log.d("NowPlayingViewModel", "Player Layout initialized from settings: ${appSettings.selectedPlayerLayout}")
+                Log.d("NowPlayingViewModel", "Layout initialized: ${appSettings.selectedPlayerLayout}")
             } catch (e: Exception) {
-                Log.e("NowPlayingViewModel", "Failed to load player settings from settings: ${e.message}", e)
+                Log.e("NowPlayingViewModel", "Failed to load layout: ${e.message}", e)
                 _playerLayoutState.value = PlayerLayout.MINIMALIST_GROOVE
+            }
+        }
+
+        // Observe custom background separately so it stays live across settings changes.
+        viewModelScope.launch(Dispatchers.IO) {
+            settingsRepository.getAppSettings().collect { settings ->
+                _customBackgroundUri.value = settings.customPlayerBackgroundUri
             }
         }
     }
 
-    /**
-     * Ensures a "Favorites" playlist exists. If it doesn't, it creates one.
-     * Returns the ID of the "Favorites" playlist.
-     */
     private suspend fun ensureFavoritesPlaylist(): Long {
         val playlists = playlistRepository.getPlaylists().first()
         val fav = playlists.find { !it.isAutomatic && it.name.equals("Favorites", ignoreCase = true) }
         if (fav != null) return fav.id
-        val newPlaylist = Playlist(name = "Favorites", isAutomatic = false, type = null)
-        return playlistRepository.createPlaylist(newPlaylist)
+        return playlistRepository.createPlaylist(
+            Playlist(name = "Favorites", isAutomatic = false, type = null)
+        )
     }
 
-    /**
-     * Checks if a song is currently in the "Favorites" playlist.
-     * @param songId The ID of the audio file to check.
-     * @return `true` if the song is in "Favorites", `false` otherwise.
-     */
     private suspend fun isSongInFavorites(songId: Long): Boolean {
-        if (favoritesId == -1L) {
-            favoritesId = ensureFavoritesPlaylist()
-        }
+        if (favoritesId == -1L) favoritesId = ensureFavoritesPlaylist()
         val playlist = playlistRepository.getPlaylistById(favoritesId).first() ?: return false
         return playlist.songs.any { it.id == songId }
     }
 
-    /**
-     * Handles UI events triggered by the user on the now playing screen.
-     * @param event The [PlayerEvent] to be processed.
-     */
     fun onEvent(event: PlayerEvent) {
         viewModelScope.launch(Dispatchers.Main) {
             try {
@@ -120,24 +105,16 @@ class NowPlayingViewModel @Inject constructor(
                     is PlayerEvent.SetRepeatMode -> {
                         playbackController.setRepeatMode(event.mode)
                         settingsRepository.updateRepeatMode(event.mode)
-                        Log.d("NowPlayingViewModel", "Repeat mode set to ${event.mode}")
                     }
-                    is PlayerEvent.SetShuffleMode -> {
-                        playbackController.setShuffleMode(event.mode)
-                        Log.d("NowPlayingViewModel", "Shuffle mode set to ${event.mode}")
-                    }
+                    is PlayerEvent.SetShuffleMode -> playbackController.setShuffleMode(event.mode)
                     PlayerEvent.ReleasePlayer -> playbackController.releasePlayer()
                     is PlayerEvent.AddToFavorites -> {
-                        if (favoritesId == -1L) {
-                            favoritesId = ensureFavoritesPlaylist()
-                        }
+                        if (favoritesId == -1L) favoritesId = ensureFavoritesPlaylist()
                         playlistRepository.addSongToPlaylist(favoritesId, event.audioFile)
                         _uiState.update { it.copy(isFavorite = true) }
                     }
                     is PlayerEvent.RemoveFromFavorites -> {
-                        if (favoritesId == -1L) {
-                            favoritesId = ensureFavoritesPlaylist()
-                        }
+                        if (favoritesId == -1L) favoritesId = ensureFavoritesPlaylist()
                         playlistRepository.removeSongFromPlaylist(favoritesId, event.audioFileId)
                         _uiState.update { it.copy(isFavorite = false) }
                     }
@@ -149,15 +126,19 @@ class NowPlayingViewModel @Inject constructor(
                     }
                     is PlayerEvent.RemovedFromQueue -> playbackController.removeFromQueue(event.audioFile)
                     PlayerEvent.ToggleStopAfterCurrent -> playbackController.toggleStopAfterCurrent()
+                    is PlayerEvent.SetCustomBackground -> {
+                        // Update in-memory state immediately for zero-latency UI response,
+                        // then persist on IO dispatcher — fire-and-forget is safe here because
+                        // DataStore writes are atomic and the StateFlow is the source of truth.
+                        _customBackgroundUri.value = event.uri
+                        viewModelScope.launch(Dispatchers.IO) {
+                            settingsRepository.updateCustomPlayerBackground(event.uri)
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("NowPlayingViewModel", "Event handling failed: ${e.message}", e)
-                _uiState.update {
-                    it.copy(
-                        error = "Event handling failed: ${e.message}",
-                        isLoading = false
-                    )
-                }
+                _uiState.update { it.copy(error = "Event handling failed: ${e.message}", isLoading = false) }
             }
         }
     }

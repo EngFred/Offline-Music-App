@@ -59,4 +59,6 @@ interface SettingsRepository {
     // ── App update ────────────────────────────────────────────────────────────
     suspend fun getLastUpdateCheckTimestamp(): Long
     suspend fun updateLastUpdateCheckTimestamp(timestamp: Long)
+
+    suspend fun updateCustomPlayerBackground(uri: String?)
 }

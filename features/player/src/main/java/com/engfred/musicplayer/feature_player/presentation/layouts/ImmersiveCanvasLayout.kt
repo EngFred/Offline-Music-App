@@ -1,15 +1,21 @@
 package com.engfred.musicplayer.feature_player.presentation.layouts
 
 import android.app.Activity
+import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -29,13 +35,16 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.outlined.Wallpaper
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -81,7 +90,7 @@ import com.skydoves.landscapist.coil.CoilImage
 import kotlinx.coroutines.launch
 import com.engfred.musicplayer.core.domain.repository.RepeatMode as RM
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ImmersiveCanvasLayout(
     uiState: PlaybackState,
@@ -94,38 +103,59 @@ fun ImmersiveCanvasLayout(
     selectedLayout: PlayerLayout,
     onLayoutSelected: (PlayerLayout) -> Unit,
     playingAudio: AudioFile?,
-    repeatMode: RM
+    repeatMode: RM,
+    customBackgroundUri: String?,
+    onCustomBackgroundSelected: (String?) -> Unit,
 ) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val view = LocalView.current
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val contentResolver = context.contentResolver
 
-    // For Immersive mode, we force White content color because we will have a dark scrim over the image
     val defaultContentColor = Color.White
 
-    // Handle status bar color
     DisposableEffect(isLandscape, selectedLayout) {
         val window = (context as? Activity)?.window
         val insetsController = window?.let { WindowInsetsControllerCompat(it, view) }
-        // Always light text/icons (dark status bar) for immersive mode
         insetsController?.isAppearanceLightStatusBars = false
         onDispose { }
     }
 
-    // --- KEN BURNS ANIMATION STATE ---
-    // Slow zoom in/out effect for the background art
+    // ── Ken Burns animation ───────────────────────────────────────────────────
     val infiniteTransition = rememberInfiniteTransition(label = "ken_burns")
     val scale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = 1.2f, // Zoom in 20%
+        targetValue = 1.2f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 20000, easing = LinearEasing), // 20 seconds
+            animation = tween(durationMillis = 20_000, easing = LinearEasing),
             repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
         ),
         label = "scale"
     )
+
+    // ── Custom background picker ──────────────────────────────────────────────
+    // OpenDocument (not GetContent) returns a persistable URI that survives
+    // process death. takePersistableUriPermission locks read access permanently.
+    val backgroundPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+            onCustomBackgroundSelected(uri.toString())
+        }
+    }
+
+    // ── Background URI resolution ─────────────────────────────────────────────
+    // Priority: user-chosen custom image > current track album art > null (gradient fallback).
+    val displayBackgroundUri: Any? = when {
+        customBackgroundUri != null -> Uri.parse(customBackgroundUri)
+        else -> uiState.currentAudioFile?.albumArtUri
+    }
 
     var showQueueBottomSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -148,25 +178,19 @@ fun ImmersiveCanvasLayout(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black) // Fallback background
+                .background(Color.Black)
                 .semantics {
                     customActions = listOf(
-                        CustomAccessibilityAction(
-                            label = "Skip to previous song",
-                            action = {
-                                onEvent(PlayerEvent.SkipToPrevious); view.performHapticFeedback(
-                                HapticFeedbackConstants.KEYBOARD_TAP
-                            ); true
-                            }
-                        ),
-                        CustomAccessibilityAction(
-                            label = "Skip to next song",
-                            action = {
-                                onEvent(PlayerEvent.SkipToNext); view.performHapticFeedback(
-                                HapticFeedbackConstants.KEYBOARD_TAP
-                            ); true
-                            }
-                        )
+                        CustomAccessibilityAction("Skip to previous song") {
+                            onEvent(PlayerEvent.SkipToPrevious)
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            true
+                        },
+                        CustomAccessibilityAction("Skip to next song") {
+                            onEvent(PlayerEvent.SkipToNext)
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            true
+                        }
                     )
                 }
                 .pointerInput(Unit) {
@@ -214,75 +238,61 @@ fun ImmersiveCanvasLayout(
                     )
                 }
         ) {
-            // --- 1. FULL SCREEN ANIMATED BACKGROUND ---
-
-            // Reusable Fallback Component (Defined here to use in both else branch and failure callback)
+            // ── 1. Full-screen animated background ────────────────────────────
             val DefaultArtworkContent: @Composable () -> Unit = {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.DarkGray,
-                                    Color(0xFF121212),
-                                    Color.Black
-                                )
+                                colors = listOf(Color.DarkGray, Color(0xFF121212), Color.Black)
                             )
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Audiotrack,
-                        contentDescription = "Default Artwork",
+                        contentDescription = "Default artwork",
                         modifier = Modifier
                             .size(200.dp)
                             .graphicsLayer {
-                                // Apply the same Ken Burns breathe effect to the icon
                                 scaleX = scale
                                 scaleY = scale
-                                alpha = 0.5f // Increased alpha for better visibility
+                                alpha = 0.5f
                             },
                         tint = Color.White
                     )
                 }
             }
 
-            val albumArtUri = uiState.currentAudioFile?.albumArtUri
-            val hasValidArt = albumArtUri != null && albumArtUri.toString().isNotEmpty()
-
-            if (hasValidArt) {
+            if (displayBackgroundUri != null) {
                 CoilImage(
-                    imageModel = { albumArtUri },
+                    imageModel = { displayBackgroundUri },
                     imageOptions = ImageOptions(contentScale = ContentScale.Crop),
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
                             scaleX = scale
                             scaleY = scale
-                            alpha = 0.8f // Slight dim to blend with black background
+                            alpha = 0.8f
                         },
-                    // If Coil fails to load the image (e.g. invalid URI), show fallback
-                    failure = {
-                        DefaultArtworkContent()
-                    }
+                    failure = { DefaultArtworkContent() }
                 )
             } else {
-                // If No Art URI at all, show Default Music Note
                 DefaultArtworkContent()
             }
 
-            // --- 2. GRADIENT SCRIM (READABILITY LAYER) ---
+            // ── 2. Gradient scrim ─────────────────────────────────────────────
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color.Black.copy(alpha = 0.7f), // Darker top for Status Bar
-                                Color.Transparent,              // Clear center for Art
+                                Color.Black.copy(alpha = 0.7f),
+                                Color.Transparent,
                                 Color.Black.copy(alpha = 0.4f),
-                                Color.Black.copy(alpha = 0.95f) // Dark bottom for Controls
+                                Color.Black.copy(alpha = 0.95f)
                             ),
                             startY = 0f,
                             endY = Float.POSITIVE_INFINITY
@@ -291,7 +301,7 @@ fun ImmersiveCanvasLayout(
             )
 
             if (!isLandscape) {
-                // --- PORTRAIT UI ---
+                // ── Portrait UI ───────────────────────────────────────────────
                 TopBar(
                     onNavigateUp = onNavigateUp,
                     currentSongIndex = currentSongIndex,
@@ -309,7 +319,6 @@ fun ImmersiveCanvasLayout(
                         .statusBarsPadding()
                 )
 
-                // Bottom Controls anchored to bottom
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -319,7 +328,6 @@ fun ImmersiveCanvasLayout(
                         .navigationBarsPadding(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Info & Actions
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -337,11 +345,7 @@ fun ImmersiveCanvasLayout(
                             isFavorite = uiState.isFavorite,
                             onToggleFavorite = {
                                 uiState.currentAudioFile?.let {
-                                    if (uiState.isFavorite) onEvent(
-                                        PlayerEvent.RemoveFromFavorites(
-                                            it.id
-                                        )
-                                    )
+                                    if (uiState.isFavorite) onEvent(PlayerEvent.RemoveFromFavorites(it.id))
                                     else onEvent(PlayerEvent.AddToFavorites(it))
                                 }
                                 view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
@@ -352,51 +356,42 @@ fun ImmersiveCanvasLayout(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Action Buttons Row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Download album art
                         IconButton(onClick = {
                             uiState.currentAudioFile?.albumArtUri?.let { uri ->
                                 coroutineScope.launch {
                                     val bitmap = loadBitmapFromUri(context, uri)
                                     if (bitmap != null) {
-                                        val fname =
-                                            uiState.currentAudioFile?.title?.replace(" ", "_")
-                                                ?: "album_art"
+                                        val fname = uiState.currentAudioFile?.title
+                                            ?.replace(" ", "_") ?: "album_art"
                                         val success = saveBitmapToPictures(
-                                            context,
-                                            bitmap,
-                                            "${fname}album_art.jpg",
-                                            "image/jpeg"
+                                            context, bitmap, "${fname}_album_art.jpg", "image/jpeg"
                                         )
-                                        val msg =
-                                            if (success) "Album art saved!" else "Failed to save album art."
-                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                    } else {
                                         Toast.makeText(
                                             context,
-                                            "No album art found.",
+                                            if (success) "Album art saved!" else "Failed to save.",
                                             Toast.LENGTH_SHORT
                                         ).show()
+                                    } else {
+                                        Toast.makeText(context, "No album art found.", Toast.LENGTH_SHORT).show()
                                     }
                                 }
-                            } ?: Toast.makeText(
-                                context,
-                                "No artwork available.",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            } ?: Toast.makeText(context, "No artwork available.", Toast.LENGTH_SHORT).show()
                             view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                         }) {
                             Icon(
                                 Icons.Rounded.Download,
-                                contentDescription = "Download",
-                                tint = Color.White.copy(0.7f)
+                                contentDescription = "Download album art",
+                                tint = Color.White.copy(alpha = 0.7f)
                             )
                         }
 
+                        // Share
                         IconButton(onClick = {
                             if (currentSongIndex >= 0 && currentSongIndex < playingQueue.size) {
                                 shareAudioFile(context, playingQueue[currentSongIndex])
@@ -405,10 +400,11 @@ fun ImmersiveCanvasLayout(
                             Icon(
                                 Icons.Rounded.Share,
                                 contentDescription = "Share",
-                                tint = Color.White.copy(0.7f)
+                                tint = Color.White.copy(alpha = 0.7f)
                             )
                         }
 
+                        // Queue
                         IconButton(onClick = {
                             coroutineScope.launch { sheetState.show() }
                             showQueueBottomSheet = true
@@ -416,14 +412,49 @@ fun ImmersiveCanvasLayout(
                             Icon(
                                 Icons.AutoMirrored.Rounded.QueueMusic,
                                 contentDescription = "Queue",
-                                tint = Color.White.copy(0.7f)
+                                tint = Color.White.copy(alpha = 0.7f)
+                            )
+                        }
+
+                        // Custom background picker.
+                        // Tap  → open image picker.
+                        // Long-press → clear custom image, revert to album art.
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .combinedClickable(
+                                    onClick = { backgroundPicker.launch(arrayOf("image/*")) },
+                                    onLongClick = {
+                                        onCustomBackgroundSelected(null)
+                                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                        Toast.makeText(
+                                            context,
+                                            "Background reset to album art",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (customBackgroundUri != null)
+                                    Icons.Rounded.Wallpaper
+                                else
+                                    Icons.Outlined.Wallpaper,
+                                contentDescription = if (customBackgroundUri != null)
+                                    "Custom background active — long-press to reset"
+                                else
+                                    "Set custom background image",
+                                tint = if (customBackgroundUri != null)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    Color.White.copy(alpha = 0.7f)
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // Main Controls
                     ControlBar(
                         shuffleMode = uiState.shuffleMode,
                         isPlaying = uiState.isPlaying,
@@ -440,14 +471,13 @@ fun ImmersiveCanvasLayout(
                             onEvent(PlayerEvent.SkipToNext)
                             view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                         },
-                        onSetShuffleMode = { newMode -> onEvent(PlayerEvent.SetShuffleMode(newMode)) },
-                        onSetRepeatMode = { newMode -> onEvent(PlayerEvent.SetRepeatMode(newMode)) },
+                        onSetShuffleMode = { onEvent(PlayerEvent.SetShuffleMode(it)) },
+                        onSetRepeatMode = { onEvent(PlayerEvent.SetRepeatMode(it)) },
                         playerLayout = PlayerLayout.IMMERSIVE_CANVAS,
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Seeker
                     SeekBarSection(
                         modifier = Modifier.padding(horizontal = 8.dp),
                         sliderValue = uiState.playbackPositionMs.toFloat(),
@@ -465,8 +495,9 @@ fun ImmersiveCanvasLayout(
                         isPlaying = uiState.isPlaying
                     )
                 }
+
             } else {
-                // --- LANDSCAPE UI (CONTROLS FIXED AT BOTTOM, ALWAYS VISIBLE) ---
+                // ── Landscape UI ──────────────────────────────────────────────
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
@@ -475,13 +506,11 @@ fun ImmersiveCanvasLayout(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // LEFT SIDE: Main container (TopBar + Spacer + Controls)
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .weight(1f)
                     ) {
-                        // 1. Top Bar (Aligned to Top)
                         TopBar(
                             onNavigateUp = onNavigateUp,
                             currentSongIndex = currentSongIndex,
@@ -498,19 +527,13 @@ fun ImmersiveCanvasLayout(
                                 .statusBarsPadding()
                         )
 
-                        // 2. Spacer pushes everything below it to the bottom
-//                        Spacer(modifier = Modifier.weight(1f))
-
-                        // 3. Persistent Controls Container (Aligned to Bottom)
                         CompositionLocalProvider(LocalContentColor provides Color.White) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    // Semi-transparent background for readability
                                     .padding(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                // Info & Favorite
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -526,11 +549,7 @@ fun ImmersiveCanvasLayout(
                                         isFavorite = uiState.isFavorite,
                                         onToggleFavorite = {
                                             uiState.currentAudioFile?.let {
-                                                if (uiState.isFavorite) onEvent(
-                                                    PlayerEvent.RemoveFromFavorites(
-                                                        it.id
-                                                    )
-                                                )
+                                                if (uiState.isFavorite) onEvent(PlayerEvent.RemoveFromFavorites(it.id))
                                                 else onEvent(PlayerEvent.AddToFavorites(it))
                                             }
                                             view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
@@ -539,7 +558,6 @@ fun ImmersiveCanvasLayout(
                                     )
                                 }
 
-                                // Controls & Seeker in one Row for efficiency, or Column for standard stacked look
                                 ControlBar(
                                     shuffleMode = uiState.shuffleMode,
                                     isPlaying = uiState.isPlaying,
@@ -554,8 +572,7 @@ fun ImmersiveCanvasLayout(
                                 )
 
                                 SeekBarSection(
-                                    modifier = Modifier
-                                        .padding(start = 16.dp),
+                                    modifier = Modifier.padding(start = 16.dp),
                                     sliderValue = uiState.playbackPositionMs.toFloat(),
                                     totalDurationMs = uiState.totalDurationMs,
                                     playbackPositionMs = uiState.playbackPositionMs,
@@ -564,11 +581,7 @@ fun ImmersiveCanvasLayout(
                                         onEvent(PlayerEvent.SeekTo(it.toLong()))
                                     },
                                     onSliderValueChangeFinished = {
-                                        onEvent(
-                                            PlayerEvent.SetSeeking(
-                                                false
-                                            )
-                                        )
+                                        onEvent(PlayerEvent.SetSeeking(false))
                                     },
                                     playerLayout = PlayerLayout.IMMERSIVE_CANVAS,
                                     isPlaying = uiState.isPlaying
@@ -577,12 +590,11 @@ fun ImmersiveCanvasLayout(
                         }
                     }
 
-                    // RIGHT SIDE: Queue
                     Column(
                         modifier = Modifier
                             .weight(0.8f)
                             .fillMaxHeight()
-                            .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
+                            .padding(8.dp)
                     ) {
                         PlayingQueueSection(
                             modifier = Modifier
