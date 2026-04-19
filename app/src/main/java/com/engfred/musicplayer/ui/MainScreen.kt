@@ -144,7 +144,7 @@ fun MainScreen(
                     .background(MaterialTheme.colorScheme.surface)
             ) {
                 if (isDjMixActive) {
-                    DjMixBar(
+                    AutoMixBar(
                         onClick = onNavigateToDjMix,
                         modifier = Modifier.fillMaxWidth()
                     )
