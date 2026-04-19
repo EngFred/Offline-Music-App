@@ -1,4 +1,4 @@
-package com.engfred.musicplayer.feature_player.data.service.eq
+package com.engfred.musicplayer.core.data.audio.eq
 
 import kotlin.math.cos
 import kotlin.math.pow

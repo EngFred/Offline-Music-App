@@ -1,4 +1,4 @@
-package com.engfred.musicplayer.feature_player.data.service.eq
+package com.engfred.musicplayer.core.data.audio.eq
 
 import androidx.annotation.OptIn
 import androidx.media3.common.C
@@ -39,7 +39,6 @@ import javax.inject.Singleton
  *  DefaultRenderersFactory.buildAudioSink → DefaultAudioSink.setAudioProcessors.
  */
 @UnstableApi
-@Singleton
 class BandEqAudioProcessor @Inject constructor() : BaseAudioProcessor() {
 
     companion object {

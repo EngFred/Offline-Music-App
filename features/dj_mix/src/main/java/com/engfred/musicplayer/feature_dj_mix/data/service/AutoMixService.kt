@@ -17,6 +17,8 @@ import androidx.core.app.NotificationCompat
 import androidx.media3.common.util.UnstableApi
 import com.engfred.musicplayer.core.domain.ActivePlayerRegistry
 import com.engfred.musicplayer.core.domain.model.AudioFile
+import com.engfred.musicplayer.core.domain.model.AudioPreset
+import com.engfred.musicplayer.core.domain.repository.SettingsRepository
 import com.engfred.musicplayer.feature_dj_mix.data.crossfade.CrossfadeEngine
 import com.engfred.musicplayer.feature_dj_mix.data.sampler.SamplerEngine
 import com.engfred.musicplayer.feature_dj_mix.domain.DjSessionManager
@@ -33,14 +35,23 @@ import javax.inject.Inject
 /**
  * Foreground Service for the DJ Mix feature.
  *
+ * ── EQ Preset Forwarding ─────────────────────────────────────────────────────
+ * [observeAppSettings] watches the same [SettingsRepository.getAppSettings] flow
+ * that [PlaybackService] already observes for [AudioPreset] changes, and forwards
+ * the current preset to [CrossfadeEngine.applyEqPreset]. This gives the DJ mix
+ * the same equaliser the user set in Settings — one global EQ, no separate
+ * "DJ EQ" preference needed.
+ *
+ * The observation is kept in this service (rather than inside CrossfadeEngine)
+ * for consistency with how every other engine property is wired — settings
+ * ownership lives in the service layer, not the engine.
+ *
  * ── Race condition fix (ActivePlayerRegistry) ────────────────────────────────
  * Previously releaseAndStop() called activePlayerRegistry.onDjMixStopped(),
  * which was the same as acknowledgeDjMixStopped() but named incorrectly. The
  * important change is ORDER: acknowledgeDjMixStopped() is now called AFTER the
  * engine is released, not before. This ensures PlaybackControllerImpl only
  * resumes un-suppressed playback once audio focus is genuinely free.
- *
- * All other fix commentary from the previous version is preserved below.
  *
  * ── Notification ghost bug fix ────────────────────────────────────────────────
  * serviceScope is cancelled at the TOP of releaseAndStop() so observeEngineState()
@@ -54,6 +65,7 @@ class AutoMixService : Service() {
     @Inject lateinit var djSessionManager: DjSessionManager
     @Inject lateinit var activePlayerRegistry: ActivePlayerRegistry
     @Inject lateinit var samplerEngine: SamplerEngine
+    @Inject lateinit var settingsRepository: SettingsRepository
 
     private lateinit var mediaSession: MediaSessionCompat
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -83,6 +95,7 @@ class AutoMixService : Service() {
         observeNextTrackRequests()
         observePrebufferRequests()
         observeEngineSettings()
+        observeAppSettings()
         observeStopSignal()
         samplerEngine.initialize()
         observeFirstPlay()
@@ -185,7 +198,7 @@ class AutoMixService : Service() {
     }
 
     /**
-     * Mirrors CrossfadeEngine settings from the persisted store.
+     * Mirrors CrossfadeEngine settings from the DJ-specific persisted store.
      *
      * This observer is intentionally separate from MixStudioViewModel's
      * observeSettings(). The ViewModel is destroyed when the UI goes to
@@ -207,6 +220,30 @@ class AutoMixService : Service() {
                 crossfadeEngine.cuePointOffsetMs    = settings.cuePointOffsetSec * 1000L
                 samplerEngine.isAutoSamplerEnabled  = settings.autoSamplerEnabled && settings.isRealMixMode
                 samplerEngine.sampleVolume          = settings.sampleVolume
+            }
+        }
+    }
+
+    /**
+     * Forwards the global [AppSettings.audioPreset] to [CrossfadeEngine.applyEqPreset].
+     *
+     * This is the DJ-side mirror of the equivalent block in [PlaybackService] —
+     * both observe the same settings flow and call [setPreset] on their respective
+     * processors. The result is one global EQ that applies to all audio, whether
+     * the normal player or the DJ mix is active.
+     *
+     * Kept here (rather than inside CrossfadeEngine) so all settings-to-engine
+     * wiring lives in the service layer, consistent with the rest of the codebase.
+     */
+    private fun observeAppSettings() {
+        serviceScope.launch {
+            var lastPreset: AudioPreset? = null
+            settingsRepository.getAppSettings().collect { appSettings ->
+                if (appSettings.audioPreset != lastPreset) {
+                    lastPreset = appSettings.audioPreset  // ✅
+                    crossfadeEngine.applyEqPreset(appSettings.audioPreset)
+                    Log.d(TAG, "[EQ] Preset forwarded to DJ engine: ${appSettings.audioPreset}")
+                }
             }
         }
     }

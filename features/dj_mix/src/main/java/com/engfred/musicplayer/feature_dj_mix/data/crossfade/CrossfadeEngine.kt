@@ -18,7 +18,9 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import com.engfred.musicplayer.core.data.audio.eq.BandEqAudioProcessor
 import com.engfred.musicplayer.core.domain.model.AudioFile
+import com.engfred.musicplayer.core.domain.model.AudioPreset
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +52,23 @@ import kotlin.math.sin
  * ALL ExoPlayer method calls (play, pause, getAudioSessionId, etc.) MUST be executed
  * inside `withContext(Dispatchers.Main)`. Calling them on a background coroutine
  * throws IllegalStateException and crashes the app.
+ *
+ * ── EQ Architecture ───────────────────────────────────────────────────────────
+ *
+ * The global EQ preset (selected by the user in Settings) applies to ALL audio
+ * output — both the normal player and the DJ mix. This mirrors the behaviour of
+ * professional audio apps (Spotify, Apple Music, Poweramp).
+ *
+ * Each of the two ExoPlayer instances in this engine owns its own
+ * [BandEqAudioProcessor] instance (eqProcessorA / eqProcessorB). Both are
+ * created inside [initialize] with no constructor dependencies. When the user
+ * changes the preset, [AutoMixService] calls [applyEqPreset], which forwards
+ * the new preset to both processors simultaneously.
+ *
+ * Why two instances? Because each ExoPlayer runs its own audio thread with its
+ * own render pipeline. Sharing one [BandEqAudioProcessor] across two pipelines
+ * would cause filter-state corruption (the delay elements w1/w2 written by one
+ * thread would be immediately clobbered by the other).
  *
  * ── Cue Point Guard (moved here from BpmAnalyzer) ─────────────────────────────
  *
@@ -135,6 +154,21 @@ class CrossfadeEngine @Inject constructor(
     private var playerB: ExoPlayer? = null
     private var waveformProcessorA: WaveformCaptureAudioProcessor? = null
     private var waveformProcessorB: WaveformCaptureAudioProcessor? = null
+
+    /**
+     * Per-player EQ processors.
+     *
+     * Each ExoPlayer instance gets its own [BandEqAudioProcessor] because the
+     * audio-thread filter state (delay elements) must not be shared across
+     * independent render pipelines. Both processors are kept in sync by
+     * [applyEqPreset], which is called by [AutoMixService] whenever the user
+     * changes the global EQ preset in Settings.
+     *
+     * Created fresh in [initialize]; reset and nulled in [release] so that a
+     * re-initialize after a release starts from a clean slate.
+     */
+    private var eqProcessorA: BandEqAudioProcessor? = null
+    private var eqProcessorB: BandEqAudioProcessor? = null
 
     @Volatile private var isPrimaryA = true
 
@@ -299,6 +333,7 @@ class CrossfadeEngine @Inject constructor(
             isPrebufferingInProgress = false
             playerA = null; playerB = null
             waveformProcessorA = null; waveformProcessorB = null
+            eqProcessorA = null; eqProcessorB = null
             _state.value             = CrossfadeEngineState()
             waveformSmoothed.fill(0f)
             _nextTrackRequest.resetReplayCache()
@@ -309,6 +344,11 @@ class CrossfadeEngine @Inject constructor(
 
         waveformProcessorA = WaveformCaptureAudioProcessor()
         waveformProcessorB = WaveformCaptureAudioProcessor()
+
+        // Create one EQ processor per player. These are independent instances so
+        // each player's audio-thread filter state (delay elements) stays isolated.
+        eqProcessorA = BandEqAudioProcessor()
+        eqProcessorB = BandEqAudioProcessor()
 
         val attrs = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -322,14 +362,35 @@ class CrossfadeEngine @Inject constructor(
         Log.i(TAG, "[LIFECYCLE] CrossfadeEngine Initialized")
     }
 
+    /**
+     * Applies the global EQ preset to both ExoPlayer pipelines simultaneously.
+     *
+     * Called by [AutoMixService] whenever [AppSettings.audioPreset] changes —
+     * exactly the same mechanism used by [PlaybackService] for the normal player.
+     * This ensures the user's EQ choice is respected everywhere without any
+     * separate "DJ EQ" setting.
+     */
+    fun applyEqPreset(preset: AudioPreset) {
+        eqProcessorA?.setPreset(preset)
+        eqProcessorB?.setPreset(preset)
+        Log.d(TAG, "[EQ] Preset applied to both DJ players: $preset")
+    }
+
     @OptIn(UnstableApi::class)
     private fun buildExoPlayer(
         attrs: AudioAttributes,
         handleAudioFocus: Boolean,
         isPlayerA: Boolean
     ): ExoPlayer {
+        // Each player gets its waveform processor AND its own EQ processor.
+        // Order matters: EQ runs first (signal shaping), then waveform capture
+        // reads the already-equalised signal — matching what the user actually hears.
+        val eqProcessor       = if (isPlayerA) eqProcessorA       else eqProcessorB
+        val waveformProcessor = if (isPlayerA) waveformProcessorA else waveformProcessorB
+
         val processors: Array<AudioProcessor> = listOfNotNull(
-            if (isPlayerA) waveformProcessorA else waveformProcessorB
+            eqProcessor,
+            waveformProcessor
         ).toTypedArray()
 
         val renderersFactory = object : DefaultRenderersFactory(context) {
@@ -372,6 +433,9 @@ class CrossfadeEngine @Inject constructor(
             } finally {
                 waveformProcessorA?.reset(); waveformProcessorA = null
                 waveformProcessorB?.reset(); waveformProcessorB = null
+                // EQ processors have no native resources; just null the references.
+                eqProcessorA = null
+                eqProcessorB = null
                 isInitialized = false
                 _state.update { it.copy(waveform = emptyList()) }
             }

@@ -31,7 +31,7 @@ import com.engfred.musicplayer.core.domain.repository.PlaybackController
 import com.engfred.musicplayer.core.domain.repository.RepeatMode
 import com.engfred.musicplayer.core.domain.repository.SettingsRepository
 import com.engfred.musicplayer.core.util.sortAudioFiles
-import com.engfred.musicplayer.feature_player.data.service.eq.BandEqAudioProcessor
+import com.engfred.musicplayer.core.data.audio.eq.BandEqAudioProcessor
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
