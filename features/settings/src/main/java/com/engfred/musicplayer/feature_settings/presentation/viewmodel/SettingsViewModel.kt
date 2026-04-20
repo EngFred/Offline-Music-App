@@ -62,13 +62,33 @@ class SettingsViewModel @Inject constructor(
             _uiState.update { it.copy(audioFileTypeFilter = filter) }
         }.launchIn(viewModelScope)
 
-        // Silently check for updates when Settings opens
+        // Check for updates every time Settings is opened.
+        // Now that CheckForUpdateUseCase throws on network/API errors (instead of
+        // returning null), we can reliably distinguish failure from "up-to-date",
+        // and surface errors in uiState rather than silently dropping them.
+        checkForUpdate()
+    }
+
+    /**
+     * Runs the update check and updates [uiState] accordingly.
+     * Called automatically on init; can also be triggered manually (e.g. a
+     * "retry" button in the error banner) without recreating the ViewModel.
+     */
+    fun checkForUpdate() {
         viewModelScope.launch {
             try {
                 val info = checkForUpdateUseCase(versionName)
+                // null  → API call succeeded, app is genuinely up-to-date
+                // info  → API call succeeded, an update is available → show banner
                 _uiState.update { it.copy(updateInfo = info) }
+                Log.w("SettingsViewModel", "Update available}")
             } catch (e: Exception) {
-                // Swallow — background update checks must never surface errors to the user
+                // The check itself failed (network error, GitHub API error, etc.).
+                // Log it so it shows up in Logcat for debugging, but don't surface
+                // it in the error banner — it's not a user-actionable settings error.
+                Log.w("SettingsViewModel", "Update check failed: ${e.message}")
+                // Leave updateInfo as whatever it was — don't reset it to null,
+                // so a previously discovered update banner stays visible.
             }
         }
     }
@@ -127,7 +147,7 @@ class SettingsViewModel @Inject constructor(
                                     appContext.packageName,
                                     "com.engfred.musicplayer.widget.PlayerWidgetProvider"
                                 )
-                                action  = "com.engfred.musicplayer.ACTION_UPDATE_WIDGET"
+                                action    = "com.engfred.musicplayer.ACTION_UPDATE_WIDGET"
                                 `package` = appContext.packageName
                             }
                             appContext.sendBroadcast(intent)

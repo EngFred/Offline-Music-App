@@ -176,14 +176,23 @@ class MainActivity : ComponentActivity() {
                 val now       = System.currentTimeMillis()
                 val oneDayMs  = 24L * 60 * 60 * 1000
                 if (now - lastCheck > oneDayMs) {
+                    // checkForUpdateUseCase now THROWS on network/API errors instead of
+                    // returning null, so we only reach the timestamp-save line when the
+                    // call genuinely completes (update found OR app is up-to-date).
                     val info = checkForUpdateUseCase(BuildConfig.VERSION_NAME)
+
+                    // Save timestamp ONLY on a successful API response so a transient
+                    // network failure doesn't block retries for the next 24 hours.
                     settingsRepository.updateLastUpdateCheckTimestamp(now)
+
                     if (info != null) {
                         updateInfo       = info
                         showUpdateDialog = true
                     }
                 }
             } catch (t: Throwable) {
+                // Network or API failure — do NOT update the timestamp so the next
+                // launch retries the check rather than silently skipping it.
                 Log.w(TAG, "On-launch update check failed: ${t.message}")
             }
         }

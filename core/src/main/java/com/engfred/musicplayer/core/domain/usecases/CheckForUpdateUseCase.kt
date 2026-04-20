@@ -18,30 +18,39 @@ class CheckForUpdateUseCase @Inject constructor() {
 
     /**
      * Hits the GitHub Releases API and returns [UpdateInfo] if a newer version
-     * exists, or null if the app is up-to-date or the check fails.
+     * exists, or **null** if the app is genuinely up-to-date.
+     *
+     * Unlike before, network / API errors are **not** silently swallowed here —
+     * they propagate as exceptions so callers can distinguish between:
+     *   • `null`      → check succeeded, app is up-to-date
+     *   • `UpdateInfo` → check succeeded, update is available
+     *   • `Exception` → check failed (network error, API error, etc.)
+     *
+     * This lets callers decide whether to retry or show an error, and prevents
+     * the 24-hour gate in MainActivity from locking out retries after a failure.
      *
      * [currentVersion] should be passed as BuildConfig.VERSION_NAME by callers
      * so this use-case stays BuildConfig-free and fully testable.
      */
     suspend operator fun invoke(currentVersion: String): UpdateInfo? =
         withContext(Dispatchers.IO) {
-            try {
-                val url = URL("https://api.github.com/repos/$OWNER/$REPO/releases/latest")
-                val connection = (url.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    setRequestProperty("Accept", "application/vnd.github+json")
-                    connectTimeout = 10_000
-                    readTimeout    = 10_000
-                }
+            val url = URL("https://api.github.com/repos/$OWNER/$REPO/releases/latest")
+            val connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("Accept", "application/vnd.github+json")
+                connectTimeout = 10_000
+                readTimeout    = 10_000
+            }
 
-                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                    Log.w(TAG, "GitHub API returned ${connection.responseCode}")
-                    connection.disconnect()
-                    return@withContext null
+            try {
+                val responseCode = connection.responseCode
+                if (responseCode != HttpURLConnection.HTTP_OK) {
+                    // Throw so callers know the check genuinely failed — not the
+                    // same as "no update available" (which returns null cleanly).
+                    throw Exception("GitHub API returned HTTP $responseCode")
                 }
 
                 val body = connection.inputStream.bufferedReader().readText()
-                connection.disconnect()
 
                 val json         = JSONObject(body)
                 val tagName      = json.getString("tag_name").removePrefix("v")
@@ -66,9 +75,8 @@ class CheckForUpdateUseCase @Inject constructor() {
                     Log.d(TAG, "App is up-to-date ($currentVersion)")
                     null
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Update check failed: ${e.message}")
-                null
+            } finally {
+                connection.disconnect()
             }
         }
 
@@ -91,9 +99,9 @@ class CheckForUpdateUseCase @Inject constructor() {
         val deviceAbi = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"
         Log.d(TAG, "Picking APK for device ABI: $deviceAbi")
 
-        var exactMatch:    String? = null
-        var armeabiMatch:  String? = null
-        var anyApk:        String? = null
+        var exactMatch:   String? = null
+        var armeabiMatch: String? = null
+        var anyApk:       String? = null
 
         for (i in 0 until assets.length()) {
             val asset = assets.getJSONObject(i)
