@@ -2,9 +2,11 @@ package com.engfred.musicplayer.feature_settings.presentation.screens
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,15 +20,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.Brush
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.HourglassTop
+import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.HorizontalDivider
@@ -57,6 +62,64 @@ import com.engfred.musicplayer.feature_settings.presentation.components.AppVersi
 import com.engfred.musicplayer.feature_settings.presentation.components.SettingsSection
 import com.engfred.musicplayer.feature_settings.presentation.viewmodel.SettingsEvent
 import com.engfred.musicplayer.feature_settings.presentation.viewmodel.SettingsViewModel
+
+// ── Developer App catalogue ───────────────────────────────────────────────────
+// Replace the placeholder entries below with your real app names, descriptions,
+// and GitHub repo paths (everything after "https://github.com/EngFred/").
+// Users are taken to the GitHub releases page for each app so they can download
+// the latest APK directly — the same flow your in-app update checker uses.
+//
+// Format: AppInfo(emoji, "Display Name", "Short tagline", "RepoName")
+// ─────────────────────────────────────────────────────────────────────────────
+private val DEVELOPER_APPS = listOf(
+    AppInfo(
+        emoji       = "🎵",
+        name        = "Offline Music Player",
+        description = "The app you are using right now.",
+        repoSlug    = "Offline-Music-App"
+    ),
+    // ── TODO: replace the four entries below with your real repos ─────────────
+    AppInfo(
+        emoji       = "📖",
+        name        = "App Two",
+        description = "Short description of what this app does.",
+        repoSlug    = "your-repo-name-here"
+    ),
+    AppInfo(
+        emoji       = "🏋️",
+        name        = "App Three",
+        description = "Short description of what this app does.",
+        repoSlug    = "your-repo-name-here"
+    ),
+    AppInfo(
+        emoji       = "🌍",
+        name        = "App Four",
+        description = "Short description of what this app does.",
+        repoSlug    = "your-repo-name-here"
+    ),
+    AppInfo(
+        emoji       = "🔒",
+        name        = "App Five",
+        description = "Short description of what this app does.",
+        repoSlug    = "your-repo-name-here"
+    ),
+)
+
+/** Lightweight model for the "More Apps" catalogue. */
+data class AppInfo(
+    val emoji: String,
+    val name: String,
+    val description: String,
+    /**
+     * The repository slug (the part after "https://github.com/EngFred/").
+     * Used to build the GitHub releases URL the user is sent to on tap.
+     */
+    val repoSlug: String
+) {
+    /** Full URL to the latest release of this app on GitHub. */
+    val releasesUrl: String
+        get() = "https://github.com/EngFred/$repoSlug/releases/latest"
+}
 
 @Composable
 fun SettingsScreen(
@@ -110,7 +173,7 @@ fun SettingsScreen(
                 }
             }
 
-            // Theme Section
+            // ── Theme Section ─────────────────────────────────────────────────
             SettingsSection(
                 title = "App Theme",
                 subtitle = "Choose a look that suits you",
@@ -126,7 +189,7 @@ fun SettingsScreen(
                 modifier = Modifier.padding(horizontal = 24.dp)
             )
 
-            // Preferences / Toggles Section
+            // ── Preferences / Toggles Section ─────────────────────────────────
             Column(modifier = Modifier.fillMaxWidth()) {
                 FlatToggleRow(
                     title = "Audio File Types",
@@ -173,7 +236,7 @@ fun SettingsScreen(
                 modifier = Modifier.padding(horizontal = 24.dp)
             )
 
-            // Audio Preset Section
+            // ── Audio Preset Section ──────────────────────────────────────────
             SettingsSection(
                 title = "Audio Preset",
                 subtitle = "Select an equalizer preset for playback",
@@ -183,6 +246,14 @@ fun SettingsScreen(
                 displayName = { it.name.replace("_", " ").lowercase().replaceFirstChar { c -> c.titlecase() } },
                 onSelect = { viewModel.onEvent(SettingsEvent.UpdateAudioPreset(it)) }
             )
+
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
+
+            // ── More Apps from the Developer ──────────────────────────────────
+            MoreAppsSection(apps = DEVELOPER_APPS)
 
             Spacer(modifier = Modifier.weight(1f, fill = false).height(32.dp))
 
@@ -194,6 +265,138 @@ fun SettingsScreen(
         }
     }
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MORE APPS SECTION
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * "More apps from the developer" section.
+ *
+ * Each row taps through to [AppInfo.releasesUrl] — the GitHub releases page
+ * for that app — so users can download the latest APK directly, mirroring the
+ * same flow used by the in-app update checker.
+ *
+ * The section header uses the same icon + title + subtitle layout as
+ * [SettingsSection] to keep the page visually consistent.
+ */
+@Composable
+private fun MoreAppsSection(apps: List<AppInfo>) {
+    val context = LocalContext.current
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+
+        // ── Section header ────────────────────────────────────────────────────
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Apps,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = "More Apps from the Developer",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "Check out other apps by Engineer Fred",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // ── App rows ──────────────────────────────────────────────────────────
+        apps.forEach { app ->
+            AppRow(
+                app = app,
+                onClick = {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(app.releasesUrl))
+                    context.startActivity(intent)
+                }
+            )
+        }
+    }
+}
+
+/**
+ * Single app row inside [MoreAppsSection].
+ *
+ * Layout mirrors [SettingsActionRow] so the section feels native to the rest
+ * of the settings page, with the addition of:
+ *  • A circular emoji badge on the left (no external images needed).
+ *  • An [OpenInNew] icon on the right to signal the link opens outside the app.
+ */
+@Composable
+private fun AppRow(
+    app: AppInfo,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 24.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Circular emoji badge — no network call, no image loading
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = app.emoji,
+                style = MaterialTheme.typography.titleLarge
+            )
+        }
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = app.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = app.description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 18.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        // "Opens externally" icon — more descriptive than a plain chevron
+        Icon(
+            imageVector = Icons.Rounded.OpenInNew,
+            contentDescription = "View on GitHub",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp)
+        )
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// EXISTING PRIVATE COMPOSABLES (unchanged)
+// ═════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun UpdateAvailableBanner(
