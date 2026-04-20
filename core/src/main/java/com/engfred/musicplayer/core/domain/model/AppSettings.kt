@@ -49,6 +49,7 @@ data class AppSettings(
      * Default: 15 s (matches the previous hardcoded default).
      */
     val cuePointOffsetSec: Int        = 15,
+    val isDualDeckMode: Boolean       = false,
 
     // ── Added Filter State ─────────────────────────────────────────────────────
     val djMixPlaylistFilter: DjMixPlaylistFilter = DjMixPlaylistFilter.ALL,

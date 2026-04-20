@@ -47,6 +47,8 @@ interface SettingsRepository {
      */
     suspend fun updateDjCuePointOffset(sec: Int)
 
+    suspend fun updateDjDualDeckMode(enabled: Boolean)
+
     // ── Mix of the Day ────────────────────────────────────────────────────────
     suspend fun getLastMixOfTheDayTimestamp(): Long
     suspend fun updateLastMixOfTheDayTimestamp(timestamp: Long)

@@ -208,7 +208,7 @@ private fun DualDeckToggleRow(
             Spacer(Modifier.width(12.dp))
             Column {
                 Text(
-                    text       = "DJ Dual Deck View",
+                    text       = "Dual Deck View",
                     style      = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color      = MaterialTheme.colorScheme.onSurface

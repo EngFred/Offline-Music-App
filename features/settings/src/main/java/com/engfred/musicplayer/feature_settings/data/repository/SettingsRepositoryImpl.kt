@@ -62,6 +62,7 @@ class SettingsRepositoryImpl @Inject constructor(
         private val DJ_CUE_POINT_OFFSET_SEC = intPreferencesKey("dj_cue_point_offset_sec")
 
         private val DJ_CROSSFADE_DURATION_SEC = intPreferencesKey("dj_crossfade_duration_sec")
+        private val DJ_DUAL_DECK_MODE         = booleanPreferencesKey("dj_dual_deck_mode")
 
         private val LAST_MIX_OF_THE_DAY_TIMESTAMP     = longPreferencesKey("last_mix_of_the_day_timestamp")
         private val DJ_MIX_PLAYLIST_FILTER            = stringPreferencesKey("dj_mix_playlist_filter")
@@ -119,6 +120,7 @@ class SettingsRepositoryImpl @Inject constructor(
                     sampleVolume               = preferences[DJ_SAMPLE_VOLUME] ?: 1f,
                     cuePointOffsetSec          = preferences[DJ_CUE_POINT_OFFSET_SEC] ?: 15,
                     crossfadeDurationSec       = preferences[DJ_CROSSFADE_DURATION_SEC] ?: 5,
+                    isDualDeckMode             = preferences[DJ_DUAL_DECK_MODE] ?: false,
                     mixOfTheDayFilterByDuration = preferences[MIX_OF_THE_DAY_FILTER_BY_DURATION] ?: false,
                     customPlayerBackgroundUri = preferences[CUSTOM_PLAYER_BACKGROUND_URI],
                 )
@@ -238,7 +240,6 @@ class SettingsRepositoryImpl @Inject constructor(
         dataStore.edit { it[DJ_REAL_MIX_MODE] = enabled }
     }
 
-    // Add new override at the bottom of the class:
     override suspend fun updateDjCrossfadeDuration(sec: Int) {
         dataStore.edit { it[DJ_CROSSFADE_DURATION_SEC] = sec }
     }
@@ -253,6 +254,10 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun updateDjCuePointOffset(sec: Int) {
         dataStore.edit { it[DJ_CUE_POINT_OFFSET_SEC] = sec }
+    }
+
+    override suspend fun updateDjDualDeckMode(enabled: Boolean) {
+        dataStore.edit { it[DJ_DUAL_DECK_MODE] = enabled }
     }
 
     override suspend fun getLastMixOfTheDayTimestamp(): Long {

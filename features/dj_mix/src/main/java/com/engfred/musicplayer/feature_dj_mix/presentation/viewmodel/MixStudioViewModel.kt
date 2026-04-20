@@ -53,7 +53,7 @@ private const val TAG = "MixStudioViewModel"
  * 1. User selects a new cue point in the UI → dispatches [MixStudioEvent.UpdateCuePointOffset].
  * 2. ViewModel updates [CrossfadeEngine.cuePointOffsetMs] immediately (no re-analysis).
  * 3. Current track's beat grid is re-synced via [syncBeatGridForTrack] so the
- *    ongoing mix-trigger recalculates with the new offset.
+ * ongoing mix-trigger recalculates with the new offset.
  * 4. Setting is persisted via [SettingsRepository.updateDjCuePointOffset].
  *
  * On app restart, [observeSettings] reads the persisted value and pushes it into
@@ -75,8 +75,8 @@ private const val TAG = "MixStudioViewModel"
  * ── Deck layout toggle ────────────────────────────────────────────────────────
  * [MixStudioEvent.ToggleDeckLayout] flips [MixStudioUiState.isDualDeckMode] between
  * single-deck (classic NowPlayingSection) and dual-deck (DualDeckSection with
- * animated crossfader) layouts. The preference is session-only and resets to
- * false on next screen creation — single deck is the default entry point.
+ * animated crossfader) layouts. The preference is persisted via DataStore so
+ * the user's layout choice remains across app restarts.
  */
 @UnstableApi
 @HiltViewModel
@@ -187,6 +187,9 @@ class MixStudioViewModel @Inject constructor(
             MixStudioEvent.ToggleDeckLayout -> {
                 val newMode = !_uiState.value.isDualDeckMode
                 _uiState.update { it.copy(isDualDeckMode = newMode) }
+                viewModelScope.launch {
+                    settingsRepository.updateDjDualDeckMode(newMode)
+                }
                 Log.d(TAG, "[UI] Deck layout → ${if (newMode) "DUAL DECK" else "SINGLE DECK"}")
             }
 
@@ -358,7 +361,10 @@ class MixStudioViewModel @Inject constructor(
                 samplerEngine.sampleVolume          = newSettings.sampleVolume
 
                 val toleranceChanged = _uiState.value.settings.bpmTolerance != newSettings.bpmTolerance
-                _uiState.update { it.copy(settings = newSettings) }
+                _uiState.update { it.copy(
+                    settings = newSettings,
+                    isDualDeckMode = appSettings.isDualDeckMode // Read persisted deck mode
+                ) }
                 djSessionManager.updateSettings(newSettings)
                 if (toleranceChanged) rebuildSmartQueue()
             }
@@ -491,10 +497,10 @@ class MixStudioViewModel @Inject constructor(
      * guard application; do NOT pre-guard the value here.
      *
      * This is called:
-     *   • When a new track starts playing (from observeCrossfadeEngineState).
-     *   • When the cue-point setting changes (from onEvent/UpdateCuePointOffset)
-     *     so the mix-trigger formula recalculates immediately.
-     *   • When a track's BPM result arrives for the first time (observeBpmCache).
+     * • When a new track starts playing (from observeCrossfadeEngineState).
+     * • When the cue-point setting changes (from onEvent/UpdateCuePointOffset)
+     * so the mix-trigger formula recalculates immediately.
+     * • When a track's BPM result arrives for the first time (observeBpmCache).
      */
     private fun syncBeatGridForTrack(trackId: Long) {
         val bpmInfo = _uiState.value.bpmCache[trackId] ?: return
