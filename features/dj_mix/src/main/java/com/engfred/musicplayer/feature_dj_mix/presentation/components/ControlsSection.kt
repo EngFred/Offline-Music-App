@@ -25,6 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.ViewColumn
+import androidx.compose.material.icons.rounded.ViewStream
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +58,9 @@ fun ControlsSection(
     onSampleVolumeChanged: (Float) -> Unit,
     onCuePointOffsetChanged: (Int) -> Unit,
     onCrossfadeDurationChanged: (Int) -> Unit,
+    // ── NEW: Deck layout toggle (moved from TopAppBar) ─────────────────────────
+    isDualDeckMode: Boolean = false,
+    onToggleDeckLayout: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -63,9 +68,19 @@ fun ControlsSection(
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
 
+        // ── NEW: Dual Deck View toggle (top of settings, always visible) ───────
+        DualDeckToggleRow(
+            isDualDeckMode   = isDualDeckMode,
+            onToggle         = onToggleDeckLayout
+        )
+
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+        )
+
         // ── Crossfade Duration — always visible, affects both modes ───────────
         CrossfadeDurationSlider(
-            durationSec = crossfadeDurationSec,
+            durationSec   = crossfadeDurationSec,
             onValueChange = onCrossfadeDurationChanged
         )
 
@@ -75,8 +90,8 @@ fun ControlsSection(
 
         // ── Auto-Mix Mode toggle ──────────────────────────────────────────────
         PremiumToggleRow(
-            title    = "Auto-Mix Mode",
-            subtitle = "Starts the next track before this one ends",
+            title           = "Auto-Mix Mode",
+            subtitle        = "Starts the next track before this one ends",
             isChecked       = isRealMixMode,
             onCheckedChange = onToggleRealMixMode
         )
@@ -116,12 +131,12 @@ fun ControlsSection(
 
                 if (autoSamplerEnabled) {
                     SliderWithLabel(
-                        label        = "Effects Volume",
-                        valueLabel   = "${(sampleVolume * 100).roundToInt()}%",
-                        value        = sampleVolume,
-                        valueRange   = 0f..1f,
-                        steps        = 19,
-                        description  = "How loud the transition effects are relative to the music",
+                        label         = "Effects Volume",
+                        valueLabel    = "${(sampleVolume * 100).roundToInt()}%",
+                        value         = sampleVolume,
+                        valueRange    = 0f..1f,
+                        steps         = 19,
+                        description   = "How loud the transition effects are relative to the music",
                         onValueChange = onSampleVolumeChanged
                     )
                 }
@@ -131,19 +146,100 @@ fun ControlsSection(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Crossfade Duration Slider
+//  NEW: Dual Deck View Toggle Row
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Slider controlling the base crossfade duration (3–15 s).
- *
- * The engine multiplies this by a strategy factor:
- *   HARMONIC × 0.80 → e.g. 10 s base = 8 s effective
- *   WIDE_TRANSITION × 1.60 → e.g. 9 s base = 14 s effective (capped)
- *
- * Rendered always (not gated on isRealMixMode) because continuous-play
- * crossfade at track end also uses this duration.
+ * A rich toggle row for enabling/disabling the Dual Deck (Virtual-DJ) layout.
+ * Shows the relevant icon and a description of what each mode looks like.
+ * Moved here from the TopAppBar so it's discoverable inside Settings.
  */
+@Composable
+private fun DualDeckToggleRow(
+    isDualDeckMode: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier              = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (isDualDeckMode)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                else
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f)
+            )
+            .border(
+                width = 1.dp,
+                color = if (isDualDeckMode)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
+                else
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
+                shape = RoundedCornerShape(10.dp)
+            )
+            .clickable { onToggle() }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment     = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+            // Icon reflecting current mode
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(
+                        if (isDualDeckMode)
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        else
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f)
+                    )
+            ) {
+                Icon(
+                    imageVector        = if (isDualDeckMode) Icons.Rounded.ViewStream
+                    else Icons.Rounded.ViewColumn,
+                    contentDescription = null,
+                    tint               = if (isDualDeckMode) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier           = Modifier.size(22.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(
+                    text       = "DJ Dual Deck View",
+                    style      = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color      = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text  = if (isDualDeckMode)
+                        "Two decks + VU meters + crossfader — Virtual DJ style"
+                    else
+                        "Classic single-deck view with vinyl & waveform",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                )
+            }
+        }
+        Switch(
+            checked         = isDualDeckMode,
+            onCheckedChange = { onToggle() },
+            colors          = SwitchDefaults.colors(
+                checkedThumbColor   = MaterialTheme.colorScheme.onPrimary,
+                checkedTrackColor   = MaterialTheme.colorScheme.primary,
+                uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Crossfade Duration Slider
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 private fun CrossfadeDurationSlider(
     durationSec: Int,
@@ -180,12 +276,10 @@ private fun CrossfadeDurationSlider(
         }
 
         Slider(
-            // Slider works on Float; we snap to Int on release via steps.
-            // steps = (max - min - 1) = 15 - 3 - 1 = 11 discrete stops.
             value         = durationSec.toFloat(),
             onValueChange = { onValueChange(it.roundToInt()) },
             valueRange    = 3f..15f,
-            steps         = 11,   // 13 stops total → 12 intervals → steps = 11
+            steps         = 11,
             colors        = SliderDefaults.colors(
                 thumbColor         = MaterialTheme.colorScheme.primary,
                 activeTrackColor   = MaterialTheme.colorScheme.primary,
@@ -203,14 +297,14 @@ private fun CrossfadeDurationSlider(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Cue Point Offset Row  (unchanged from before, kept here for completeness)
+//  Cue Point Offset Row
 // ─────────────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CuePointOffsetRow(
     selectedSec: Int,
-    onSelected:  (Int) -> Unit
+    onSelected: (Int) -> Unit
 ) {
     val primary   = MaterialTheme.colorScheme.primary
     val onPrimary = MaterialTheme.colorScheme.onPrimary
@@ -295,19 +389,21 @@ private fun CuePointOffsetRow(
 
 @Composable
 private fun PremiumToggleRow(
-    title:          String,
-    subtitle:       String,
-    isChecked:      Boolean,
-    onCheckedChange:(Boolean) -> Unit
+    title: String,
+    subtitle: String,
+    isChecked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
         modifier              = Modifier.fillMaxWidth(),
         verticalAlignment     = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Column(modifier = Modifier
-            .weight(1f)
-            .padding(end = 16.dp)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 16.dp)
+        ) {
             Text(
                 text       = title,
                 style      = MaterialTheme.typography.titleMedium,
@@ -335,13 +431,13 @@ private fun PremiumToggleRow(
 
 @Composable
 private fun SliderWithLabel(
-    label:        String,
-    valueLabel:   String,
-    value:        Float,
-    valueRange:   ClosedFloatingPointRange<Float>,
-    steps:        Int,
-    description:  String? = null,
-    onValueChange:(Float) -> Unit
+    label: String,
+    valueLabel: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    description: String? = null,
+    onValueChange: (Float) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(

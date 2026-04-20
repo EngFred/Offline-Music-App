@@ -14,8 +14,6 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.ViewColumn
-import androidx.compose.material.icons.rounded.ViewStream
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,7 +27,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
+// If your project uses the legacy artifact, swap above for:
+// import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import com.engfred.musicplayer.feature_dj_mix.data.service.AutoMixService
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.AnalysisInProgressDialog
@@ -80,7 +80,6 @@ fun MixStudioScreen(
     val coroutineScope = rememberCoroutineScope()
     val analysedCount = (uiState.analysisProgress * uiState.totalSongs).toInt()
 
-    // Scroll behavior allows the transparent top bar to become solid when content scrolls under it
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
 
     val backgroundBrush = Brush.verticalGradient(
@@ -91,24 +90,16 @@ fun MixStudioScreen(
         )
     )
 
-    // ── Auto-scroll to top when a fresh mix session starts ──
-    // We track the previous track ID to ensure we only scroll when going
-    // from "No Track" to "Playing Track", so we don't annoy the user by
-    // yanking their screen to the top on every subsequent song change.
     var previousTrackId by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(uiState.currentTrack?.id) {
         val newTrackId = uiState.currentTrack?.id
         if (previousTrackId == null && newTrackId != null) {
-            // Give the LazyColumn a split-second to insert the NowPlaying component into the tree
             delay(150)
             lazyListState.animateScrollToItem(0)
         }
         previousTrackId = newTrackId
     }
 
-    // ── Precompute next-track BPM for the dual-deck section ─────────────────
-    // Extracted here so the lambda is stable and doesn't cause unnecessary
-    // recompositions inside the LazyColumn item.
     val nextTrackBpm = uiState.nextTrack?.id?.let { id ->
         uiState.bpmCache[id]?.bpm?.takeIf { uiState.bpmCache[id]?.analysisFailed != true }
     }
@@ -117,9 +108,7 @@ fun MixStudioScreen(
         // ══════════════════════════════════════════════════════════════
         //  LANDSCAPE  — Split-panel layout
         // ══════════════════════════════════════════════════════════════
-        Scaffold(
-            containerColor = Color.Transparent
-        ) { paddingValues ->
+        Scaffold(containerColor = Color.Transparent) { paddingValues ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -129,9 +118,13 @@ fun MixStudioScreen(
                 Row(modifier = Modifier.fillMaxSize()) {
 
                     // ── LEFT PANEL: Now Playing ───────────────────────────────
+                    // Give dual-deck mode slightly more room
+                    val leftWeight = if (uiState.isDualDeckMode) 0.52f else 0.45f
+                    val rightWeight = 1f - leftWeight
+
                     Column(
                         modifier = Modifier
-                            .weight(0.45f)
+                            .weight(leftWeight)
                             .fillMaxHeight()
                             .background(
                                 Brush.horizontalGradient(
@@ -143,6 +136,7 @@ fun MixStudioScreen(
                             ),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
+                        // ── Toolbar (NO deck-layout toggle here anymore) ───────
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -158,7 +152,7 @@ fun MixStudioScreen(
                                 )
                             }
                             Column(
-                                modifier = Modifier.weight(1f),
+                                modifier            = Modifier.weight(1f),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
@@ -179,19 +173,7 @@ fun MixStudioScreen(
                                     )
                                 }
                             }
-                            // ── Deck layout toggle (landscape) ────────────────
-                            IconButton(onClick = { viewModel.onEvent(MixStudioEvent.ToggleDeckLayout) }) {
-                                Icon(
-                                    imageVector        = if (uiState.isDualDeckMode)
-                                        Icons.Rounded.ViewStream else Icons.Rounded.ViewColumn,
-                                    contentDescription = if (uiState.isDualDeckMode)
-                                        "Switch to single deck" else "Switch to dual deck",
-                                    tint = if (uiState.isDualDeckMode)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        MaterialTheme.colorScheme.onBackground
-                                )
-                            }
+                            // Settings icon — deck toggle is now inside the sheet
                             IconButton(onClick = { showSettingsSheet = true }) {
                                 Icon(
                                     Icons.Rounded.Settings,
@@ -228,7 +210,6 @@ fun MixStudioScreen(
 
                             uiState.currentTrack?.let { track ->
                                 if (uiState.isDualDeckMode) {
-                                    // ── DUAL DECK (landscape left panel) ─────
                                     item(key = "dual_deck") {
                                         DualDeckSection(
                                             currentTrack       = track,
@@ -250,7 +231,6 @@ fun MixStudioScreen(
                                         )
                                     }
                                 } else {
-                                    // ── SINGLE DECK (landscape left panel) ───
                                     item(key = "now_playing") {
                                         NowPlayingSection(
                                             trackTitle         = track.title,
@@ -273,7 +253,6 @@ fun MixStudioScreen(
                                 }
                             }
 
-                            // ── Mix Now button — only visible when playing in Real Mix Mode ────────────
                             if (uiState.currentTrack != null && uiState.settings.isRealMixMode) {
                                 item(key = "mix_now_row") {
                                     MixNowRow(
@@ -285,12 +264,12 @@ fun MixStudioScreen(
                             }
                         }
 
-                        // ── Play/Pause button pinned at bottom of left panel ──
+                        // Play/Pause FAB
                         val fabLabel = when {
-                            uiState.currentTrack != null             -> null
-                            uiState.pendingAutoStartAfterAnalysis    -> "WAITING…"
-                            uiState.smartQueue.isNotEmpty()          -> "START MIX"
-                            else                                     -> null
+                            uiState.currentTrack != null          -> null
+                            uiState.pendingAutoStartAfterAnalysis -> "WAITING…"
+                            uiState.smartQueue.isNotEmpty()       -> "START MIX"
+                            else                                  -> null
                         }
                         if (fabLabel != null || uiState.currentTrack != null) {
                             Box(
@@ -324,7 +303,7 @@ fun MixStudioScreen(
                                             MaterialTheme.colorScheme.onSecondaryContainer
                                         else
                                             MaterialTheme.colorScheme.onPrimary,
-                                        shape = RoundedCornerShape(percent = 50),
+                                        shape    = RoundedCornerShape(percent = 50),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Icon(Icons.Rounded.PlayArrow, contentDescription = null)
@@ -353,10 +332,9 @@ fun MixStudioScreen(
                     // ── RIGHT PANEL: Queue ────────────────────────────────────
                     Column(
                         modifier = Modifier
-                            .weight(0.55f)
+                            .weight(rightWeight)
                             .fillMaxHeight()
                     ) {
-                        // Queue header
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -415,13 +393,11 @@ fun MixStudioScreen(
 
     } else {
         // ══════════════════════════════════════════════════════════════
-        //  PORTRAIT  — Original single-column scroll layout
+        //  PORTRAIT  — Single-column scroll layout
         // ══════════════════════════════════════════════════════════════
         Scaffold(
-            // FIX: Tie the Scaffold's nested scroll to the TopAppBar so it knows when to change colors
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
             topBar = {
-                // FIX: Use TopAppBar natively without the Box wrapper, enabling native status bar insets
                 TopAppBar(
                     title = {
                         Column(
@@ -457,23 +433,7 @@ fun MixStudioScreen(
                         }
                     },
                     actions = {
-                        // ── Deck layout toggle ────────────────────────────────
-                        // ViewColumn  = two columns → tap to enter dual-deck mode
-                        // ViewStream  = single stream → tap to return to single deck
-                        IconButton(
-                            onClick = { viewModel.onEvent(MixStudioEvent.ToggleDeckLayout) }
-                        ) {
-                            Icon(
-                                imageVector        = if (uiState.isDualDeckMode)
-                                    Icons.Rounded.ViewStream else Icons.Rounded.ViewColumn,
-                                contentDescription = if (uiState.isDualDeckMode)
-                                    "Switch to single deck" else "Switch to dual deck",
-                                tint = if (uiState.isDualDeckMode)
-                                    MaterialTheme.colorScheme.primary
-                                else
-                                    MaterialTheme.colorScheme.onBackground
-                            )
-                        }
+                        // ── ONLY Settings icon remains — deck toggle is in the sheet ──
                         IconButton(onClick = { showSettingsSheet = true }) {
                             Icon(
                                 Icons.Rounded.Settings,
@@ -482,9 +442,7 @@ fun MixStudioScreen(
                             )
                         }
                     },
-                    // FIX: Ensure status bar insets are respected natively
-                    windowInsets = WindowInsets.statusBars,
-                    // FIX: Make TopAppBar solid when scrolling so the vinyl doesn't peek through the text
+                    windowInsets   = WindowInsets.statusBars,
                     scrollBehavior = scrollBehavior,
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor         = Color.Transparent,
@@ -566,7 +524,6 @@ fun MixStudioScreen(
 
                     uiState.currentTrack?.let { track ->
                         if (uiState.isDualDeckMode) {
-                            // ── DUAL DECK layout ──────────────────────────────
                             item(key = "dual_deck") {
                                 DualDeckSection(
                                     currentTrack       = track,
@@ -584,11 +541,10 @@ fun MixStudioScreen(
                                     crossfadeProgress  = uiState.crossfadeProgressFraction,
                                     currentMixStrategy = uiState.currentMixStrategy,
                                     timeToNextMixMs    = uiState.timeToNextMixMs,
-                                    modifier           = Modifier.padding(horizontal = 24.dp)
+                                    modifier           = Modifier.padding(horizontal = 16.dp)
                                 )
                             }
                         } else {
-                            // ── SINGLE DECK layout (default) ──────────────────
                             item(key = "now_playing") {
                                 NowPlayingSection(
                                     trackTitle         = track.title,
@@ -611,7 +567,6 @@ fun MixStudioScreen(
                         }
                     }
 
-                    // ── Mix Now button — only visible when playing in Real Mix Mode ────────────
                     if (uiState.currentTrack != null && uiState.settings.isRealMixMode) {
                         item(key = "mix_now_row") {
                             MixNowRow(
@@ -666,7 +621,7 @@ fun MixStudioScreen(
         }
     }
 
-    // ── Analysis-in-progress confirmation dialog (shared by both orientations) ─
+    // ── Analysis-in-progress dialog ───────────────────────────────────────────
     if (uiState.showAnalysisDialog) {
         AnalysisInProgressDialog(
             analysedCount = analysedCount,
@@ -678,7 +633,7 @@ fun MixStudioScreen(
         )
     }
 
-    // ── Settings bottom sheet (shared by both orientations) ──────────────────
+    // ── Settings bottom sheet ─────────────────────────────────────────────────
     if (showSettingsSheet) {
         ModalBottomSheet(
             onDismissRequest = { showSettingsSheet = false },
@@ -700,17 +655,20 @@ fun MixStudioScreen(
                     color         = MaterialTheme.colorScheme.primary,
                     modifier      = Modifier.padding(bottom = 24.dp)
                 )
+                // ── ControlsSection now receives isDualDeckMode + toggle ───────
                 ControlsSection(
-                    isRealMixMode           = uiState.settings.isRealMixMode,
-                    onToggleRealMixMode     = { viewModel.onEvent(MixStudioEvent.ToggleRealMixStudioMode(it)) },
-                    autoSamplerEnabled      = uiState.settings.autoSamplerEnabled,
-                    sampleVolume            = uiState.settings.sampleVolume,
-                    onToggleAutoSampler     = { viewModel.onEvent(MixStudioEvent.ToggleAutoSampler(it)) },
-                    onSampleVolumeChanged   = { viewModel.onEvent(MixStudioEvent.UpdateSampleVolume(it)) },
-                    cuePointOffsetSec       = uiState.settings.cuePointOffsetSec,
-                    onCuePointOffsetChanged = { viewModel.onEvent(MixStudioEvent.UpdateCuePointOffset(it)) },
+                    isRealMixMode              = uiState.settings.isRealMixMode,
+                    onToggleRealMixMode        = { viewModel.onEvent(MixStudioEvent.ToggleRealMixStudioMode(it)) },
+                    autoSamplerEnabled         = uiState.settings.autoSamplerEnabled,
+                    sampleVolume               = uiState.settings.sampleVolume,
+                    onToggleAutoSampler        = { viewModel.onEvent(MixStudioEvent.ToggleAutoSampler(it)) },
+                    onSampleVolumeChanged      = { viewModel.onEvent(MixStudioEvent.UpdateSampleVolume(it)) },
+                    cuePointOffsetSec          = uiState.settings.cuePointOffsetSec,
+                    onCuePointOffsetChanged    = { viewModel.onEvent(MixStudioEvent.UpdateCuePointOffset(it)) },
                     crossfadeDurationSec       = uiState.settings.crossfadeDurationSec,
                     onCrossfadeDurationChanged = { viewModel.onEvent(MixStudioEvent.UpdateCrossfadeDuration(it)) },
+                    isDualDeckMode             = uiState.isDualDeckMode,
+                    onToggleDeckLayout         = { viewModel.onEvent(MixStudioEvent.ToggleDeckLayout) },
                 )
                 Spacer(modifier = Modifier.height(48.dp))
             }
