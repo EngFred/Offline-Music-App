@@ -17,6 +17,14 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
+
+        // ffmpeg-kit-min ships only arm64-v8a and armeabi-v7a native libraries.
+        // Restricting ABI filters here prevents installation on x86_64 emulators
+        // where the missing .so would otherwise cause a hard crash at runtime.
+        // All real-world user devices are ARM, so this has zero production impact.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildTypes {
@@ -90,10 +98,7 @@ dependencies {
     // Animation utils
     implementation(libs.androidx.animation)
 
-    // REMOVE this:
-    // implementation(libs.media3.transformer)
-
-    // ADD this:
+    // FFmpegKit (stream-copy trim — lossless, fast, no re-encode)
     implementation(libs.ffmpeg.kit.min)
 
     implementation(libs.jaudiotagger.android)

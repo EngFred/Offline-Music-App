@@ -6,11 +6,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -288,31 +289,27 @@ fun AppNavHost(
         //
         // Lives OUTSIDE the NavHost so we control the animation ourselves.
         //
-        // Enter: expandVertically from Alignment.Bottom — the composable grows
-        //   upward from the bottom of the screen (where the mini player lives),
-        //   giving the impression that the mini player card is expanding.
+        // Enter: slideInVertically slides the screen physically up from the bottom
+        //   without squeezing the layout bounds during animation.
         //
-        // Exit: shrinkVertically back toward Alignment.Bottom — reverses the
-        //   effect, collapsing the screen back down to the mini player position.
-        //
-        // The spring for enter has a tiny bounce to feel physical. Exit uses
-        // DampingRatioNoBouncy so it snaps cleanly without overshooting.
+        // Exit: slideOutVertically pushes it perfectly back off the bottom edge,
+        //   creating the illusion of sliding back into the mini player.
         AnimatedVisibility(
             visible = showNowPlaying,
-            enter = expandVertically(
-                expandFrom = Alignment.Bottom,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness    = Spring.StiffnessMedium
+            enter = slideInVertically(
+                initialOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(
+                    durationMillis = 350,
+                    easing = FastOutSlowInEasing
                 )
-            ) + fadeIn(animationSpec = tween(durationMillis = 220, delayMillis = 50)),
-            exit = shrinkVertically(
-                shrinkTowards = Alignment.Bottom,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness    = Spring.StiffnessMediumLow
+            ),
+            exit = slideOutVertically(
+                targetOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(
+                    durationMillis = 250,
+                    easing = FastOutLinearInEasing
                 )
-            ) + fadeOut(animationSpec = tween(durationMillis = 180)),
+            )
         ) {
             // NowPlayingScreen is no longer inside a NavBackStackEntry, so
             // hiltViewModel() here scopes the ViewModel to the Activity —
