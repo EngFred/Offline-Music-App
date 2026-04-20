@@ -71,6 +71,12 @@ private const val TAG = "MixStudioViewModel"
  *
  * ── Sampler suppression rule ──────────────────────────────────────────────────
  * samplerEngine.isAutoSamplerEnabled = settings.autoSamplerEnabled AND settings.isRealMixMode
+ *
+ * ── Deck layout toggle ────────────────────────────────────────────────────────
+ * [MixStudioEvent.ToggleDeckLayout] flips [MixStudioUiState.isDualDeckMode] between
+ * single-deck (classic NowPlayingSection) and dual-deck (DualDeckSection with
+ * animated crossfader) layouts. The preference is session-only and resets to
+ * false on next screen creation — single deck is the default entry point.
  */
 @UnstableApi
 @HiltViewModel
@@ -175,6 +181,13 @@ class MixStudioViewModel @Inject constructor(
                     it.copy(showAnalysisDialog = false, pendingAutoStartAfterAnalysis = false)
                 }
                 startFreshMixSession()
+            }
+
+            // ── Deck layout toggle ────────────────────────────────────────────
+            MixStudioEvent.ToggleDeckLayout -> {
+                val newMode = !_uiState.value.isDualDeckMode
+                _uiState.update { it.copy(isDualDeckMode = newMode) }
+                Log.d(TAG, "[UI] Deck layout → ${if (newMode) "DUAL DECK" else "SINGLE DECK"}")
             }
 
             // ── Settings ──────────────────────────────────────────────────────

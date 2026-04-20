@@ -14,6 +14,8 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.ViewColumn
+import androidx.compose.material.icons.rounded.ViewStream
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,6 +35,7 @@ import com.engfred.musicplayer.feature_dj_mix.data.service.AutoMixService
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.AnalysisInProgressDialog
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.BpmAnalysisSection
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.ControlsSection
+import com.engfred.musicplayer.feature_dj_mix.presentation.components.DualDeckSection
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.MixNowRow
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.NowPlayingSection
 import com.engfred.musicplayer.feature_dj_mix.presentation.components.SmartQueueItem
@@ -103,6 +106,13 @@ fun MixStudioScreen(
         previousTrackId = newTrackId
     }
 
+    // ── Precompute next-track BPM for the dual-deck section ─────────────────
+    // Extracted here so the lambda is stable and doesn't cause unnecessary
+    // recompositions inside the LazyColumn item.
+    val nextTrackBpm = uiState.nextTrack?.id?.let { id ->
+        uiState.bpmCache[id]?.bpm?.takeIf { uiState.bpmCache[id]?.analysisFailed != true }
+    }
+
     if (isLandscape) {
         // ══════════════════════════════════════════════════════════════
         //  LANDSCAPE  — Split-panel layout
@@ -136,7 +146,7 @@ fun MixStudioScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .statusBarsPadding() // Correct in Landscape
+                                .statusBarsPadding()
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -168,6 +178,19 @@ fun MixStudioScreen(
                                         letterSpacing = 1.sp
                                     )
                                 }
+                            }
+                            // ── Deck layout toggle (landscape) ────────────────
+                            IconButton(onClick = { viewModel.onEvent(MixStudioEvent.ToggleDeckLayout) }) {
+                                Icon(
+                                    imageVector        = if (uiState.isDualDeckMode)
+                                        Icons.Rounded.ViewStream else Icons.Rounded.ViewColumn,
+                                    contentDescription = if (uiState.isDualDeckMode)
+                                        "Switch to single deck" else "Switch to dual deck",
+                                    tint = if (uiState.isDualDeckMode)
+                                        MaterialTheme.colorScheme.primary
+                                    else
+                                        MaterialTheme.colorScheme.onBackground
+                                )
                             }
                             IconButton(onClick = { showSettingsSheet = true }) {
                                 Icon(
@@ -204,24 +227,49 @@ fun MixStudioScreen(
                             }
 
                             uiState.currentTrack?.let { track ->
-                                item(key = "now_playing") {
-                                    NowPlayingSection(
-                                        trackTitle         = track.title,
-                                        trackArtist        = track.artist ?: "Unknown Artist",
-                                        bpm                = uiState.bpmCache[track.id]?.bpm
-                                            ?.takeIf { uiState.bpmCache[track.id]?.analysisFailed != true },
-                                        positionMs         = uiState.currentPositionMs,
-                                        durationMs         = uiState.currentDurationMs,
-                                        isCrossfading      = uiState.isCrossfading,
-                                        crossfadeProgress  = uiState.crossfadeProgressFraction,
-                                        currentMixStrategy = uiState.currentMixStrategy,
-                                        albumArtUri        = track.albumArtUri,
-                                        waveform           = uiState.waveform,
-                                        isPlaying          = uiState.isPlaying,
-                                        timeToNextMixMs    = uiState.timeToNextMixMs,
-                                        nextTrack          = uiState.nextTrack,
-                                        modifier           = Modifier.fillMaxWidth()
-                                    )
+                                if (uiState.isDualDeckMode) {
+                                    // ── DUAL DECK (landscape left panel) ─────
+                                    item(key = "dual_deck") {
+                                        DualDeckSection(
+                                            currentTrack       = track,
+                                            currentBpm         = uiState.bpmCache[track.id]?.bpm
+                                                ?.takeIf { uiState.bpmCache[track.id]?.analysisFailed != true },
+                                            positionMs         = uiState.currentPositionMs,
+                                            durationMs         = uiState.currentDurationMs,
+                                            isPlaying          = uiState.isPlaying,
+                                            waveform           = uiState.waveform,
+                                            currentAlbumArtUri = track.albumArtUri,
+                                            nextTrack          = uiState.nextTrack,
+                                            nextBpm            = nextTrackBpm,
+                                            nextAlbumArtUri    = uiState.nextTrack?.albumArtUri,
+                                            isCrossfading      = uiState.isCrossfading,
+                                            crossfadeProgress  = uiState.crossfadeProgressFraction,
+                                            currentMixStrategy = uiState.currentMixStrategy,
+                                            timeToNextMixMs    = uiState.timeToNextMixMs,
+                                            modifier           = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                } else {
+                                    // ── SINGLE DECK (landscape left panel) ───
+                                    item(key = "now_playing") {
+                                        NowPlayingSection(
+                                            trackTitle         = track.title,
+                                            trackArtist        = track.artist ?: "Unknown Artist",
+                                            bpm                = uiState.bpmCache[track.id]?.bpm
+                                                ?.takeIf { uiState.bpmCache[track.id]?.analysisFailed != true },
+                                            positionMs         = uiState.currentPositionMs,
+                                            durationMs         = uiState.currentDurationMs,
+                                            isCrossfading      = uiState.isCrossfading,
+                                            crossfadeProgress  = uiState.crossfadeProgressFraction,
+                                            currentMixStrategy = uiState.currentMixStrategy,
+                                            albumArtUri        = track.albumArtUri,
+                                            waveform           = uiState.waveform,
+                                            isPlaying          = uiState.isPlaying,
+                                            timeToNextMixMs    = uiState.timeToNextMixMs,
+                                            nextTrack          = uiState.nextTrack,
+                                            modifier           = Modifier.fillMaxWidth()
+                                        )
+                                    }
                                 }
                             }
 
@@ -409,6 +457,23 @@ fun MixStudioScreen(
                         }
                     },
                     actions = {
+                        // ── Deck layout toggle ────────────────────────────────
+                        // ViewColumn  = two columns → tap to enter dual-deck mode
+                        // ViewStream  = single stream → tap to return to single deck
+                        IconButton(
+                            onClick = { viewModel.onEvent(MixStudioEvent.ToggleDeckLayout) }
+                        ) {
+                            Icon(
+                                imageVector        = if (uiState.isDualDeckMode)
+                                    Icons.Rounded.ViewStream else Icons.Rounded.ViewColumn,
+                                contentDescription = if (uiState.isDualDeckMode)
+                                    "Switch to single deck" else "Switch to dual deck",
+                                tint = if (uiState.isDualDeckMode)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onBackground
+                            )
+                        }
                         IconButton(onClick = { showSettingsSheet = true }) {
                             Icon(
                                 Icons.Rounded.Settings,
@@ -500,24 +565,49 @@ fun MixStudioScreen(
                     }
 
                     uiState.currentTrack?.let { track ->
-                        item(key = "now_playing") {
-                            NowPlayingSection(
-                                trackTitle         = track.title,
-                                trackArtist        = track.artist ?: "Unknown Artist",
-                                bpm                = uiState.bpmCache[track.id]?.bpm
-                                    ?.takeIf { uiState.bpmCache[track.id]?.analysisFailed != true },
-                                positionMs         = uiState.currentPositionMs,
-                                durationMs         = uiState.currentDurationMs,
-                                isCrossfading      = uiState.isCrossfading,
-                                crossfadeProgress  = uiState.crossfadeProgressFraction,
-                                currentMixStrategy = uiState.currentMixStrategy,
-                                albumArtUri        = track.albumArtUri,
-                                waveform           = uiState.waveform,
-                                isPlaying          = uiState.isPlaying,
-                                timeToNextMixMs    = uiState.timeToNextMixMs,
-                                nextTrack          = uiState.nextTrack,
-                                modifier           = Modifier.padding(horizontal = 24.dp)
-                            )
+                        if (uiState.isDualDeckMode) {
+                            // ── DUAL DECK layout ──────────────────────────────
+                            item(key = "dual_deck") {
+                                DualDeckSection(
+                                    currentTrack       = track,
+                                    currentBpm         = uiState.bpmCache[track.id]?.bpm
+                                        ?.takeIf { uiState.bpmCache[track.id]?.analysisFailed != true },
+                                    positionMs         = uiState.currentPositionMs,
+                                    durationMs         = uiState.currentDurationMs,
+                                    isPlaying          = uiState.isPlaying,
+                                    waveform           = uiState.waveform,
+                                    currentAlbumArtUri = track.albumArtUri,
+                                    nextTrack          = uiState.nextTrack,
+                                    nextBpm            = nextTrackBpm,
+                                    nextAlbumArtUri    = uiState.nextTrack?.albumArtUri,
+                                    isCrossfading      = uiState.isCrossfading,
+                                    crossfadeProgress  = uiState.crossfadeProgressFraction,
+                                    currentMixStrategy = uiState.currentMixStrategy,
+                                    timeToNextMixMs    = uiState.timeToNextMixMs,
+                                    modifier           = Modifier.padding(horizontal = 24.dp)
+                                )
+                            }
+                        } else {
+                            // ── SINGLE DECK layout (default) ──────────────────
+                            item(key = "now_playing") {
+                                NowPlayingSection(
+                                    trackTitle         = track.title,
+                                    trackArtist        = track.artist ?: "Unknown Artist",
+                                    bpm                = uiState.bpmCache[track.id]?.bpm
+                                        ?.takeIf { uiState.bpmCache[track.id]?.analysisFailed != true },
+                                    positionMs         = uiState.currentPositionMs,
+                                    durationMs         = uiState.currentDurationMs,
+                                    isCrossfading      = uiState.isCrossfading,
+                                    crossfadeProgress  = uiState.crossfadeProgressFraction,
+                                    currentMixStrategy = uiState.currentMixStrategy,
+                                    albumArtUri        = track.albumArtUri,
+                                    waveform           = uiState.waveform,
+                                    isPlaying          = uiState.isPlaying,
+                                    timeToNextMixMs    = uiState.timeToNextMixMs,
+                                    nextTrack          = uiState.nextTrack,
+                                    modifier           = Modifier.padding(horizontal = 24.dp)
+                                )
+                            }
                         }
                     }
 

@@ -57,4 +57,18 @@ sealed interface MixStudioEvent {
      * Unanalysed tracks fall back to natural playlist order in the queue.
      */
     data object StartAnywayDespiteAnalysis : MixStudioEvent
+
+    // ── Deck layout ───────────────────────────────────────────────────────────
+
+    /**
+     * Toggles between single-deck (classic vinyl + NowPlayingSection) and
+     * dual-deck (Deck 1 / Deck 2 split with animated crossfader) layouts.
+     *
+     * The preference lives in [MixStudioUiState.isDualDeckMode] for the duration
+     * of the current session and resets to false when the screen is re-created.
+     * It is deliberately NOT persisted to DataStore — the default single-deck
+     * view is the recommended starting point for new users; power users who want
+     * dual deck can enable it per session without it being "sticky".
+     */
+    data object ToggleDeckLayout : MixStudioEvent
 }

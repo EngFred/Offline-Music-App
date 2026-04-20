@@ -35,28 +35,52 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import kotlin.math.cos
 import kotlin.math.sin
 
+/**
+ * Spinning vinyl disc with an optional countdown arc.
+ *
+ * @param vinylSize The outer diameter of the disc.  Defaults to 188 dp for the
+ *   full-size single-deck view.  Pass a smaller value (e.g. 128 dp) when
+ *   rendering inside the dual-deck layout where space is shared between two
+ *   panels.  All internal proportions (arc stroke, inner disc, centre hole)
+ *   are derived from this parameter, so nothing else needs to change.
+ */
 @Composable
 fun VinylSection(
     albumArtUri: Uri?,
     isPlaying: Boolean,
     timeToNextMixMs: Long?,
     primaryColor: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    vinylSize: Dp = 188.dp
 ) {
     val urgentColor = Color(0xFFEF5350)
 
+    // ── Proportional sizing ───────────────────────────────────────────────────
+    // All values are derived from [vinylSize] so the component scales correctly
+    // regardless of which layout renders it.
+    val arcStrokeWidth  = (vinylSize.value * 5f  / 188f).dp  // 5 dp @ 188 → ~3.4 dp @ 128
+    val vinylDiscSize   = (vinylSize.value * 174f / 188f).dp  // 174 dp @ 188 → ~118 dp @ 128
+    val centerHoleSize  = (vinylSize.value * 28f  / 188f).dp  // 28 dp @ 188 → ~19 dp @ 128
+    val musicIconSize   = (vinylSize.value * 22f  / 188f).dp
+    val iconOffsetDp    = (vinylSize.value * 14f  / 188f).dp
+
+    // ── Countdown arc colour ──────────────────────────────────────────────────
     val arcColor: Color = when {
         timeToNextMixMs == null  -> primaryColor
         timeToNextMixMs <= 0L    -> urgentColor
-        timeToNextMixMs < 5_000L -> lerp(primaryColor, urgentColor, 1f - timeToNextMixMs.toFloat() / 5_000f)
+        timeToNextMixMs < 5_000L -> lerp(primaryColor, urgentColor,
+            1f - timeToNextMixMs.toFloat() / 5_000f)
         else                     -> primaryColor
     }
 
+    // Track the maximum value we've seen so the arc fraction shrinks smoothly
+    // from 100 % toward 0 % as the countdown progresses.
     var countdownMaxMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(timeToNextMixMs) {
         when {
@@ -76,6 +100,7 @@ fun VinylSection(
         label         = "countdown_arc"
     )
 
+    // ── Rotation ──────────────────────────────────────────────────────────────
     val rotation = remember { Animatable(0f) }
     LaunchedEffect(isPlaying) {
         if (isPlaying) {
@@ -89,54 +114,62 @@ fun VinylSection(
         }
     }
 
-    Box(modifier = modifier.size(188.dp), contentAlignment = Alignment.Center) {
+    // ─────────────────────────────────────────────────────────────────────────
+    Box(modifier = modifier.size(vinylSize), contentAlignment = Alignment.Center) {
+
+        // ── Countdown arc drawn on a Canvas that fills the outer Box ─────────
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val strokeWidth = 5.dp.toPx()
-            val inset       = strokeWidth / 2f
-            val arcSize     = Size(size.width - inset * 2, size.height - inset * 2)
-            val topLeft     = Offset(inset, inset)
+            val sw     = arcStrokeWidth.toPx()
+            val inset  = sw / 2f
+            val arcSz  = Size(size.width - inset * 2, size.height - inset * 2)
+            val topLeft = Offset(inset, inset)
 
             if (countdownMaxMs > 0L || animatedCountdownFraction > 0f) {
+                // Background ring
                 drawArc(
                     color      = arcColor.copy(alpha = 0.15f),
                     startAngle = -90f,
                     sweepAngle = 360f,
                     useCenter  = false,
                     topLeft    = topLeft,
-                    size       = arcSize,
-                    style      = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                    size       = arcSz,
+                    style      = Stroke(width = sw, cap = StrokeCap.Round)
                 )
             }
             if (animatedCountdownFraction > 0f) {
+                // Filled progress arc
                 drawArc(
-                    color      = arcColor.copy(alpha = 1f),
+                    color      = arcColor,
                     startAngle = -90f,
                     sweepAngle = 360f * animatedCountdownFraction,
                     useCenter  = false,
                     topLeft    = topLeft,
-                    size       = arcSize,
-                    style      = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                    size       = arcSz,
+                    style      = Stroke(width = sw, cap = StrokeCap.Round)
                 )
             }
         }
 
+        // ── Vinyl disc (rotates) ──────────────────────────────────────────────
         Box(
             modifier = Modifier
-                .size(174.dp)
+                .size(vinylDiscSize)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .graphicsLayer { rotationZ = rotation.value },
             contentAlignment = Alignment.Center
         ) {
+            // Album art or fallback
             SubcomposeAsyncImage(
-                model = albumArtUri,
+                model              = albumArtUri,
                 contentDescription = "Album Art",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                loading = { FallbackVinylArt(accentColor = primaryColor) },
-                error = { FallbackVinylArt(accentColor = primaryColor) }
+                contentScale       = ContentScale.Crop,
+                modifier           = Modifier.fillMaxSize().clip(CircleShape),
+                loading            = { FallbackVinylArt(accentColor = primaryColor) },
+                error              = { FallbackVinylArt(accentColor = primaryColor) }
             )
 
+            // Radial vignette overlay so the centre hole blends in
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -147,9 +180,10 @@ fun VinylSection(
                     )
             )
 
+            // Centre hole
             Box(
                 modifier = Modifier
-                    .size(28.dp)
+                    .size(centerHoleSize)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.background)
                     .border(2.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f), CircleShape)
@@ -157,6 +191,10 @@ fun VinylSection(
         }
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Fallback vinyl art (no album art loaded)
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun FallbackVinylArt(
@@ -219,10 +257,12 @@ fun FallbackVinylArt(
         }
 
         Icon(
-            imageVector = Icons.Rounded.MusicNote,
+            imageVector        = Icons.Rounded.MusicNote,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.85f),
-            modifier = Modifier.offset(x = (-14).dp, y = (-14).dp).size(22.dp)
+            tint               = Color.White.copy(alpha = 0.85f),
+            modifier           = Modifier
+                .offset(x = (-14).dp, y = (-14).dp)
+                .size(22.dp)
         )
     }
 }
