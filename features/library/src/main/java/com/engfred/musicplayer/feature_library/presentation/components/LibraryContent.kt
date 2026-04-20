@@ -10,7 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.FolderOff
+import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -98,8 +98,8 @@ fun LibraryContent(
             }
             uiState.audioFiles.isEmpty() -> {
                 InfoIndicator(
-                    message = "No audio files found on your device. Ensure storage permission is granted.",
-                    icon = Icons.Outlined.FolderOff,
+                    message = "Your music library is empty. Add some audio files to your device to get started.",
+                    icon = Icons.Outlined.LibraryMusic,
                     modifier = Modifier.align(Alignment.Center)
                 )
             }

@@ -148,6 +148,14 @@ class MainActivity : ComponentActivity() {
                         sharedAudioDataSource = sharedAudioDataSource
                     )
                 }
+
+                val allFiles = withContext(Dispatchers.IO) {
+                    libraryRepository.getAllAudioFiles().first()
+                }
+                if (allFiles.isNotEmpty()) {
+                    sharedAudioDataSource.setDeviceAudioFiles(allFiles)
+                }
+
                 lastPlaybackAudio = if (start != null) {
                     val isAccessible = MediaUtils.isAudioFileAccessible(
                         context              = this@MainActivity,

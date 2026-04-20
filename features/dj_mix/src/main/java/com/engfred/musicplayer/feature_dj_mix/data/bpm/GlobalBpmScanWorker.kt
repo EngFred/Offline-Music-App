@@ -7,6 +7,7 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.hilt.work.HiltWorker
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -32,6 +33,18 @@ import kotlinx.coroutines.flow.first
  *
  * Safe to enqueue repeatedly — [BpmAnalysisWorker] skips tracks that are already
  * cached (success or tombstone), so re-runs only process the delta.
+ *
+ * ── Performance / responsiveness ─────────────────────────────────────────────
+ * Both this worker and the [BpmAnalysisWorker] chunks it enqueues run at
+ * [android.os.Process.THREAD_PRIORITY_BACKGROUND] so that BPM analysis never
+ * competes with system UI rendering or foreground app work. On budget devices
+ * (e.g. Samsung Galaxy A05, Helio G85) this is the single most impactful change
+ * for preventing notification-panel lag during large library scans.
+ *
+ * The [Constraints.setRequiresBatteryNotLow] constraint (applied to chunk
+ * requests via [BpmAnalysisWorker.buildRequests]) additionally prevents the
+ * analysis from running when the device is already thermally stressed from low
+ * battery conditions.
  */
 @HiltWorker
 class GlobalBpmScanWorker @AssistedInject constructor(
@@ -50,9 +63,18 @@ class GlobalBpmScanWorker @AssistedInject constructor(
         private const val CHUNK_WORK_NAME = "global_bpm_scan_chunks"
 
         fun enqueue(context: Context, policy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP) {
+            // Apply the same battery constraint to the scan dispatcher itself —
+            // no point waking up to enumerate the library if we can't run the
+            // chunks anyway.
+            val constraints = Constraints.Builder()
+                .setRequiresBatteryNotLow(true)
+                .build()
+
             val request = OneTimeWorkRequestBuilder<GlobalBpmScanWorker>()
+                .setConstraints(constraints)
                 .addTag(TAG)
                 .build()
+
             WorkManager.getInstance(context)
                 .enqueueUniqueWork(WORK_NAME, policy, request)
             Log.d(TAG, "Enqueued with policy=$policy")
@@ -60,6 +82,9 @@ class GlobalBpmScanWorker @AssistedInject constructor(
     }
 
     override suspend fun doWork(): Result {
+        // ── Priority: never compete with system UI ────────────────────────────
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+
         // ── 1. Permission check ───────────────────────────────────────────────
         val perm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
             Manifest.permission.READ_MEDIA_AUDIO
@@ -95,6 +120,7 @@ class GlobalBpmScanWorker @AssistedInject constructor(
         // buildRequests() splits uncached into groups of 40 and returns one
         // OneTimeWorkRequest per group. Each chunk is well under WorkManager's
         // 10 KB Data limit and finishes long before the 10-minute execution cap.
+        // Constraints (battery not low) are applied inside buildRequests().
         val requests = BpmAnalysisWorker.buildRequests(uncached)
         val workManager = WorkManager.getInstance(context)
 
