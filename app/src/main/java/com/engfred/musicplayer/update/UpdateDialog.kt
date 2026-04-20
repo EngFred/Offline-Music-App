@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -42,9 +43,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.net.toUri
 import com.engfred.musicplayer.BuildConfig
 import com.engfred.musicplayer.core.domain.model.UpdateInfo
-import androidx.core.net.toUri
 
 @Composable
 fun UpdateDialog(
@@ -54,6 +55,10 @@ fun UpdateDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+
+    // Dynamically calculate max height to be 45% of the screen's height
+    val maxNotesHeight = (configuration.screenHeightDp * 0.5f).dp
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -145,7 +150,7 @@ fun UpdateDialog(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 180.dp)
+                                .heightIn(max = maxNotesHeight) // Responsive max height
                                 .verticalScroll(rememberScrollState())
                         ) {
                             Text(
@@ -157,6 +162,10 @@ fun UpdateDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+
+                        // Added a bottom framing divider to explicitly signal a scrollable container
+                        Spacer(Modifier.height(12.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
 
                     Spacer(Modifier.height(24.dp))

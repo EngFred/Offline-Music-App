@@ -14,11 +14,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -341,24 +342,30 @@ fun LibraryScreen(
         ) {
             AnimatedVisibility(
                 visible = showScrollToTop,
-                enter = slideInVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)),
-                exit = slideOutVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
+                enter = scaleIn(animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
+                exit = scaleOut(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
             ) {
-                FloatingActionButton(
+                SmallFloatingActionButton(
                     onClick = { coroutineScope.launch { lazyListState.scrollToItem(index = 0) } },
-                    containerColor = MaterialTheme.colorScheme.primary
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    shape = CircleShape,
+                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp, pressedElevation = 8.dp)
                 ) {
                     Icon(imageVector = Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top")
                 }
             }
             AnimatedVisibility(
                 visible = showScrollToBottom,
-                enter = slideInVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)),
-                exit = slideOutVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
+                enter = scaleIn(animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
+                exit = scaleOut(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
             ) {
-                FloatingActionButton(
+                SmallFloatingActionButton(
                     onClick = { coroutineScope.launch { val lastIndex = (currentListCount - 1).coerceAtLeast(0); lazyListState.scrollToItem(index = lastIndex) } },
-                    containerColor = MaterialTheme.colorScheme.primary
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    shape = CircleShape,
+                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp, pressedElevation = 8.dp)
                 ) {
                     Icon(imageVector = Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to bottom")
                 }

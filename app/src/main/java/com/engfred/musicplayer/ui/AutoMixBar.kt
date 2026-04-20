@@ -51,23 +51,23 @@ import androidx.compose.runtime.collectAsState
  * is active. Replaces the normal [MiniPlayer].
  *
  * ── What it shows ────────────────────────────────────────────────────────────
- *  • 2 dp track-progress line at the very top (primary colour)
- *  • Pulsing status dot (primary when playing/mixing, muted when paused)
- *  • Current track title + artist
- *  • BPM chip (appears once BPM analysis is cached for the track)
- *  • "MIXING" animated label during crossfade
- *  • Play / Pause button
- *  • Skip / Mix Now button (only in Auto-Mix mode)
+ * • 2 dp track-progress line at the very top (primary colour)
+ * • Pulsing status dot (primary when playing/mixing, muted when paused)
+ * • Current track title + artist
+ * • BPM chip (appears once BPM analysis is cached for the track)
+ * • "MIXING" animated label during crossfade
+ * • Play / Pause button
+ * • Skip / Mix Now button (only in Auto-Mix mode)
  *
  * ── Interaction model ────────────────────────────────────────────────────────
- *  Tapping the info section → [onClick] → navigates to MixStudioScreen.
- *  Play/Pause icon → toggles engine playback directly via ViewModel.
- *  Skip icon       → triggers immediate crossfade (Mix Now) via ViewModel.
+ * Tapping the bar → [onClick] → navigates to MixStudioScreen.
+ * Play/Pause icon → toggles engine playback directly via ViewModel.
+ * Skip icon       → triggers immediate crossfade (Mix Now) via ViewModel.
  *
  * ── Design ───────────────────────────────────────────────────────────────────
- *  No gradients. No scale animations. The container inherits the parent's
- *  surface color; tonal separation comes only from the 2 dp progress line
- *  and the 0.06 alpha top divider.
+ * No gradients. No scale animations. The container inherits the parent's
+ * surface color; tonal separation comes only from the 2 dp progress line
+ * and the 0.06 alpha top divider.
  */
 @UnstableApi
 @Composable
@@ -105,7 +105,12 @@ fun AutoMixBar(
     val primary   = MaterialTheme.colorScheme.primary
     val onSurface = MaterialTheme.colorScheme.onSurface
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    // Make the entire root Column clickable so the ripple fills the whole bar
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
 
         // ── Top divider (separates bar from content above) ───────────────────
         Box(
@@ -148,11 +153,9 @@ fun AutoMixBar(
 
             Spacer(Modifier.width(12.dp))
 
-            // ── Track info (tapping navigates to MixStudioScreen) ────────────
+            // ── Track info ───────────────────────────────────────────────────
             Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(onClick = onClick)
+                modifier = Modifier.weight(1f)
             ) {
                 if (state.currentTrack != null) {
                     Text(
