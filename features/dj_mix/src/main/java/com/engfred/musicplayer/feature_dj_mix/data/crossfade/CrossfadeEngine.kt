@@ -624,6 +624,10 @@ class CrossfadeEngine @Inject constructor(
     // CROSSFADE EXECUTION
     // ═════════════════════════════════════════════════════════════════════════
 
+    // ═════════════════════════════════════════════════════════════════════════
+    // CROSSFADE EXECUTION
+    // ═════════════════════════════════════════════════════════════════════════
+
     /**
      * @param rawFirstBeatMs  Unguarded firstBeatMs from [BpmInfo]. The cue-point
      *                        guard ([applyFirstBeatGuard]) is applied internally.
@@ -775,10 +779,37 @@ class CrossfadeEngine @Inject constructor(
                 }
             }
 
-            // ── 6. Equal-Power Ramp + Energy-Aware Bass Kill ──────────────────
+            // ── 5.5. IMMEDIATE BASS KILL on outgoing track ────────────────────
+            // Kill the outgoing track's bass to zero the moment the new track
+            // starts coming in — before the first fade step runs.
+            withContext(Dispatchers.Main) {
+                try {
+                    val sessionId = primaryRef.audioSessionId
+                    if (sessionId != C.AUDIO_SESSION_ID_UNSET) {
+                        val eq = android.media.audiofx.Equalizer(0, sessionId)
+                        val bassIndex = mixDecisionEngine.findBassBandIndex(eq)
+                        if (bassIndex != null) {
+                            eq.enabled = true
+                            eq.setBandLevel(bassIndex, eq.bandLevelRange[0])
+                            bassKillEq = eq
+                            Log.d(TAG, "[MIXER] Immediate bass kill applied at crossfade start")
+                        } else {
+                            eq.release()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "[MIXER] Immediate bass kill failed: ${e.message}")
+                }
+            }
+
+            // ── 6. Equal-Power Ramp ───────────────────────────────────────────
             val primaryStartVolume = withContext(Dispatchers.Main) { primaryRef.volume }
             val stepDelayMs = (decision.effectiveCrossfadeDurationMs / FADE_STEPS).coerceAtLeast(16L)
-            var bassKillApplied = false
+
+            // ── OLD: Energy-Aware Bass Kill (was fired mid-loop via threshold fraction) ──
+            // Kept here for reference in case we want to restore threshold-based
+            // bass kill behaviour (e.g. fire at 25 % for WIDE_TRANSITION).
+            // var bassKillApplied = false
 
             for (step in 1..FADE_STEPS) {
                 if (!engineScope.isActive || abortCrossfade) break
@@ -786,26 +817,27 @@ class CrossfadeEngine @Inject constructor(
                 val progress = step.toFloat() / FADE_STEPS
                 val angle = progress * (PI.toFloat() / 2f)
 
-                if (!bassKillApplied && progress >= decision.bassKillThresholdFraction) {
-                    bassKillApplied = true
-                    withContext(Dispatchers.Main) {
-                        try {
-                            val sessionId = primaryRef.audioSessionId
-                            if (sessionId != C.AUDIO_SESSION_ID_UNSET) {
-                                val eq = android.media.audiofx.Equalizer(0, sessionId)
-                                val bassIndex = mixDecisionEngine.findBassBandIndex(eq)
-                                if (bassIndex != null) {
-                                    eq.enabled = true
-                                    eq.setBandLevel(bassIndex, eq.bandLevelRange[0])
-                                    bassKillEq = eq
-                                    Log.d(TAG, "[MIXER] Bass kill applied at ${(progress * 100).toInt()}%")
-                                } else eq.release()
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "[MIXER] Bass kill EQ failed: ${e.message}")
-                        }
-                    }
-                }
+                // ── OLD: Mid-loop threshold bass kill — replaced by Step 5.5 ──
+                // if (!bassKillApplied && progress >= decision.bassKillThresholdFraction) {
+                //     bassKillApplied = true
+                //     withContext(Dispatchers.Main) {
+                //         try {
+                //             val sessionId = primaryRef.audioSessionId
+                //             if (sessionId != C.AUDIO_SESSION_ID_UNSET) {
+                //                 val eq = android.media.audiofx.Equalizer(0, sessionId)
+                //                 val bassIndex = mixDecisionEngine.findBassBandIndex(eq)
+                //                 if (bassIndex != null) {
+                //                     eq.enabled = true
+                //                     eq.setBandLevel(bassIndex, eq.bandLevelRange[0])
+                //                     bassKillEq = eq
+                //                     Log.d(TAG, "[MIXER] Bass kill applied at ${(progress * 100).toInt()}%")
+                //                 } else eq.release()
+                //             }
+                //         } catch (e: Exception) {
+                //             Log.w(TAG, "[MIXER] Bass kill EQ failed: ${e.message}")
+                //         }
+                //     }
+                // }
 
                 withContext(Dispatchers.Main) {
                     primaryRef.volume   = cos(angle) * primaryStartVolume

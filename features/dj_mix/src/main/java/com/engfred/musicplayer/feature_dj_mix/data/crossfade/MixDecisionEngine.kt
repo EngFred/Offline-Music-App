@@ -21,8 +21,13 @@ class MixDecisionEngine @Inject constructor(
 
         private const val DELTA_POWER_MIX = 15f
 
-        private const val BASS_KILL_HARMONIC        = 0.55f
-        private const val BASS_KILL_WIDE_TRANSITION = 0.25f
+        // ── OLD: Per-strategy bass kill threshold fractions ───────────────────
+        // These drove the mid-loop timing of the bass kill inside executeCrossfade.
+        // Bass kill is now applied immediately at crossfade start (Step 5.5),
+        // so these thresholds are no longer consulted. Kept for reference in case
+        // we want to restore threshold-based behaviour per strategy later.
+        // private const val BASS_KILL_HARMONIC        = 0.55f
+        // private const val BASS_KILL_WIDE_TRANSITION = 0.25f
 
         private const val HIGH_ENERGY_THRESHOLD = 0.55f
 
@@ -104,16 +109,23 @@ class MixDecisionEngine @Inject constructor(
         }
 
         // ── Energy-aware bass kill ────────────────────────────────────────────
-        val avgEnergy        = (outgoingAmplitude + incomingAmplitude) / 2f
-        val isHighEnergy     = avgEnergy > HIGH_ENERGY_THRESHOLD
-        val energyAdjustment = if (isHighEnergy) -0.13f else 0f
+        // Bass kill now fires immediately at crossfade start (Step 5.5 in
+        // CrossfadeEngine) rather than at a progress threshold mid-fade.
+        // The energy/strategy calculation below is kept in case we want to
+        // restore differentiated behaviour (e.g. skip bass kill on low-energy
+        // tracks, or re-introduce a threshold for a specific strategy).
+        val avgEnergy    = (outgoingAmplitude + incomingAmplitude) / 2f
+        val isHighEnergy = avgEnergy > HIGH_ENERGY_THRESHOLD
 
-        val baseBassKill = when (strategy) {
-            MixStrategy.HARMONIC        -> BASS_KILL_HARMONIC
-            MixStrategy.WIDE_TRANSITION -> BASS_KILL_WIDE_TRANSITION
-        }
-
-        val bassKillThreshold = (baseBassKill + energyAdjustment).coerceIn(0.10f, 0.85f)
+        // ── OLD: Threshold fraction was passed to MixDecision and read by the
+        // fade loop to decide when to fire the bass kill mid-crossfade.
+        // Now unused by CrossfadeEngine — bass kill is always immediate.
+        // val energyAdjustment = if (isHighEnergy) -0.13f else 0f
+        // val baseBassKill = when (strategy) {
+        //     MixStrategy.HARMONIC        -> BASS_KILL_HARMONIC
+        //     MixStrategy.WIDE_TRANSITION -> BASS_KILL_WIDE_TRANSITION
+        // }
+        // val bassKillThreshold = (baseBassKill + energyAdjustment).coerceIn(0.10f, 0.85f)
 
         // ── Build readable decision note (visible in logcat) ──────────────────
         val djNote = buildString {
@@ -132,7 +144,7 @@ class MixDecisionEngine @Inject constructor(
             } else {
                 append(" | no tempo-blend")
             }
-            append(" | bass kill at ${(bassKillThreshold * 100).toInt()}%")
+            append(" | bass kill: IMMEDIATE at crossfade start")
             if (isHighEnergy) append(" 🔥 HIGH ENERGY (bass-heavy)")
             append("]")
             append("\n ↳ ")
@@ -155,7 +167,12 @@ class MixDecisionEngine @Inject constructor(
             effectiveCrossfadeDurationMs = effectiveDurationMs,
             shouldTempoSync              = shouldTempoSync,
             stretchRatio                 = stretchRatio,
-            bassKillThresholdFraction    = bassKillThreshold,
+            // ── OLD: bassKillThresholdFraction ───────────────────────────────
+            // Was used by CrossfadeEngine's fade loop to fire bass kill at a
+            // progress percentage. Now unused — bass kill fires immediately in
+            // Step 5.5. Field kept on MixDecision so callers don't break;
+            // hardcoded to 0f to make it obvious it's inert.
+            bassKillThresholdFraction    = 0f,
             djNote                       = djNote
         )
     }

@@ -82,6 +82,8 @@ class MainActivity : ComponentActivity() {
     private var lastPlaybackAudio: AudioFile? by mutableStateOf(null)
     private var lastPlaybackPosition: Long by mutableLongStateOf(0L)
 
+    private var showNowPlaying by mutableStateOf(false)
+
     private var navigateToNowPlayingOnStart by mutableStateOf(false)
     private var navigateToDjMixOnStart by mutableStateOf(false)
     private var navigateToMixOfTheDayOnStart by mutableStateOf(false)
@@ -226,7 +228,7 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(navigateToNowPlayingOnStart) {
                     if (navigateToNowPlayingOnStart) {
-                        navController.navigate(AppDestinations.NowPlaying.route)
+                        showNowPlaying = true
                         navigateToNowPlayingOnStart = false
                     }
                 }
@@ -278,6 +280,22 @@ class MainActivity : ComponentActivity() {
 
                 AppNavHost(
                     rootNavController = navController,
+                    onNavigateToNowPlaying = {
+                        uiScope.launch {
+                            if (playbackState.currentAudioFile == null) {
+                                val lastState = settingsRepository.getLastPlaybackState().first()
+                                val startUri  = lastPlaybackAudio?.uri ?: return@launch
+                                playbackController.initiatePlayback(startUri, lastState.positionMs)
+                                if (!playbackController.waitUntilReady(5000)) return@launch
+                            }
+                            // ↓ Open overlay instead of navigating
+                            showNowPlaying = true
+                        }
+                    },
+                    // ── NEW params ──────────────────────────────────────────────────────
+                    showNowPlaying    = showNowPlaying,
+                    onShowNowPlaying  = { showNowPlaying = it },
+                    // ── Everything below is unchanged ───────────────────────────────────
                     onPlayPause = {
                         uiScope.launch {
                             if (playbackState.currentAudioFile != null) {
@@ -319,17 +337,6 @@ class MainActivity : ComponentActivity() {
                     playingAudioFile  = playbackState.currentAudioFile,
                     isPlaying         = playbackState.isPlaying,
                     context           = this,
-                    onNavigateToNowPlaying = {
-                        uiScope.launch {
-                            if (playbackState.currentAudioFile == null) {
-                                val lastState = settingsRepository.getLastPlaybackState().first()
-                                val startUri  = lastPlaybackAudio?.uri ?: return@launch
-                                playbackController.initiatePlayback(startUri, lastState.positionMs)
-                                if (!playbackController.waitUntilReady(5000)) return@launch
-                            }
-                            navController.navigate(AppDestinations.NowPlaying.route) { launchSingleTop = true }
-                        }
-                    },
                     onPlayAll         = { PlaybackQueueHelper.playAll(this, sharedAudioDataSource, playbackController, settingsRepository) },
                     onShuffleAll      = { PlaybackQueueHelper.shuffleAll(this, sharedAudioDataSource, playbackController, settingsRepository) },
                     audioItems        = audioItems,
