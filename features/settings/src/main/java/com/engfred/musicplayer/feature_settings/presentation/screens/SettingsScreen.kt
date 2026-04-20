@@ -27,11 +27,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.Brush
+import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.HourglassTop
+import androidx.compose.material.icons.rounded.Message
 import androidx.compose.material.icons.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.SupportAgent
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.HorizontalDivider
@@ -47,6 +50,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -59,7 +64,11 @@ import com.engfred.musicplayer.core.domain.model.UpdateInfo
 import com.engfred.musicplayer.core.domain.model.WidgetBackgroundMode
 import com.engfred.musicplayer.core.ui.theme.AppThemeType
 import com.engfred.musicplayer.feature_settings.presentation.components.AppVersionSection
+import com.engfred.musicplayer.feature_settings.presentation.components.ContactDeveloperSection
+import com.engfred.musicplayer.feature_settings.presentation.components.FlatToggleRow
+import com.engfred.musicplayer.feature_settings.presentation.components.SettingsActionRow
 import com.engfred.musicplayer.feature_settings.presentation.components.SettingsSection
+import com.engfred.musicplayer.feature_settings.presentation.components.UpdateAvailableBanner
 import com.engfred.musicplayer.feature_settings.presentation.viewmodel.SettingsEvent
 import com.engfred.musicplayer.feature_settings.presentation.viewmodel.SettingsViewModel
 
@@ -71,55 +80,48 @@ import com.engfred.musicplayer.feature_settings.presentation.viewmodel.SettingsV
 //
 // Format: AppInfo(emoji, "Display Name", "Short tagline", "RepoName")
 // ─────────────────────────────────────────────────────────────────────────────
-private val DEVELOPER_APPS = listOf(
-    AppInfo(
-        emoji       = "🎵",
-        name        = "Offline Music Player",
-        description = "The app you are using right now.",
-        repoSlug    = "Offline-Music-App"
-    ),
-    // ── TODO: replace the four entries below with your real repos ─────────────
-    AppInfo(
-        emoji       = "📖",
-        name        = "App Two",
-        description = "Short description of what this app does.",
-        repoSlug    = "your-repo-name-here"
-    ),
-    AppInfo(
-        emoji       = "🏋️",
-        name        = "App Three",
-        description = "Short description of what this app does.",
-        repoSlug    = "your-repo-name-here"
-    ),
-    AppInfo(
-        emoji       = "🌍",
-        name        = "App Four",
-        description = "Short description of what this app does.",
-        repoSlug    = "your-repo-name-here"
-    ),
-    AppInfo(
-        emoji       = "🔒",
-        name        = "App Five",
-        description = "Short description of what this app does.",
-        repoSlug    = "your-repo-name-here"
-    ),
-)
+//private val DEVELOPER_APPS = listOf(
+//    AppInfo(
+//        emoji       = "🎵",
+//        name        = "Offline Music Player",
+//        description = "The app you are using right now.",
+//        repoSlug    = "Offline-Music-App"
+//    ),
+//    // ── TODO: replace the four entries below with your real repos ─────────────
+//    AppInfo(
+//        emoji       = "📖",
+//        name        = "App Two",
+//        description = "Short description of what this app does.",
+//        repoSlug    = "your-repo-name-here"
+//    ),
+//    AppInfo(
+//        emoji       = "🏋️",
+//        name        = "App Three",
+//        description = "Short description of what this app does.",
+//        repoSlug    = "your-repo-name-here"
+//    ),
+//    AppInfo(
+//        emoji       = "🌍",
+//        name        = "App Four",
+//        description = "Short description of what this app does.",
+//        repoSlug    = "your-repo-name-here"
+//    ),
+//    AppInfo(
+//        emoji       = "🔒",
+//        name        = "App Five",
+//        description = "Short description of what this app does.",
+//        repoSlug    = "your-repo-name-here"
+//    ),
+//)
 
-/** Lightweight model for the "More Apps" catalogue. */
-data class AppInfo(
-    val emoji: String,
-    val name: String,
-    val description: String,
-    /**
-     * The repository slug (the part after "https://github.com/EngFred/").
-     * Used to build the GitHub releases URL the user is sent to on tap.
-     */
-    val repoSlug: String
-) {
-    /** Full URL to the latest release of this app on GitHub. */
-    val releasesUrl: String
-        get() = "https://github.com/EngFred/$repoSlug/releases/latest"
-}
+// ── Developer contact details ─────────────────────────────────────────────────
+// International format is required for WhatsApp deep-links (wa.me).
+// The local number 0754348118 maps to +256754348118 (Uganda, +256).
+// ─────────────────────────────────────────────────────────────────────────────
+const val DEVELOPER_PHONE_LOCAL        = "+256754348118"
+const val DEVELOPER_WHATSAPP_NUMBER    = "256754348118"   // no leading +
+
+
 
 @Composable
 fun SettingsScreen(
@@ -252,8 +254,46 @@ fun SettingsScreen(
                 modifier = Modifier.padding(horizontal = 24.dp)
             )
 
-            // ── More Apps from the Developer ──────────────────────────────────
-            MoreAppsSection(apps = DEVELOPER_APPS)
+//            // ── More Apps from the Developer ──────────────────────────────────
+//            MoreAppsSection(apps = DEVELOPER_APPS)
+
+            // ── Contact the Developer ─────────────────────────────────────────
+            ContactDeveloperSection(
+                onWhatsApp = {
+                    // Opens a direct WhatsApp chat with the developer — no need to
+                    // save the number first. Falls back to the Play Store / browser
+                    // if WhatsApp is not installed.
+                    val uri = "https://wa.me/$DEVELOPER_WHATSAPP_NUMBER".toUri()
+                    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                        setPackage("com.whatsapp")
+                    }
+                    // If WhatsApp is not installed, fall back to the browser deep-link
+                    if (intent.resolveActivity(context.packageManager) != null) {
+                        context.startActivity(intent)
+                    } else {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, uri)
+                        )
+                    }
+                },
+                onCall = {
+                    val intent = Intent(Intent.ACTION_DIAL).apply {
+                        data = "tel:$DEVELOPER_PHONE_LOCAL".toUri()
+                    }
+                    context.startActivity(intent)
+                },
+                onSms = {
+                    val intent = Intent(Intent.ACTION_SENDTO).apply {
+                        data = "smsto:$DEVELOPER_PHONE_LOCAL".toUri()
+                    }
+                    context.startActivity(intent)
+                }
+            )
+
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
 
             Spacer(modifier = Modifier.weight(1f, fill = false).height(32.dp))
 
@@ -263,275 +303,5 @@ fun SettingsScreen(
                 )
             }
         }
-    }
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// MORE APPS SECTION
-// ═════════════════════════════════════════════════════════════════════════════
-
-/**
- * "More apps from the developer" section.
- *
- * Each row taps through to [AppInfo.releasesUrl] — the GitHub releases page
- * for that app — so users can download the latest APK directly, mirroring the
- * same flow used by the in-app update checker.
- *
- * The section header uses the same icon + title + subtitle layout as
- * [SettingsSection] to keep the page visually consistent.
- */
-@Composable
-private fun MoreAppsSection(apps: List<AppInfo>) {
-    val context = LocalContext.current
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-
-        // ── Section header ────────────────────────────────────────────────────
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 12.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Apps,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text(
-                    text = "More Apps from the Developer",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "Check out other apps by Engineer Fred",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // ── App rows ──────────────────────────────────────────────────────────
-        apps.forEach { app ->
-            AppRow(
-                app = app,
-                onClick = {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(app.releasesUrl))
-                    context.startActivity(intent)
-                }
-            )
-        }
-    }
-}
-
-/**
- * Single app row inside [MoreAppsSection].
- *
- * Layout mirrors [SettingsActionRow] so the section feels native to the rest
- * of the settings page, with the addition of:
- *  • A circular emoji badge on the left (no external images needed).
- *  • An [OpenInNew] icon on the right to signal the link opens outside the app.
- */
-@Composable
-private fun AppRow(
-    app: AppInfo,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 24.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Circular emoji badge — no network call, no image loading
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = app.emoji,
-                style = MaterialTheme.typography.titleLarge
-            )
-        }
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = app.name,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = app.description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 18.sp
-            )
-        }
-
-        Spacer(modifier = Modifier.width(12.dp))
-
-        // "Opens externally" icon — more descriptive than a plain chevron
-        Icon(
-            imageVector = Icons.Rounded.OpenInNew,
-            contentDescription = "View on GitHub",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp)
-        )
-    }
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// EXISTING PRIVATE COMPOSABLES (unchanged)
-// ═════════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun UpdateAvailableBanner(
-    updateInfo: UpdateInfo,
-    onClick: () -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 24.dp, end = 24.dp, bottom = 8.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onClick() },
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.SystemUpdate,
-                contentDescription = "Update Available",
-                modifier = Modifier.size(28.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Update Available",
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = "Version ${updateInfo.latestVersion} is ready to download.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                )
-            }
-            Spacer(Modifier.width(16.dp))
-            Icon(
-                imageVector = Icons.Rounded.ChevronRight,
-                contentDescription = "Download",
-                tint = MaterialTheme.colorScheme.primary
-            )
-        }
-    }
-}
-
-@Composable
-private fun FlatToggleRow(
-    title: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    isChecked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onCheckedChange(!isChecked) }
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 18.sp
-            )
-        }
-        Spacer(modifier = Modifier.width(16.dp))
-        Switch(
-            checked = isChecked,
-            onCheckedChange = onCheckedChange
-        )
-    }
-}
-
-@Composable
-private fun SettingsActionRow(
-    title: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 18.sp
-            )
-        }
-        Spacer(modifier = Modifier.width(16.dp))
-        Icon(
-            imageVector = Icons.Rounded.ChevronRight,
-            contentDescription = "Navigate",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
