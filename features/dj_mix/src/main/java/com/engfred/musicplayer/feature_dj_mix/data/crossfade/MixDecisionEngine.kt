@@ -62,16 +62,19 @@ class MixDecisionEngine @Inject constructor(
         val isHarmonic     = if (isBpmValid) smartNextTrack.isHarmonicallyCompatible(outgoingBpm, incomingBpm) else false
 
         // ── Strategy selection ────────────────────────────────────────────────
-        val strategy = when {
-            !isBpmValid                              -> MixStrategy.HARMONIC
-            isHarmonic && rawDelta > DELTA_POWER_MIX -> MixStrategy.HARMONIC
-            rawDelta > DELTA_POWER_MIX               -> MixStrategy.WIDE_TRANSITION
-            else                                     -> MixStrategy.HARMONIC
-        }
+        // ── Strategy selection ────────────────────────────────────────────────
+        // TEST: WIDE_TRANSITION forced for all tracks — harmonic branching commented out.
+        // val strategy = when {
+        //     !isBpmValid                              -> MixStrategy.HARMONIC
+        //     isHarmonic && rawDelta > DELTA_POWER_MIX -> MixStrategy.HARMONIC
+        //     rawDelta > DELTA_POWER_MIX               -> MixStrategy.WIDE_TRANSITION
+        //     else                                     -> MixStrategy.HARMONIC
+        // }
+        val strategy = MixStrategy.WIDE_TRANSITION
 
         // ── Crossfade duration ────────────────────────────────────────────────
         val durationMult = when (strategy) {
-            MixStrategy.HARMONIC        -> HARMONIC_MULT
+//            MixStrategy.HARMONIC        -> HARMONIC_MULT
             MixStrategy.WIDE_TRANSITION -> WIDE_TRANSITION_MULT
         }
 

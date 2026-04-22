@@ -147,31 +147,33 @@ fun NowPlayingSection(
         Spacer(modifier = Modifier.height(24.dp))
 
         // ── Strategy badge ────────────────────────────────────────────────────
-        Surface(
-            color    = strategyColor.copy(alpha = 0.15f),
-            shape    = RoundedCornerShape(50),
-            modifier = Modifier.padding(bottom = 16.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier          = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(strategyColor)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text          = currentMixStrategy.uiLabel,
-                    style         = MaterialTheme.typography.labelSmall,
-                    fontWeight    = FontWeight.Black,
-                    letterSpacing = 1.sp,
-                    color         = strategyColor
-                )
-            }
-        }
+        // ── Strategy badge ────────────────────────────────────────────────────
+        // TEST: Hidden — all transitions are WIDE_TRANSITION during this test run.
+        // Surface(
+        //     color    = strategyColor.copy(alpha = 0.15f),
+        //     shape    = RoundedCornerShape(50),
+        //     modifier = Modifier.padding(bottom = 16.dp)
+        // ) {
+        //     Row(
+        //         verticalAlignment = Alignment.CenterVertically,
+        //         modifier          = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        //     ) {
+        //         Box(
+        //             modifier = Modifier
+        //                 .size(6.dp)
+        //                 .clip(CircleShape)
+        //                 .background(strategyColor)
+        //         )
+        //         Spacer(modifier = Modifier.width(6.dp))
+        //         Text(
+        //             text          = currentMixStrategy.uiLabel,
+        //             style         = MaterialTheme.typography.labelSmall,
+        //             fontWeight    = FontWeight.Black,
+        //             letterSpacing = 1.sp,
+        //             color         = strategyColor
+        //         )
+        //     }
+        // }
 
         // ── Waveform ──────────────────────────────────────────────────────────
         Canvas(

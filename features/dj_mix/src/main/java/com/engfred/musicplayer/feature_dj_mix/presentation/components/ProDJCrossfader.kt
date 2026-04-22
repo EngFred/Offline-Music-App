@@ -36,6 +36,11 @@ import android.graphics.BlurMaskFilter as AndroidBlurMaskFilter
 //
 //  An "AUTO" badge + lock icon make it visually clear the fader is
 //  engine-controlled and cannot be dragged.
+//
+//  NOTE: The strategy label was replaced with a state-driven label
+//  ("AUTO MIX" / "MIXING NOW") because the test build forces all
+//  transitions to WIDE_TRANSITION — displaying a fixed strategy name
+//  would be meaningless to the user.
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -46,7 +51,7 @@ internal fun ProDJCrossfader(
     deck1Color: Color,
     deck2Color: Color,
     strategyColor: Color,
-    currentMixStrategy: MixStrategy,
+    currentMixStrategy: MixStrategy,   // kept — drives strategyColor upstream
     modifier: Modifier = Modifier,
 ) {
     val targetPos = when {
@@ -74,26 +79,38 @@ internal fun ProDJCrossfader(
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // ── Strategy badge + AUTO pill ────────────────────────────────────────
+        // ── State label + AUTO pill ───────────────────────────────────────────
         Row(
             modifier              = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment     = Alignment.CenterVertically
         ) {
+            // State-driven label — honest regardless of which strategy is active.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (isCrossfading) {
                     val glow by rememberInfiniteTransition(label = "badge_glow").animateFloat(
-                        initialValue = 0.50f, targetValue = 1f,
+                        initialValue  = 0.50f,
+                        targetValue   = 1f,
                         animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse),
-                        label = "glow"
+                        label         = "glow"
                     )
-                    Box(Modifier.size(7.dp).clip(CircleShape).background(strategyColor.copy(alpha = glow)))
+                    Box(
+                        Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(strategyColor.copy(alpha = glow))
+                    )
                 } else {
-                    Box(Modifier.size(5.dp).clip(CircleShape).background(strategyColor))
+                    Box(
+                        Modifier
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(strategyColor)
+                    )
                 }
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    text          = currentMixStrategy.uiLabel,
+                    text          = if (isCrossfading) "MIXING NOW" else "AUTO MIX",
                     style         = MaterialTheme.typography.labelSmall,
                     fontWeight    = FontWeight.Black,
                     letterSpacing = 1.2.sp,
@@ -110,11 +127,14 @@ internal fun ProDJCrossfader(
                 verticalAlignment     = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                // Lock icon drawn with Canvas
                 Canvas(modifier = Modifier.size(8.dp)) {
                     val w = size.width; val h = size.height
                     drawArc(
                         color      = Color.White.copy(alpha = 0.50f),
-                        startAngle = 180f, sweepAngle = 180f, useCenter = false,
+                        startAngle = 180f,
+                        sweepAngle = 180f,
+                        useCenter  = false,
                         topLeft    = Offset(w * 0.20f, 0f),
                         size       = Size(w * 0.60f, h * 0.55f),
                         style      = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round)
@@ -143,7 +163,12 @@ internal fun ProDJCrossfader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment     = Alignment.CenterVertically
         ) {
-            VcaIndicator(label = "D1", color = deck1Color, isLouder = animPos < 0.5f, isCutting = animPos > 0.85f)
+            VcaIndicator(
+                label    = "D1",
+                color    = deck1Color,
+                isLouder = animPos < 0.5f,
+                isCutting = animPos > 0.85f
+            )
             Text(
                 text          = "CROSSFADER",
                 style         = MaterialTheme.typography.labelSmall,
@@ -151,11 +176,19 @@ internal fun ProDJCrossfader(
                 letterSpacing = 2.sp,
                 color         = Color.White.copy(alpha = 0.22f)
             )
-            VcaIndicator(label = "D2", color = deck2Color, isLouder = animPos >= 0.5f, isCutting = animPos < 0.15f)
+            VcaIndicator(
+                label    = "D2",
+                color    = deck2Color,
+                isLouder = animPos >= 0.5f,
+                isCutting = animPos < 0.15f
+            )
         }
 
         // ── Fader track + thumb ───────────────────────────────────────────────
-        Canvas(modifier = Modifier.fillMaxWidth().height(32.dp)) {
+        Canvas(modifier = Modifier
+            .fillMaxWidth()
+            .height(32.dp)
+        ) {
             val trackH  = 6.dp.toPx()
             val thumbW  = 22.dp.toPx()
             val thumbH  = size.height
@@ -166,62 +199,100 @@ internal fun ProDJCrossfader(
             val thumbX  = (animPos * travelW).coerceIn(0f, travelW)
             val thumbCx = thumbX + thumbW / 2f
 
+            // Track background
             drawRoundRect(
-                brush = Brush.horizontalGradient(listOf(deck1Color.copy(0.20f), deck2Color.copy(0.20f))),
-                topLeft = Offset(0f, trackY), size = Size(size.width, trackH), cornerRadius = cr
+                brush       = Brush.horizontalGradient(
+                    listOf(deck1Color.copy(0.20f), deck2Color.copy(0.20f))
+                ),
+                topLeft     = Offset(0f, trackY),
+                size        = Size(size.width, trackH),
+                cornerRadius = cr
             )
 
+            // Active fill left of thumb
             if (thumbCx > 0f) {
                 drawRoundRect(
                     brush = Brush.horizontalGradient(
-                        colors = listOf(deck1Color.copy(0.90f), lerp(deck1Color, deck2Color, animPos).copy(0.90f)),
-                        startX = 0f, endX = thumbCx.coerceAtLeast(1f)
+                        colors = listOf(
+                            deck1Color.copy(0.90f),
+                            lerp(deck1Color, deck2Color, animPos).copy(0.90f)
+                        ),
+                        startX = 0f,
+                        endX   = thumbCx.coerceAtLeast(1f)
                     ),
-                    topLeft = Offset(0f, trackY), size = Size(thumbCx, trackH), cornerRadius = cr
+                    topLeft      = Offset(0f, trackY),
+                    size         = Size(thumbCx, trackH),
+                    cornerRadius = cr
                 )
             }
 
+            // Glow behind thumb during crossfade
             if (isCrossfading) {
                 drawIntoCanvas { canvas ->
                     val p = android.graphics.Paint().apply {
                         isAntiAlias = true
-                        color = lerp(deck1Color, deck2Color, animPos).copy(0.60f).toArgb()
-                        maskFilter = AndroidBlurMaskFilter(8.dp.toPx(), AndroidBlurMaskFilter.Blur.NORMAL)
+                        color       = lerp(deck1Color, deck2Color, animPos).copy(0.60f).toArgb()
+                        maskFilter  = AndroidBlurMaskFilter(8.dp.toPx(), AndroidBlurMaskFilter.Blur.NORMAL)
                     }
-                    canvas.nativeCanvas.drawRoundRect(thumbX - 2f, 0f, thumbX + thumbW + 2f, thumbH, 5.dp.toPx(), 5.dp.toPx(), p)
+                    canvas.nativeCanvas.drawRoundRect(
+                        thumbX - 2f, 0f,
+                        thumbX + thumbW + 2f, thumbH,
+                        5.dp.toPx(), 5.dp.toPx(), p
+                    )
                 }
             }
 
+            // Thumb body
             val thumbColor = lerp(deck1Color, deck2Color, animPos)
-            drawRoundRect(color = thumbColor, topLeft = Offset(thumbX, 0f), size = Size(thumbW, thumbH), cornerRadius = tcr)
+            drawRoundRect(
+                color        = thumbColor,
+                topLeft      = Offset(thumbX, 0f),
+                size         = Size(thumbW, thumbH),
+                cornerRadius = tcr
+            )
+
+            // Thumb highlight sheen
             drawRoundRect(
                 brush = Brush.verticalGradient(
                     listOf(Color.White.copy(0.35f), Color.Transparent),
-                    startY = 0f, endY = thumbH * 0.45f
+                    startY = 0f,
+                    endY   = thumbH * 0.45f
                 ),
-                topLeft = Offset(thumbX, 0f), size = Size(thumbW, thumbH * 0.5f), cornerRadius = tcr
+                topLeft      = Offset(thumbX, 0f),
+                size         = Size(thumbW, thumbH * 0.5f),
+                cornerRadius = tcr
             )
 
-            val cx = thumbX + thumbW / 2f
-            val gripY1 = thumbH * 0.25f; val gripY2 = thumbH * 0.75f
+            // Grip lines
+            val cx     = thumbX + thumbW / 2f
+            val gripY1 = thumbH * 0.25f
+            val gripY2 = thumbH * 0.75f
             for (xOff in listOf(-3.5.dp.toPx(), 0f, 3.5.dp.toPx())) {
                 drawLine(
-                    color = Color.White.copy(0.55f),
-                    start = Offset(cx + xOff, gripY1), end = Offset(cx + xOff, gripY2),
-                    strokeWidth = 1.5.dp.toPx(), cap = StrokeCap.Round
+                    color       = Color.White.copy(0.55f),
+                    start       = Offset(cx + xOff, gripY1),
+                    end         = Offset(cx + xOff, gripY2),
+                    strokeWidth = 1.5.dp.toPx(),
+                    cap         = StrokeCap.Round
                 )
             }
 
+            // Position tick marks (0 %, 50 %, 100 %)
             val tickY = trackY + trackH + 3.dp.toPx()
             val tickR = 1.5.dp.toPx()
             for (fraction in listOf(0f, 0.5f, 1f)) {
                 val tx = fraction * size.width
-                drawCircle(color = Color.White.copy(alpha = 0.18f), radius = tickR, center = Offset(tx.coerceIn(tickR, size.width - tickR), tickY))
+                drawCircle(
+                    color  = Color.White.copy(alpha = 0.18f),
+                    radius = tickR,
+                    center = Offset(tx.coerceIn(tickR, size.width - tickR), tickY)
+                )
             }
         }
 
+        // Footer status line
         Text(
-            text      = if (isCrossfading) "Mixing in progress…" else "Controlled by mix engine",
+            text      = if (isCrossfading) "Crossfade in progress…" else "Engine ready",
             style     = MaterialTheme.typography.labelSmall,
             color     = Color.White.copy(alpha = 0.22f),
             textAlign = TextAlign.Center,
@@ -236,7 +307,12 @@ internal fun ProDJCrossfader(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-internal fun VcaIndicator(label: String, color: Color, isLouder: Boolean, isCutting: Boolean) {
+internal fun VcaIndicator(
+    label: String,
+    color: Color,
+    isLouder: Boolean,
+    isCutting: Boolean
+) {
     val alpha = when {
         isCutting -> 0.20f
         isLouder  -> 1.00f
