@@ -933,15 +933,19 @@ class CrossfadeEngine @Inject constructor(
      *    [handleFocusGain] flips isPlaying back to true both players resume and
      *    the loop wakes, continuing the fade from exactly where it paused.
      * 7. Abort check.
-     * 8. Swap players (isPrimaryA flips).
+     * 8. Swap players (isPrimaryA flips) — ROLES ARE EXCHANGED **BEFORE** the
+     *    outgoing track is stopped, preventing its listener from incorrectly
+     *    updating the global `isPlaying` state.
      *    ── PHONE-CALL FIX (Bug 2) ──────────────────────────────────────────
      *    The swap is now UNCONDITIONAL — if the fade loop completed successfully,
      *    the track hand-off must happen regardless of whether audio is currently
      *    paused. Previously the swap was gated on secondaryRef.isPlaying which
      *    is false during a phone call, causing the engine to resume the wrong
      *    (old) primary and orphan the secondary permanently.
-     *    Only the follow-up play() call is conditioned on _state.value.isPlaying.
-     * 9. Reset state and handle any pending next-track request.
+     *    Only the follow-up play() call is conditioned on _state.value.isPlaying,
+     *    which correctly reflects whether the system/user wants audio at that moment.
+     * 9. Reset state using the **actual** playing status of the new primary and
+     *    handle any pending next-track request.
      *
      * ── Why the seek happens after play() ────────────────────────────────────
      * OLD order: seekTo(position calculated NOW) → play() → wait up to 4 s → fade starts.
@@ -1190,52 +1194,48 @@ class CrossfadeEngine @Inject constructor(
             }
 
             // ── 8. Swap Players ───────────────────────────────────────────────
-            // Stop the outgoing track and restore its base volume for next time.
-            // Flip isPrimaryA so future calls to primaryPlayer()/secondaryPlayer()
-            // point to the correct instances.
+            // The swap MUST happen before stopping the outgoing track, otherwise
+            // its listener would still consider it the primary and incorrectly set
+            // the global `isPlaying` to false.
             //
-            // ── PHONE-CALL / AUDIO-FOCUS FIX (Bug 2) ─────────────────────────
-            // OLD CODE: gated the entire swap on secondaryRef.isPlaying. During a
-            // phone call, isPlaying = false, so the engine fell into the recovery
-            // branch — resuming the OLD primary and orphaning the secondary, which
-            // permanently broke the queue after every interrupted crossfade.
+            // ── PHONE-CALL / FOCUS FIX (Bug 2) ────────────────────────────────
+            // The swap is ALWAYS performed. The track hand‑off is a logical operation
+            // and must happen regardless of focus state. Only the subsequent play()
+            // call is conditioned on the desired playing state.
             //
-            // FIX: The swap is ALWAYS performed when the fade loop completes. The
-            // track hand-off is a logical operation (queue state), not an audio
-            // operation — it must happen regardless of the current focus state.
-            // Only the follow-up play() call is conditioned on _state.value.isPlaying,
-            // which correctly reflects whether the system/user wants audio right now.
+            // ── LISTENER STATE FIX ────────────────────────────────────────────
+            // Because isPrimaryA is flipped BEFORE pausing the old primary, the
+            // listener on that player now sees it as secondary and will NOT update
+            // the global isPlaying flag. The global state is then explicitly synced
+            // with the new primary's actual state.
             withContext(Dispatchers.Main) {
+                // Set incoming track's target volume and flip roles immediately.
+                if (_state.value.isPlaying) {
+                    secondaryRef.volume = secondaryBaseVolume
+                }
+                isPrimaryA = !isPrimaryA   // ⬅️ ROLES EXCHANGED BEFORE STOPPING OLD
+
+                // Now stop the old outgoing track – it is already secondary,
+                // so its listener cannot corrupt the global state.
                 try {
-                    primaryRef.pause()
-                    primaryRef.volume             = primaryBaseVolume
+                    primaryRef.pause()   // primaryRef still points to the old primary
+                    primaryRef.volume = primaryBaseVolume
                     primaryRef.playbackParameters = PlaybackParameters.DEFAULT
-
-                    // Only restore secondary volume if we are currently playing.
-                    // If paused (phone call), volume will remain at wherever the
-                    // fade stopped — it will be corrected when focus is regained
-                    // and the new primary takes over.
-                    if (_state.value.isPlaying) {
-                        secondaryRef.volume = secondaryBaseVolume
-                    }
                 } catch (_: Exception) {}
-            }
 
-            // Unconditional swap: the crossfade loop completed successfully.
-            // Secondary MUST become primary now, even if we are currently paused.
-            withContext(Dispatchers.Main) {
-                isPrimaryA = !isPrimaryA
-                try {
-                    // Only push play() if the global state says we should be playing.
-                    // If a phone call is still ongoing, the user/system has audio focus
-                    // — we leave both players paused and let handleFocusGain() resume.
-                    if (_state.value.isPlaying) {
-                        primaryPlayer()?.play()
-                    }
-                } catch (_: Exception) {}
+                // Ensure the new primary is playing if it should be.
+                if (_state.value.isPlaying) {
+                    primaryPlayer()?.play()
+                }
             }
 
             // ── 9. Reset State ────────────────────────────────────────────────
+            // Read the actual playing status from the (now current) primary player
+            // so that the UI always reflects the true playback state.
+            val actualPlaying = withContext(Dispatchers.Main) {
+                primaryPlayer()?.isPlaying ?: false
+            }
+
             lastRequestedTrackId      = null
             prebufferedTrackId        = null
             lastPrebufferRequestedId  = null
@@ -1246,12 +1246,12 @@ class CrossfadeEngine @Inject constructor(
             _state.update {
                 it.copy(
                     currentTrack              = nextTrack,
-                    isPlaying                 = _state.value.isPlaying, // preserve current focus state
+                    isPlaying                 = actualPlaying,
                     isCrossfading             = false,
                     crossfadeProgressFraction = 0f
                 )
             }
-            Log.i(TAG, "[MIXER] Swap complete → '${nextTrack.title}'")
+            Log.i(TAG, "[MIXER] Swap complete → '${nextTrack.title}' playing=$actualPlaying")
 
             // Execute any transition that was queued while we were fading.
             pendingNextTrack?.let { pending ->
