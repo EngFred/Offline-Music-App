@@ -102,6 +102,28 @@ import kotlin.math.sin
  * ALL ExoPlayer method calls (play, pause, seekTo, volume, audioSessionId, etc.)
  * MUST execute inside `withContext(Dispatchers.Main)`. Calling them on any other
  * dispatcher throws [IllegalStateException] and crashes the app.
+ *
+ * ── Phone-call / audio-focus interruption during crossfade ───────────────────
+ * Two bugs that existed before this fix and are now resolved:
+ *
+ * BUG 1 — "Crossfade Ghost" (Step 6):
+ *   If a phone call arrived mid-fade, [handleFocusLost] paused both ExoPlayers and
+ *   set _state.value.isPlaying = false, but the equal-power for-loop kept advancing
+ *   its math through delay() calls with no awareness of the pause. When the call
+ *   ended 2+ minutes later the fade had long since "finished" in the coroutine —
+ *   but nothing actually faded audibly, causing an abrupt track jump.
+ *   FIX → A while(!isPlaying) suspension wall at the top of each loop iteration
+ *   parks the math until [handleFocusGain] flips isPlaying back to true.
+ *
+ * BUG 2 — "Broken swap" (Step 8):
+ *   The swap was gated on `secondaryRef.isPlaying`, which is an ExoPlayer runtime
+ *   state. If the call arrived before the swap, isPlaying was false and the engine
+ *   fell into the recovery branch — resuming the OLD primary and abandoning the
+ *   secondary permanently, breaking the queue.
+ *   FIX → The swap is now unconditional (the fade loop completed successfully, so
+ *   the track hand-off MUST happen). Only the decision to call play() after the
+ *   swap is conditioned on _state.value.isPlaying, correctly reflecting whether
+ *   the user/system wants audio at that moment.
  */
 @UnstableApi
 @Singleton
@@ -178,6 +200,13 @@ class CrossfadeEngine @Inject constructor(
          * Declaring "settled" when we are within this tolerance prevents a false timeout.
          */
         private const val SEEK_SETTLE_TOLERANCE_MS = 150L
+
+        /**
+         * Poll interval (ms) used by the Step-6 suspension wall to re-check whether
+         * playback has resumed after a phone-call / audio-focus interruption.
+         * 50 ms gives near-instant wake-up without busy-waiting.
+         */
+        private const val FOCUS_RESUME_POLL_MS = 50L
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -429,6 +458,8 @@ class CrossfadeEngine @Inject constructor(
      * one track playing through the user's phone call.
      *
      * Sets [resumeAfterFocusGain] so [handleFocusGain] knows to auto-resume.
+     * Flips _state.value.isPlaying to false, which the Step-6 suspension wall
+     * in [executeCrossfade] observes to park the fade-math coroutine.
      */
     private fun handleFocusLost() {
         engineScope.launch {
@@ -445,6 +476,10 @@ class CrossfadeEngine @Inject constructor(
                 // Always pause secondary: safe even when it is idle (no-op on ExoPlayer).
                 secondary?.pause()
             }
+            // ── KEY: flip isPlaying BEFORE the Step-6 while-loop can observe it ──
+            // The fade coroutine reads _state.value.isPlaying at the top of each
+            // loop iteration. Setting it false here causes the while-wall to engage
+            // on the very next iteration, parking the math cleanly.
             _state.update { it.copy(isPlaying = false) }
             Log.i(TAG, "[FOCUS] Focus lost — both players paused. " +
                     "resumeAfterFocusGain=$resumeAfterFocusGain")
@@ -457,6 +492,9 @@ class CrossfadeEngine @Inject constructor(
      * Resumes both players only when [resumeAfterFocusGain] is true — i.e. the
      * interruption came from the system, not from a manual user pause. If the user
      * manually paused while a phone call was in progress, we respect that and stay paused.
+     *
+     * Flipping _state.value.isPlaying back to true wakes the Step-6 suspension wall
+     * in [executeCrossfade], allowing the fade to continue from where it was parked.
      */
     private fun handleFocusGain() {
         if (!resumeAfterFocusGain) {
@@ -475,6 +513,10 @@ class CrossfadeEngine @Inject constructor(
                 // when focus was lost — it should continue the fade.
                 if (isCrossfading) secondary?.play()
             }
+            // ── KEY: flip isPlaying AFTER the ExoPlayers are playing again ───────
+            // The Step-6 while-wall exits as soon as it sees isPlaying = true and
+            // will immediately set volumes on the next iteration. The players must
+            // already be running at that point or the volume writes are no-ops.
             _state.update { it.copy(isPlaying = true) }
             Log.i(TAG, "[FOCUS] Focus regained — players resumed")
         }
@@ -884,8 +926,21 @@ class CrossfadeEngine @Inject constructor(
      * 5. One-shot tempo prime (if tempo sync is enabled by [MixDecisionEngine]).
      * 5.5. Immediate bass kill on outgoing track.
      * 6. Equal-power volume ramp (cos/sin, [FADE_STEPS] steps).
+     *    ── PHONE-CALL FIX (Bug 1) ──────────────────────────────────────────
+     *    A while(!isPlaying) suspension wall at the TOP of each iteration parks
+     *    the volume-math coroutine while focus is absent. The ExoPlayers are
+     *    paused by [handleFocusLost]; the math loop goes to sleep here. When
+     *    [handleFocusGain] flips isPlaying back to true both players resume and
+     *    the loop wakes, continuing the fade from exactly where it paused.
      * 7. Abort check.
      * 8. Swap players (isPrimaryA flips).
+     *    ── PHONE-CALL FIX (Bug 2) ──────────────────────────────────────────
+     *    The swap is now UNCONDITIONAL — if the fade loop completed successfully,
+     *    the track hand-off must happen regardless of whether audio is currently
+     *    paused. Previously the swap was gated on secondaryRef.isPlaying which
+     *    is false during a phone call, causing the engine to resume the wrong
+     *    (old) primary and orphan the secondary permanently.
+     *    Only the follow-up play() call is conditioned on _state.value.isPlaying.
      * 9. Reset state and handle any pending next-track request.
      *
      * ── Why the seek happens after play() ────────────────────────────────────
@@ -1080,12 +1135,36 @@ class CrossfadeEngine @Inject constructor(
             // ── 6. Equal-Power Volume Ramp ────────────────────────────────────
             // cos(angle) on outgoing + sin(angle) on incoming = constant total power
             // across the crossfade, preventing the "dip" that linear fades produce.
+            //
+            // ── PHONE-CALL / AUDIO-FOCUS FIX (Bug 1) ─────────────────────────
+            // The while(!isPlaying) wall at the top of every iteration suspends the
+            // volume-math coroutine when [handleFocusLost] pauses both ExoPlayers.
+            // Without this, the for-loop kept running through delay() calls with no
+            // audio output, then "completed" while the phone call was still in
+            // progress — leaving the track abruptly jumping instead of fading.
+            //
+            // Flow when a phone call arrives mid-crossfade:
+            //   1. handleFocusLost()  → pauses both players, sets isPlaying = false
+            //   2. This while-wall    → parks the coroutine at 50 ms sleeps
+            //   3. handleFocusGain()  → resumes both players, sets isPlaying = true
+            //   4. while exits        → fade continues from exactly where it paused
             val primaryStartVolume = withContext(Dispatchers.Main) { primaryRef.volume }
             val stepDelayMs = (decision.effectiveCrossfadeDurationMs / FADE_STEPS)
                 .coerceAtLeast(16L)
 
             for (step in 1..FADE_STEPS) {
                 if (!engineScope.isActive || abortCrossfade) break
+
+                // ── Suspension wall: park math while focus is absent ──────────
+                // Exits as soon as handleFocusGain() flips isPlaying back to true,
+                // or immediately if playback was never interrupted.
+                while (!_state.value.isPlaying && engineScope.isActive && !abortCrossfade) {
+                    delay(FOCUS_RESUME_POLL_MS)
+                }
+                // Re-check abort after waking — a long call could have been
+                // followed by the user pressing stop before focus returned.
+                if (abortCrossfade) break
+                // ─────────────────────────────────────────────────────────────
 
                 val progress = step.toFloat() / FADE_STEPS
                 val angle    = progress * (PI.toFloat() / 2f)
@@ -1114,30 +1193,46 @@ class CrossfadeEngine @Inject constructor(
             // Stop the outgoing track and restore its base volume for next time.
             // Flip isPrimaryA so future calls to primaryPlayer()/secondaryPlayer()
             // point to the correct instances.
+            //
+            // ── PHONE-CALL / AUDIO-FOCUS FIX (Bug 2) ─────────────────────────
+            // OLD CODE: gated the entire swap on secondaryRef.isPlaying. During a
+            // phone call, isPlaying = false, so the engine fell into the recovery
+            // branch — resuming the OLD primary and orphaning the secondary, which
+            // permanently broke the queue after every interrupted crossfade.
+            //
+            // FIX: The swap is ALWAYS performed when the fade loop completes. The
+            // track hand-off is a logical operation (queue state), not an audio
+            // operation — it must happen regardless of the current focus state.
+            // Only the follow-up play() call is conditioned on _state.value.isPlaying,
+            // which correctly reflects whether the system/user wants audio right now.
             withContext(Dispatchers.Main) {
                 try {
                     primaryRef.pause()
                     primaryRef.volume             = primaryBaseVolume
                     primaryRef.playbackParameters = PlaybackParameters.DEFAULT
-                    if (secondaryRef.isPlaying) secondaryRef.volume = secondaryBaseVolume
+
+                    // Only restore secondary volume if we are currently playing.
+                    // If paused (phone call), volume will remain at wherever the
+                    // fade stopped — it will be corrected when focus is regained
+                    // and the new primary takes over.
+                    if (_state.value.isPlaying) {
+                        secondaryRef.volume = secondaryBaseVolume
+                    }
                 } catch (_: Exception) {}
             }
 
-            val swapped = withContext(Dispatchers.Main) {
-                if (secondaryRef.isPlaying) { isPrimaryA = !isPrimaryA; true } else false
-            }
-
-            if (!swapped) {
-                // Secondary failed to play — recover by resuming the primary.
-                withContext(Dispatchers.Main) {
-                    try { primaryRef.volume = primaryBaseVolume; primaryRef.play() } catch (_: Exception) {}
-                }
-                _state.update { it.copy(isCrossfading = false, crossfadeProgressFraction = 0f) }
-                return
-            }
-
+            // Unconditional swap: the crossfade loop completed successfully.
+            // Secondary MUST become primary now, even if we are currently paused.
             withContext(Dispatchers.Main) {
-                try { primaryPlayer()?.play() } catch (_: Exception) {}
+                isPrimaryA = !isPrimaryA
+                try {
+                    // Only push play() if the global state says we should be playing.
+                    // If a phone call is still ongoing, the user/system has audio focus
+                    // — we leave both players paused and let handleFocusGain() resume.
+                    if (_state.value.isPlaying) {
+                        primaryPlayer()?.play()
+                    }
+                } catch (_: Exception) {}
             }
 
             // ── 9. Reset State ────────────────────────────────────────────────
@@ -1151,7 +1246,7 @@ class CrossfadeEngine @Inject constructor(
             _state.update {
                 it.copy(
                     currentTrack              = nextTrack,
-                    isPlaying                 = true,
+                    isPlaying                 = _state.value.isPlaying, // preserve current focus state
                     isCrossfading             = false,
                     crossfadeProgressFraction = 0f
                 )
