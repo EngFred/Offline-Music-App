@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.random.Random
 
 object DjMixArgs {
     const val PLAYLIST_ID = "playlistId"
@@ -65,9 +66,6 @@ private const val TAG = "MixStudioViewModel"
  * [CrossfadeEngine.applyFirstBeatGuard] applies the offset dynamically every time
  * firstBeatMs enters the engine, so changing the setting takes effect for all
  * tracks instantly, even those already cached.
- *
- * ── Analysis-in-progress flow ────────────────────────────────────────────────
- * (unchanged from previous version — see inline comments below)
  *
  * ── Sampler suppression rule ──────────────────────────────────────────────────
  * samplerEngine.isAutoSamplerEnabled = settings.autoSamplerEnabled AND settings.isRealMixMode
@@ -515,7 +513,7 @@ class MixStudioViewModel @Inject constructor(
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // QUEUE REBUILD
+    // QUEUE REBUILD (WITH SESSION JITTER)
     // ═════════════════════════════════════════════════════════════════════════
 
     private fun rebuildSmartQueue(bpmCache: Map<Long, BpmInfo> = _uiState.value.bpmCache) {
@@ -528,6 +526,15 @@ class MixStudioViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Rebuilds the queue logic.
+     *
+     * We pass a session-scoped [Random] instance and a small [scoreJitter] (8f)
+     * to the [GetSmartNextTrackUseCase]. This guarantees that if multiple tracks
+     * tie for being a "perfect match", the algorithm will pick a different one
+     * each time the user hits Start, but without EVER picking a bad mix over a
+     * good one (since 8f is mathematically too small to override a bad BPM delta).
+     */
     private fun performRebuild(bpmCache: Map<Long, BpmInfo>) {
         if (rawPlaylistSongs.isEmpty()) return
 
@@ -535,7 +542,12 @@ class MixStudioViewModel @Inject constructor(
         val remaining = rawPlaylistSongs.toMutableList()
         val result    = mutableListOf<AudioFile>()
 
-        val opener = selectOpener(remaining, bpmCache)
+        // ── 1. Create a session-scoped Random instance ────────────────────────
+        // We seed this once per rebuild so the queue order is stable for the
+        // UI but changes every time the user starts a fresh mix session.
+        val sessionRandom = Random(System.currentTimeMillis())
+
+        val opener = selectOpener(remaining, bpmCache, sessionRandom)
         result.add(opener)
         remaining.remove(opener)
 
@@ -555,7 +567,9 @@ class MixStudioViewModel @Inject constructor(
                     if (it.value.analysisFailed) 120f else it.value.bpm
                 },
                 tolerance      = tolerance,
-                recentBpms     = recentBpms.toList()
+                recentBpms     = recentBpms.toList(),
+                scoreJitter    = 8f,           // ── Jitter tie-breaker ──
+                random         = sessionRandom // ── Session randomizer ──
             ) ?: remaining.first()
 
             result.add(next)
@@ -586,19 +600,35 @@ class MixStudioViewModel @Inject constructor(
         }
     }
 
-    private fun selectOpener(songs: List<AudioFile>, bpmCache: Map<Long, BpmInfo>): AudioFile {
+    /**
+     * Selects the first track of the mix.
+     * Instead of calculating the absolute median warm-up track every time, we
+     * now randomly pick a track from the "warm-up" zone (the 20% to 40%
+     * lowest-tempo tracks). This ensures a fresh but appropriate starting song.
+     */
+    private fun selectOpener(
+        songs: List<AudioFile>,
+        bpmCache: Map<Long, BpmInfo>,
+        random: Random = Random.Default
+    ): AudioFile {
         val withBpm = songs.filter {
             bpmCache.containsKey(it.id) && bpmCache[it.id]?.analysisFailed != true
         }
-        if (withBpm.isEmpty()) return songs.first()
+        // Fallback: pick a random song if no BPM data is available yet
+        if (withBpm.isEmpty()) return songs.random(random)
 
         val sorted   = withBpm.sortedBy { bpmCache[it.id]!!.bpm }
         val n        = sorted.size
+
+        // Define the "warm-up" zone (the lower-middle 20% to 40% of tempos)
         val lowerIdx = (n * 0.20).toInt().coerceIn(0, n - 1)
         val upperIdx = (n * 0.40).toInt().coerceIn(lowerIdx, n - 1)
-        val targetIdx = (lowerIdx + upperIdx) / 2
 
-        return sorted.getOrNull(targetIdx) ?: sorted.getOrNull(n / 2) ?: songs.first()
+        // ── RANDOM WARM-UP OPENER ─────────────────────────────────────────────
+        // Pick a random track from the warm-up zone instead of the exact median.
+        val warmUpTracks = sorted.subList(lowerIdx, upperIdx + 1)
+
+        return if (warmUpTracks.isNotEmpty()) warmUpTracks.random(random) else sorted.random(random)
     }
 
     override fun onCleared() {
