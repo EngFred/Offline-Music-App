@@ -384,12 +384,23 @@ class MainActivity : ComponentActivity() {
                     onNavigateToDjMix = navigateToDjMix
                 )
 
+//                LaunchedEffect(externalPlaybackUri) {
+//                    val uri = externalPlaybackUri ?: return@LaunchedEffect
+//                    val success = withContext(Dispatchers.IO) { initiatePlaybackFromExternalUri(uri) }
+//                    if (success) {
+//                        navController.navigate(AppDestinations.NowPlaying.route) { launchSingleTop = true }
+//                    }
+//                    externalPlaybackUri = null
+//                }
                 LaunchedEffect(externalPlaybackUri) {
                     val uri = externalPlaybackUri ?: return@LaunchedEffect
                     val success = withContext(Dispatchers.IO) { initiatePlaybackFromExternalUri(uri) }
+
                     if (success) {
-                        navController.navigate(AppDestinations.NowPlaying.route) { launchSingleTop = true }
+                        // Now Playing is an overlay now! Trigger the boolean instead of navigating.
+                        showNowPlaying = true
                     }
+
                     externalPlaybackUri = null
                 }
 
