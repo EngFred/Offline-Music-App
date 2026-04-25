@@ -277,8 +277,8 @@ private fun CrossfadeDurationSlider(
         Slider(
             value         = durationSec.toFloat(),
             onValueChange = { onValueChange(it.roundToInt()) },
-            valueRange    = 3f..15f,
-            steps         = 11,
+            valueRange    = 3f..10f, // Updated to 10 seconds max
+            steps         = 6,       // Updated steps: (10 - 3) - 1 = 6, ensuring clean 1-second increments
             colors        = SliderDefaults.colors(
                 thumbColor         = MaterialTheme.colorScheme.primary,
                 activeTrackColor   = MaterialTheme.colorScheme.primary,
