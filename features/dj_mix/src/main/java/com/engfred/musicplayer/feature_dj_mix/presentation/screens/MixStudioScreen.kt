@@ -661,8 +661,8 @@ fun MixStudioScreen(
                     onSampleVolumeChanged      = { viewModel.onEvent(MixStudioEvent.UpdateSampleVolume(it)) },
                     cuePointOffsetSec          = uiState.settings.cuePointOffsetSec,
                     onCuePointOffsetChanged    = { viewModel.onEvent(MixStudioEvent.UpdateCuePointOffset(it)) },
-                    crossfadeDurationSec       = uiState.settings.crossfadeDurationSec,
-                    onCrossfadeDurationChanged = { viewModel.onEvent(MixStudioEvent.UpdateCrossfadeDuration(it)) },
+//                    crossfadeDurationSec       = uiState.settings.crossfadeDurationSec,
+//                    onCrossfadeDurationChanged = { viewModel.onEvent(MixStudioEvent.UpdateCrossfadeDuration(it)) },
                     isDualDeckMode             = uiState.isDualDeckMode,
                     onToggleDeckLayout         = { viewModel.onEvent(MixStudioEvent.ToggleDeckLayout) },
                 )

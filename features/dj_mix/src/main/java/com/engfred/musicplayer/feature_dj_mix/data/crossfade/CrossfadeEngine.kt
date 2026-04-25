@@ -323,7 +323,7 @@ class CrossfadeEngine @Inject constructor(
     // ═════════════════════════════════════════════════════════════════════════
 
     /** Duration of the volume-ramp overlap between outgoing and incoming tracks. */
-    var crossfadeDurationMs: Long = 5_000L
+    val crossfadeDurationMs: Long = 3_000L
 
     /**
      * When true: Auto-Mix mode. Crossfades are phase-aligned, bass-killed, and

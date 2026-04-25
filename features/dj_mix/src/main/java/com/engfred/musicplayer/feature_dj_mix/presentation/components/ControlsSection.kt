@@ -52,12 +52,12 @@ fun ControlsSection(
     autoSamplerEnabled: Boolean,
     sampleVolume: Float,
     cuePointOffsetSec: Int,
-    crossfadeDurationSec: Int,
+//    crossfadeDurationSec: Int,
     onToggleRealMixMode: (Boolean) -> Unit,
     onToggleAutoSampler: (Boolean) -> Unit,
     onSampleVolumeChanged: (Float) -> Unit,
     onCuePointOffsetChanged: (Int) -> Unit,
-    onCrossfadeDurationChanged: (Int) -> Unit,
+//    onCrossfadeDurationChanged: (Int) -> Unit,
     isDualDeckMode: Boolean = false,
     onToggleDeckLayout: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -77,15 +77,15 @@ fun ControlsSection(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
         )
 
-        // ── Crossfade Duration — always visible, affects both modes ───────────
-        CrossfadeDurationSlider(
-            durationSec   = crossfadeDurationSec,
-            onValueChange = onCrossfadeDurationChanged
-        )
-
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
-        )
+//        // ── Crossfade Duration — always visible, affects both modes ───────────
+//        CrossfadeDurationSlider(
+//            durationSec   = crossfadeDurationSec,
+//            onValueChange = onCrossfadeDurationChanged
+//        )
+//
+//        HorizontalDivider(
+//            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+//        )
 
         // ── Auto-Mix Mode toggle ──────────────────────────────────────────────
         PremiumToggleRow(
@@ -239,61 +239,61 @@ private fun DualDeckToggleRow(
 //  Crossfade Duration Slider
 // ─────────────────────────────────────────────────────────────────────────────
 
-@Composable
-private fun CrossfadeDurationSlider(
-    durationSec: Int,
-    onValueChange: (Int) -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier              = Modifier.fillMaxWidth(),
-            verticalAlignment     = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector        = Icons.Rounded.Shuffle,
-                    contentDescription = null,
-                    tint               = MaterialTheme.colorScheme.primary.copy(alpha = 0.80f),
-                    modifier           = Modifier.size(16.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text          = "CROSSFADE DURATION",
-                    style         = MaterialTheme.typography.labelSmall,
-                    fontWeight    = FontWeight.Bold,
-                    letterSpacing = 1.sp,
-                    color         = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)
-                )
-            }
-            Text(
-                text       = "${durationSec}s",
-                style      = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Black,
-                color      = MaterialTheme.colorScheme.primary
-            )
-        }
-
-        Slider(
-            value         = durationSec.toFloat(),
-            onValueChange = { onValueChange(it.roundToInt()) },
-            valueRange    = 3f..10f, // Updated to 10 seconds max
-            steps         = 6,       // Updated steps: (10 - 3) - 1 = 6, ensuring clean 1-second increments
-            colors        = SliderDefaults.colors(
-                thumbColor         = MaterialTheme.colorScheme.primary,
-                activeTrackColor   = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-            )
-        )
-
-        Text(
-            text     = "How long the outgoing and incoming tracks overlap during a mix",
-            style    = MaterialTheme.typography.bodySmall,
-            color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
-            modifier = Modifier.padding(top = 2.dp)
-        )
-    }
-}
+//@Composable
+//private fun CrossfadeDurationSlider(
+//    durationSec: Int,
+//    onValueChange: (Int) -> Unit
+//) {
+//    Column(modifier = Modifier.fillMaxWidth()) {
+//        Row(
+//            modifier              = Modifier.fillMaxWidth(),
+//            verticalAlignment     = Alignment.CenterVertically,
+//            horizontalArrangement = Arrangement.SpaceBetween
+//        ) {
+//            Row(verticalAlignment = Alignment.CenterVertically) {
+//                Icon(
+//                    imageVector        = Icons.Rounded.Shuffle,
+//                    contentDescription = null,
+//                    tint               = MaterialTheme.colorScheme.primary.copy(alpha = 0.80f),
+//                    modifier           = Modifier.size(16.dp)
+//                )
+//                Spacer(Modifier.width(6.dp))
+//                Text(
+//                    text          = "CROSSFADE DURATION",
+//                    style         = MaterialTheme.typography.labelSmall,
+//                    fontWeight    = FontWeight.Bold,
+//                    letterSpacing = 1.sp,
+//                    color         = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)
+//                )
+//            }
+//            Text(
+//                text       = "${durationSec}s",
+//                style      = MaterialTheme.typography.labelMedium,
+//                fontWeight = FontWeight.Black,
+//                color      = MaterialTheme.colorScheme.primary
+//            )
+//        }
+//
+//        Slider(
+//            value         = durationSec.toFloat(),
+//            onValueChange = { onValueChange(it.roundToInt()) },
+//            valueRange    = 3f..10f, // Updated to 10 seconds max
+//            steps         = 6,       // Updated steps: (10 - 3) - 1 = 6, ensuring clean 1-second increments
+//            colors        = SliderDefaults.colors(
+//                thumbColor         = MaterialTheme.colorScheme.primary,
+//                activeTrackColor   = MaterialTheme.colorScheme.primary,
+//                inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+//            )
+//        )
+//
+//        Text(
+//            text     = "How long the outgoing and incoming tracks overlap during a mix",
+//            style    = MaterialTheme.typography.bodySmall,
+//            color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
+//            modifier = Modifier.padding(top = 2.dp)
+//        )
+//    }
+//}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Cue Point Offset Row

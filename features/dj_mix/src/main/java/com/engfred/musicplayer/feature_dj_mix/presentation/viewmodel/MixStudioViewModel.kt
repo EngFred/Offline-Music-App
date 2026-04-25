@@ -255,22 +255,22 @@ class MixStudioViewModel @Inject constructor(
                         "Mix trigger for current track recalculated.")
             }
 
-            is MixStudioEvent.UpdateCrossfadeDuration -> {
-                // Clamp to the valid engine range (MixDecisionEngine caps effective duration to 14 s,
-                // so offering 15 s as a ceiling is safe and gives headroom for HARMONIC × 0.80).
-                val clampedSec = event.sec.coerceIn(3, 15)
-                val s = _uiState.value.settings.copy(crossfadeDurationSec = clampedSec)
-
-                // Push into engine immediately — no restart required.
-                crossfadeEngine.crossfadeDurationMs = clampedSec * 1000L
-
-                _uiState.update { it.copy(settings = s) }
-                djSessionManager.updateSettings(s)
-                viewModelScope.launch {
-                    settingsRepository.updateDjCrossfadeDuration(clampedSec)
-                    Log.d(TAG, "[SETTINGS] CrossfadeDuration → ${clampedSec}s")
-                }
-            }
+//            is MixStudioEvent.UpdateCrossfadeDuration -> {
+//                // Clamp to the valid engine range (MixDecisionEngine caps effective duration to 14 s,
+//                // so offering 15 s as a ceiling is safe and gives headroom for HARMONIC × 0.80).
+//                val clampedSec = event.sec.coerceIn(3, 15)
+//                val s = _uiState.value.settings.copy(crossfadeDurationSec = clampedSec)
+//
+//                // Push into engine immediately — no restart required.
+//                crossfadeEngine.crossfadeDurationMs = clampedSec * 1000L
+//
+//                _uiState.update { it.copy(settings = s) }
+//                djSessionManager.updateSettings(s)
+//                viewModelScope.launch {
+//                    settingsRepository.updateDjCrossfadeDuration(clampedSec)
+//                    Log.d(TAG, "[SETTINGS] CrossfadeDuration → ${clampedSec}s")
+//                }
+//            }
         }
     }
 
@@ -336,7 +336,7 @@ class MixStudioViewModel @Inject constructor(
         settingsRepository.getAppSettings()
             .onEach { appSettings ->
                 val newSettings = MixStudioSettings(
-                    crossfadeDurationSec = appSettings.crossfadeDurationSec,
+//                    crossfadeDurationSec = appSettings.crossfadeDurationSec,
                     bpmTolerance         = appSettings.bpmTolerance,
                     isRealMixMode        = appSettings.isRealMixMode,
                     maxTrackDurationSec  = appSettings.maxTrackDurationSec,
@@ -347,7 +347,7 @@ class MixStudioViewModel @Inject constructor(
                     cuePointOffsetSec    = appSettings.cuePointOffsetSec,
                 )
 
-                crossfadeEngine.crossfadeDurationMs = newSettings.crossfadeDurationSec * 1000L
+//                crossfadeEngine.crossfadeDurationMs = newSettings.crossfadeDurationSec * 1000L
                 crossfadeEngine.isRealMixMode       = newSettings.isRealMixMode
                 crossfadeEngine.maxTrackDurationMs  = newSettings.maxTrackDurationSec * 1000L
                 crossfadeEngine.useHalfwayMix       = !newSettings.useManualMaxDuration
