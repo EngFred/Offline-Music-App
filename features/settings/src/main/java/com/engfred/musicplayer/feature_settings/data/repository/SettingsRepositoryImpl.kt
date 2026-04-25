@@ -119,7 +119,7 @@ class SettingsRepositoryImpl @Inject constructor(
                     autoSamplerEnabled         = preferences[DJ_AUTO_SAMPLER] ?: true,
                     sampleVolume               = preferences[DJ_SAMPLE_VOLUME] ?: 1f,
                     cuePointOffsetSec          = preferences[DJ_CUE_POINT_OFFSET_SEC] ?: 15,
-                    crossfadeDurationSec       = preferences[DJ_CROSSFADE_DURATION_SEC] ?: 5,
+                    crossfadeDurationSec       = preferences[DJ_CROSSFADE_DURATION_SEC] ?: 3,
                     isDualDeckMode             = preferences[DJ_DUAL_DECK_MODE] ?: false,
                     mixOfTheDayFilterByDuration = preferences[MIX_OF_THE_DAY_FILTER_BY_DURATION] ?: false,
                     customPlayerBackgroundUri = preferences[CUSTOM_PLAYER_BACKGROUND_URI],

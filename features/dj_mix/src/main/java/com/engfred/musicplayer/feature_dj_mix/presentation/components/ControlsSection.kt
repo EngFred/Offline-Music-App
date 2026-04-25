@@ -57,7 +57,7 @@ fun ControlsSection(
     onToggleAutoSampler: (Boolean) -> Unit,
     onSampleVolumeChanged: (Float) -> Unit,
     onCuePointOffsetChanged: (Int) -> Unit,
-    onCrossfadeDurationChanged: (Int) -> Unit,
+//    onCrossfadeDurationChanged: (Int) -> Unit,
     isDualDeckMode: Boolean = false,
     onToggleDeckLayout: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -78,14 +78,14 @@ fun ControlsSection(
         )
 
         // ── Crossfade Duration — always visible, affects both modes ───────────
-        CrossfadeDurationSlider(
-            durationSec   = crossfadeDurationSec,
-            onValueChange = onCrossfadeDurationChanged
-        )
-
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
-        )
+//        CrossfadeDurationSlider(
+//            durationSec   = crossfadeDurationSec,
+//            onValueChange = onCrossfadeDurationChanged
+//        )
+//
+//        HorizontalDivider(
+//            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+//        )
 
         // ── Auto-Mix Mode toggle ──────────────────────────────────────────────
         PremiumToggleRow(
