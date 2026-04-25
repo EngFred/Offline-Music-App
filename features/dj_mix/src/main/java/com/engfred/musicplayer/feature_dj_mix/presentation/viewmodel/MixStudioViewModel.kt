@@ -472,7 +472,6 @@ class MixStudioViewModel @Inject constructor(
                         currentPositionMs         = engineState.currentPositionMs,
                         currentDurationMs         = engineState.currentDurationMs,
                         crossfadeProgressFraction = engineState.crossfadeProgressFraction,
-                        currentMixStrategy        = engineState.currentMixStrategy,
                         waveform                  = engineState.waveform,
                         error                     = engineState.error,
                         timeToNextMixMs           = engineState.timeToNextMixMs

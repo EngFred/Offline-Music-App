@@ -52,9 +52,8 @@ import kotlin.math.sin
  * This class is the main orchestrator. Responsibilities deliberately kept OUT of
  * this file to maintain separation of concerns:
  *
- *   • Beat-phase math          → [PhaseAlignmentCalculator]  (pure arithmetic, unit-testable)
- *   • Android audio focus      → [AudioFocusCoordinator]     (single focus request for both players)
- *   • Mix strategy / duration  → [MixDecisionEngine]         (BPM analysis → crossfade profile)
+ * • Beat-phase math          → [PhaseAlignmentCalculator]  (pure arithmetic, unit-testable)
+ * • Android audio focus      → [AudioFocusCoordinator]     (single focus request for both players)
  *
  * ── Dual-player model ─────────────────────────────────────────────────────────
  * playerA and playerB alternate as "primary" (audible) and "secondary" (prebuffered,
@@ -104,32 +103,31 @@ import kotlin.math.sin
  * dispatcher throws [IllegalStateException] and crashes the app.
  *
  * ── Phone-call / audio-focus interruption during crossfade ───────────────────
- * Two bugs that existed before this fix and are now resolved:
+ * Two bugs that existed before and are now resolved:
  *
- * BUG 1 — "Crossfade Ghost" (Step 6):
- *   If a phone call arrived mid-fade, [handleFocusLost] paused both ExoPlayers and
- *   set _state.value.isPlaying = false, but the equal-power for-loop kept advancing
- *   its math through delay() calls with no awareness of the pause. When the call
- *   ended 2+ minutes later the fade had long since "finished" in the coroutine —
- *   but nothing actually faded audibly, causing an abrupt track jump.
- *   FIX → A while(!isPlaying) suspension wall at the top of each loop iteration
- *   parks the math until [handleFocusGain] flips isPlaying back to true.
+ * Issue 1 — "Crossfade Ghost" (Step 6):
+ * If a phone call arrived mid-fade, [handleFocusLost] paused both ExoPlayers and
+ * set _state.value.isPlaying = false, but the equal-power for-loop kept advancing
+ * its math through delay() calls with no awareness of the pause. When the call
+ * ended 2+ minutes later the fade had long since "finished" in the coroutine —
+ * but nothing actually faded audibly, causing an abrupt track jump.
+ * A while(!isPlaying) suspension wall at the top of each loop iteration
+ * parks the math until [handleFocusGain] flips isPlaying back to true.
  *
- * BUG 2 — "Broken swap" (Step 8):
- *   The swap was gated on `secondaryRef.isPlaying`, which is an ExoPlayer runtime
- *   state. If the call arrived before the swap, isPlaying was false and the engine
- *   fell into the recovery branch — resuming the OLD primary and abandoning the
- *   secondary permanently, breaking the queue.
- *   FIX → The swap is now unconditional (the fade loop completed successfully, so
- *   the track hand-off MUST happen). Only the decision to call play() after the
- *   swap is conditioned on _state.value.isPlaying, correctly reflecting whether
- *   the user/system wants audio at that moment.
+ * Issue 2 — "Broken swap" (Step 8):
+ * The swap was gated on `secondaryRef.isPlaying`, which is an ExoPlayer runtime
+ * state. If the call arrived before the swap, isPlaying was false and the engine
+ * fell into the recovery branch — resuming the OLD primary and abandoning the
+ * secondary permanently, breaking the queue.
+ * The swap is now unconditional (the fade loop completed successfully, so
+ * the track hand-off MUST happen). Only the decision to call play() after the
+ * swap is conditioned on _state.value.isPlaying, correctly reflecting whether
+ * the user/system wants audio at that moment.
  */
 @UnstableApi
 @Singleton
 class CrossfadeEngine @Inject constructor(
-    @param:ApplicationContext private val context: Context,
-    private val mixDecisionEngine: MixDecisionEngine
+    @param:ApplicationContext private val context: Context
 ) {
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -138,6 +136,8 @@ class CrossfadeEngine @Inject constructor(
 
     companion object {
         private const val TAG = "CrossfadeEngine"
+
+        private const val CROSSFADE_DURATION_MULT = 1.60f
 
         /** Normal position-poll interval when not approaching a transition. */
         private const val POSITION_POLL_MS = 300L
@@ -411,7 +411,7 @@ class CrossfadeEngine @Inject constructor(
      *
      * ── Single point of application rule ─────────────────────────────────────
      * Call this ONCE at every boundary where raw external data enters the engine:
-     *   [updateCurrentBpmInfo], [prebufferTrack], [executeCrossfade].
+     * [updateCurrentBpmInfo], [prebufferTrack], [executeCrossfade].
      * Do NOT call it on [currentTrackFirstBeatMs] — it is already guarded.
      *
      * ── Edge cases ───────────────────────────────────────────────────────────
@@ -919,40 +919,35 @@ class CrossfadeEngine @Inject constructor(
      * 1. Prepare secondary (load media, reset parameters).
      * 2. Wait for STATE_READY (secondary is prebuffered so this is usually <100 ms).
      * 3. Start secondary playing at muted volume=0 (gets the decoder running).
-     * 4. Phase-aligned seek — sampled NOW after all async waits (core beat-sync fix).
-     *    Uses [PhaseAlignmentCalculator.calculate] for the math.
-     *    Adaptive settle: polls secondaryRef.currentPosition until it reflects the new
-     *    seek target (within [SEEK_SETTLE_TOLERANCE_MS]), capped at [SEEK_SETTLE_DEADLINE_MS].
-     * 5. One-shot tempo prime (if tempo sync is enabled by [MixDecisionEngine]).
-     * 5.5. Immediate bass kill on outgoing track.
+     * 4. Phase-aligned seek — sampled NOW after all async waits (core beat-sync logic).
+     * Uses [PhaseAlignmentCalculator.calculate] for the math.
+     * Adaptive settle: polls secondaryRef.currentPosition until it reflects the new
+     * seek target (within [SEEK_SETTLE_TOLERANCE_MS]), capped at [SEEK_SETTLE_DEADLINE_MS].
+     * 5. Immediate bass kill on outgoing track.
      * 6. Equal-power volume ramp (cos/sin, [FADE_STEPS] steps).
-     *    ── PHONE-CALL FIX (Bug 1) ──────────────────────────────────────────
-     *    A while(!isPlaying) suspension wall at the TOP of each iteration parks
-     *    the volume-math coroutine while focus is absent. The ExoPlayers are
-     *    paused by [handleFocusLost]; the math loop goes to sleep here. When
-     *    [handleFocusGain] flips isPlaying back to true both players resume and
-     *    the loop wakes, continuing the fade from exactly where it paused.
+     * ── PHONE-CALL HANDLING (Issue 1) ──────────────────────────────────────────
+     * A while(!isPlaying) suspension wall at the TOP of each iteration parks
+     * the volume-math coroutine while focus is absent. The ExoPlayers are
+     * paused by [handleFocusLost]; the math loop goes to sleep here. When
+     * [handleFocusGain] flips isPlaying back to true both players resume and
+     * the loop wakes, continuing the fade from exactly where it paused.
      * 7. Abort check.
      * 8. Swap players (isPrimaryA flips) — ROLES ARE EXCHANGED **BEFORE** the
-     *    outgoing track is stopped, preventing its listener from incorrectly
-     *    updating the global `isPlaying` state.
-     *    ── PHONE-CALL FIX (Bug 2) ──────────────────────────────────────────
-     *    The swap is now UNCONDITIONAL — if the fade loop completed successfully,
-     *    the track hand-off must happen regardless of whether audio is currently
-     *    paused. Previously the swap was gated on secondaryRef.isPlaying which
-     *    is false during a phone call, causing the engine to resume the wrong
-     *    (old) primary and orphan the secondary permanently.
-     *    Only the follow-up play() call is conditioned on _state.value.isPlaying,
-     *    which correctly reflects whether the system/user wants audio at that moment.
+     * outgoing track is stopped, preventing its listener from incorrectly
+     * updating the global `isPlaying` state.
+     * ── PHONE-CALL HANDLING (Issue 2) ──────────────────────────────────────────
+     * The swap is now UNCONDITIONAL — if the fade loop completed successfully,
+     * the track hand-off must happen regardless of whether audio is currently
+     * paused. Previously the swap was gated on secondaryRef.isPlaying which
+     * is false during a phone call, causing the engine to resume the wrong
+     * (old) primary and abandon the secondary permanently.
+     * Only the follow-up play() call is conditioned on _state.value.isPlaying,
+     * which correctly reflects whether the system/user wants audio at that moment.
      * 9. Reset state using the **actual** playing status of the new primary and
-     *    handle any pending next-track request.
+     * handle any pending next-track request.
      *
      * ── Why the seek happens after play() ────────────────────────────────────
-     * OLD order: seekTo(position calculated NOW) → play() → wait up to 4 s → fade starts.
-     * The primary kept playing during those 4 s, so by the time audio came out of the
-     * secondary it was beat-misaligned by 4 s worth of primary movement.
-     *
-     * NEW order: play() → wait until playing → seekTo(position calculated NOW) → settle → fade.
+     * Current order: play() → wait until playing → seekTo(position calculated NOW) → settle → fade.
      * The phase is calculated at the last possible moment. The secondary is already
      * buffered so the seek resolves in < 50 ms and is completely inaudible at volume=0.
      *
@@ -970,16 +965,13 @@ class CrossfadeEngine @Inject constructor(
 
         abortCrossfade = false
 
-        val decision = mixDecisionEngine.computeMixDecision(
-            currentTrackBpm, nextBpm,
-            crossfadeDurationMs,
-            currentTrackAmplitude, nextAmplitude
-        )
-        Log.i(TAG, "[MIXER] ${decision.djNote}")
+        val effectiveCrossfadeDurationMs = (crossfadeDurationMs * CROSSFADE_DURATION_MULT)
+            .toLong()
+            .coerceIn(2_000L, 14_000L)
+        Log.i(TAG, "[MIXER] crossfade: ${crossfadeDurationMs}ms → effective=${effectiveCrossfadeDurationMs}ms")
 
         _state.update {
-            it.copy(isCrossfading = true, crossfadeProgressFraction = 0f,
-                currentMixStrategy = decision.strategy)
+            it.copy(isCrossfading = true, crossfadeProgressFraction = 0f)
         }
 
         var bassKillEq: android.media.audiofx.Equalizer? = null
@@ -1022,7 +1014,7 @@ class CrossfadeEngine @Inject constructor(
             // Start playing at volume=0 FIRST. Getting the decoder running means
             // the subsequent phase-seek (Step 4) resolves against buffered data
             // rather than triggering a new buffer fill, making it near-instantaneous.
-            // This is the prerequisite for the late-sampling phase fix in Step 4.
+            // This is the prerequisite for the late-sampling phase logic in Step 4.
             withContext(Dispatchers.Main) {
                 try {
                     secondaryRef.volume = 0f
@@ -1043,7 +1035,7 @@ class CrossfadeEngine @Inject constructor(
 
             // ── 4. PHASE-ALIGNED SEEK (Real Mix mode only) ────────────────────
             //
-            // KEY FIX: primaryRef.currentPosition is sampled HERE — after all async
+            // KEY: primaryRef.currentPosition is sampled HERE — after all async
             // waits have completed. In the old code this was sampled before the waits,
             // meaning it could be 1–4 seconds stale by the time audio came out of the
             // secondary. That stale offset was the root cause of beat misalignment on
@@ -1066,7 +1058,7 @@ class CrossfadeEngine @Inject constructor(
                         incomingGuardedFirstBeatMs   = guardedIncomingFirstBeat,
                         incomingBpm                  = nextBpm,
                         incomingDurationMs           = secDuration,
-                        minRemainingMs               = decision.effectiveCrossfadeDurationMs * 2
+                        minRemainingMs               = effectiveCrossfadeDurationMs * 2
                     )
                 }
 
@@ -1094,24 +1086,7 @@ class CrossfadeEngine @Inject constructor(
                 Log.d(TAG, "[MIXER] Continuous Play mode — skipping phase seek")
             }
 
-            // ── 5. ONE-SHOT TEMPO PRIME ───────────────────────────────────────
-            // Adjust the outgoing track's playback speed once while the secondary
-            // is still muted. Doing it before the fade starts prevents Sonic's
-            // pitch-correction flush from causing an audible artefact mid-overlap.
-            if (decision.isEffectivelyTempoSynced) {
-                withContext(Dispatchers.Main) {
-                    try {
-                        primaryRef.playbackParameters =
-                            PlaybackParameters(decision.stretchRatio.toFloat())
-                        Log.d(TAG, "[TEMPO] Speed → ${"%.4f".format(decision.stretchRatio)}× " +
-                                "(${decision.outgoingBpm.fmt()} → ${decision.incomingBpm.fmt()} BPM)")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "[TEMPO] Prime failed: ${e.message}")
-                    }
-                }
-            }
-
-            // ── 5.5. IMMEDIATE BASS KILL on outgoing track ────────────────────
+            // ── 5. IMMEDIATE BASS KILL on outgoing track ────────────────────
             // Kills the outgoing track's bass to minimum the moment the incoming
             // track starts coming in, before the first volume fade step. This
             // prevents two bass lines from playing simultaneously (which sounds
@@ -1120,16 +1095,12 @@ class CrossfadeEngine @Inject constructor(
                 try {
                     val sessionId = primaryRef.audioSessionId
                     if (sessionId != C.AUDIO_SESSION_ID_UNSET) {
-                        val eq        = android.media.audiofx.Equalizer(0, sessionId)
-                        val bassIndex = mixDecisionEngine.findBassBandIndex(eq)
-                        if (bassIndex != null) {
-                            eq.enabled = true
-                            eq.setBandLevel(bassIndex, eq.bandLevelRange[0])
-                            bassKillEq = eq
-                            Log.d(TAG, "[MIXER] Immediate bass kill applied")
-                        } else {
-                            eq.release()
-                        }
+                        val eq = android.media.audiofx.Equalizer(0, sessionId)
+                        val bassIndex = findBassBandIndex(eq)
+                        eq.enabled = true
+                        eq.setBandLevel(bassIndex, eq.bandLevelRange[0])
+                        bassKillEq = eq
+                        Log.d(TAG, "[MIXER] Immediate bass kill applied")
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "[MIXER] Bass kill failed: ${e.message}")
@@ -1140,7 +1111,7 @@ class CrossfadeEngine @Inject constructor(
             // cos(angle) on outgoing + sin(angle) on incoming = constant total power
             // across the crossfade, preventing the "dip" that linear fades produce.
             //
-            // ── PHONE-CALL / AUDIO-FOCUS FIX (Bug 1) ─────────────────────────
+            // ── PHONE-CALL / AUDIO-FOCUS (Issue 1) ─────────────────────────
             // The while(!isPlaying) wall at the top of every iteration suspends the
             // volume-math coroutine when [handleFocusLost] pauses both ExoPlayers.
             // Without this, the for-loop kept running through delay() calls with no
@@ -1153,7 +1124,7 @@ class CrossfadeEngine @Inject constructor(
             //   3. handleFocusGain()  → resumes both players, sets isPlaying = true
             //   4. while exits        → fade continues from exactly where it paused
             val primaryStartVolume = withContext(Dispatchers.Main) { primaryRef.volume }
-            val stepDelayMs = (decision.effectiveCrossfadeDurationMs / FADE_STEPS)
+            val stepDelayMs = (effectiveCrossfadeDurationMs / FADE_STEPS)
                 .coerceAtLeast(16L)
 
             for (step in 1..FADE_STEPS) {
@@ -1198,12 +1169,12 @@ class CrossfadeEngine @Inject constructor(
             // its listener would still consider it the primary and incorrectly set
             // the global `isPlaying` to false.
             //
-            // ── PHONE-CALL / FOCUS FIX (Bug 2) ────────────────────────────────
+            // ── PHONE-CALL / FOCUS (Issue 2) ────────────────────────────────
             // The swap is ALWAYS performed. The track hand‑off is a logical operation
             // and must happen regardless of focus state. Only the subsequent play()
             // call is conditioned on the desired playing state.
             //
-            // ── LISTENER STATE FIX ────────────────────────────────────────────
+            // ── LISTENER STATE ────────────────────────────────────────────
             // Because isPrimaryA is flipped BEFORE pausing the old primary, the
             // listener on that player now sees it as secondary and will NOT update
             // the global isPlaying flag. The global state is then explicitly synced
@@ -1241,7 +1212,7 @@ class CrossfadeEngine @Inject constructor(
             lastPrebufferRequestedId  = null
             currentTrackMixOutMs      = null
             postCrossfadeGuardUntilMs =
-                System.currentTimeMillis() + decision.effectiveCrossfadeDurationMs
+                System.currentTimeMillis() + effectiveCrossfadeDurationMs
 
             _state.update {
                 it.copy(
@@ -1501,6 +1472,18 @@ class CrossfadeEngine @Inject constructor(
     // ═════════════════════════════════════════════════════════════════════════
     // UTILITIES
     // ═════════════════════════════════════════════════════════════════════════
+
+    private fun findBassBandIndex(eq: android.media.audiofx.Equalizer): Short {
+        val bandCount = eq.numberOfBands.toInt()
+        if (bandCount == 0) return 0
+        var lowestUpperMhz = Int.MAX_VALUE
+        var bestBand = 0
+        for (i in 0 until bandCount) {
+            val upper = eq.getBandFreqRange(i.toShort())[1]
+            if (upper < lowestUpperMhz) { lowestUpperMhz = upper; bestBand = i }
+        }
+        return bestBand.toShort()
+    }
 
     private fun Float.fmt() = String.format("%.1f", this)
 }

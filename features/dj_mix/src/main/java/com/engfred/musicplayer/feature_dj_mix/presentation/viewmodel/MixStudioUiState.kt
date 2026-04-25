@@ -1,7 +1,6 @@
 package com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel
 
 import com.engfred.musicplayer.core.domain.model.AudioFile
-import com.engfred.musicplayer.feature_dj_mix.data.crossfade.MixStrategy
 import com.engfred.musicplayer.feature_dj_mix.domain.model.MixStudioSettings
 import com.engfred.musicplayer.feature_dj_mix.domain.repository.BpmInfo
 
@@ -18,7 +17,6 @@ data class MixStudioUiState(
     val currentPositionMs: Long = 0L,
     val currentDurationMs: Long = 0L,
     val crossfadeProgressFraction: Float = 0f,
-    val currentMixStrategy: MixStrategy = MixStrategy.HARMONIC,
     val waveform: List<Float> = emptyList(),
     val settings: MixStudioSettings = MixStudioSettings(),
     val isLoading: Boolean = true,

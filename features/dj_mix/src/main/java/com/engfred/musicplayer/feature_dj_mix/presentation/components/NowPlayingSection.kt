@@ -15,7 +15,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,22 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.engfred.musicplayer.core.domain.model.AudioFile
-import com.engfred.musicplayer.feature_dj_mix.data.crossfade.MixStrategy
 import kotlin.math.max
-
-// ── Strategy UI Mapping ───────────────────────────────────────────────────────
-
-val MixStrategy.uiLabel: String
-    get() = when (this) {
-        MixStrategy.HARMONIC         -> "HARMONIC DROP"
-        MixStrategy.WIDE_TRANSITION  -> "ENERGY VALLEY"
-    }
-
-val MixStrategy.themeColor: Color
-    get() = when (this) {
-        MixStrategy.HARMONIC         -> Color(0xFF8E24AA)
-        MixStrategy.WIDE_TRANSITION  -> Color(0xFFD32F2F)
-    }
 
 @Composable
 fun NowPlayingSection(
@@ -58,7 +42,6 @@ fun NowPlayingSection(
     durationMs: Long,
     isCrossfading: Boolean,
     crossfadeProgress: Float,
-    currentMixStrategy: MixStrategy,
     albumArtUri: Uri?,
     waveform: List<Float> = emptyList(),
     isPlaying: Boolean,
@@ -67,7 +50,7 @@ fun NowPlayingSection(
 ) {
     val primaryColor    = MaterialTheme.colorScheme.primary
     val urgentColor     = Color(0xFFEF5350)
-    val strategyColor   = currentMixStrategy.themeColor
+    val strategyColor   = Color(0xFFD32F2F)
 
     val arcColor: Color = when {
         timeToNextMixMs == null  -> primaryColor
@@ -145,35 +128,6 @@ fun NowPlayingSection(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
-
-        // ── Strategy badge ────────────────────────────────────────────────────
-        // ── Strategy badge ────────────────────────────────────────────────────
-        // TEST: Hidden — all transitions are WIDE_TRANSITION during this test run.
-        // Surface(
-        //     color    = strategyColor.copy(alpha = 0.15f),
-        //     shape    = RoundedCornerShape(50),
-        //     modifier = Modifier.padding(bottom = 16.dp)
-        // ) {
-        //     Row(
-        //         verticalAlignment = Alignment.CenterVertically,
-        //         modifier          = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-        //     ) {
-        //         Box(
-        //             modifier = Modifier
-        //                 .size(6.dp)
-        //                 .clip(CircleShape)
-        //                 .background(strategyColor)
-        //         )
-        //         Spacer(modifier = Modifier.width(6.dp))
-        //         Text(
-        //             text          = currentMixStrategy.uiLabel,
-        //             style         = MaterialTheme.typography.labelSmall,
-        //             fontWeight    = FontWeight.Black,
-        //             letterSpacing = 1.sp,
-        //             color         = strategyColor
-        //         )
-        //     }
-        // }
 
         // ── Waveform ──────────────────────────────────────────────────────────
         Canvas(

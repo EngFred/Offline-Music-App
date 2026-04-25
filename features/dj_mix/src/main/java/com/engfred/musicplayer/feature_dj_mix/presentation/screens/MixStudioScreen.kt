@@ -225,7 +225,6 @@ fun MixStudioScreen(
                                             nextAlbumArtUri    = uiState.nextTrack?.albumArtUri,
                                             isCrossfading      = uiState.isCrossfading,
                                             crossfadeProgress  = uiState.crossfadeProgressFraction,
-                                            currentMixStrategy = uiState.currentMixStrategy,
                                             timeToNextMixMs    = uiState.timeToNextMixMs,
                                             modifier           = Modifier.fillMaxWidth()
                                         )
@@ -241,7 +240,6 @@ fun MixStudioScreen(
                                             durationMs         = uiState.currentDurationMs,
                                             isCrossfading      = uiState.isCrossfading,
                                             crossfadeProgress  = uiState.crossfadeProgressFraction,
-                                            currentMixStrategy = uiState.currentMixStrategy,
                                             albumArtUri        = track.albumArtUri,
                                             waveform           = uiState.waveform,
                                             isPlaying          = uiState.isPlaying,
@@ -539,7 +537,6 @@ fun MixStudioScreen(
                                     nextAlbumArtUri    = uiState.nextTrack?.albumArtUri,
                                     isCrossfading      = uiState.isCrossfading,
                                     crossfadeProgress  = uiState.crossfadeProgressFraction,
-                                    currentMixStrategy = uiState.currentMixStrategy,
                                     timeToNextMixMs    = uiState.timeToNextMixMs,
                                     modifier           = Modifier.padding(horizontal = 16.dp)
                                 )
@@ -555,7 +552,6 @@ fun MixStudioScreen(
                                     durationMs         = uiState.currentDurationMs,
                                     isCrossfading      = uiState.isCrossfading,
                                     crossfadeProgress  = uiState.crossfadeProgressFraction,
-                                    currentMixStrategy = uiState.currentMixStrategy,
                                     albumArtUri        = track.albumArtUri,
                                     waveform           = uiState.waveform,
                                     isPlaying          = uiState.isPlaying,

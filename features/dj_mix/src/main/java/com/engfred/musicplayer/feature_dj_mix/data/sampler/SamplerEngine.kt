@@ -7,7 +7,6 @@ import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import com.engfred.musicplayer.feature_dj_mix.data.crossfade.CrossfadeEngine
 import com.engfred.musicplayer.feature_dj_mix.data.crossfade.CrossfadeEngineState
-import com.engfred.musicplayer.feature_dj_mix.data.crossfade.MixStrategy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -290,7 +289,7 @@ class SamplerEngine @Inject constructor(
     /**
      * Called once per DJ session when the first track begins playing.
      *
-     * Race-condition fix: SoundPool.load() is async. On first launch observeFirstPlay()
+     * Race-condition handling: SoundPool.load() is async. On first launch observeFirstPlay()
      * in AutoMixService fires ~146ms before the OGG decoder finishes (confirmed by logcat),
      * causing triggerSample() to log "still decoding" and produce silence.
      *
@@ -370,12 +369,12 @@ class SamplerEngine @Inject constructor(
                 // ── 1. Crossfade just STARTED ─────────────────────────────────
                 if (previous?.isCrossfading == false && current.isCrossfading) {
                     firedMidThresholds.clear()
-                    onCrossfadeStarted(current.currentMixStrategy)
+                    onCrossfadeStarted()
                 }
 
                 // ── 2. Mid-crossfade thresholds crossed ───────────────────────
                 if (current.isCrossfading) {
-                    val midTriggers  = midTriggersFor(current.currentMixStrategy)
+                    val midTriggers  = midTriggersFor()
                     val prevFraction = previous?.crossfadeProgressFraction ?: 0f
                     val currFraction = current.crossfadeProgressFraction
 
@@ -394,7 +393,7 @@ class SamplerEngine @Inject constructor(
                 // ── 3. Crossfade just COMPLETED (track changed) ───────────────
                 val trackChanged = previous?.currentTrack?.id != current.currentTrack?.id
                 if (previous?.isCrossfading == true && !current.isCrossfading && trackChanged) {
-                    onDropCompleted(previous.currentMixStrategy)
+                    onDropCompleted()
                 }
             }
         }
@@ -405,10 +404,8 @@ class SamplerEngine @Inject constructor(
      *
      * Both samples were locked in by [onCrossfadeStarted] at the moment the
      * crossfade began, so this function is pure read — no randomisation here.
-     * The [strategy] parameter is accepted for API compatibility but is not used
-     * during the test build (all transitions use the same fixed fractions).
      */
-    private fun midTriggersFor(strategy: MixStrategy): List<Pair<Float, SampleId>> = listOf(
+    private fun midTriggersFor(): List<Pair<Float, SampleId>> = listOf(
         MID_FRACTION_1 to selectedMid1Sample,
         MID_FRACTION_2 to selectedMid2Sample
     )
@@ -420,11 +417,8 @@ class SamplerEngine @Inject constructor(
      *
      * All four picks happen here — once — so no part of the transition can
      * observe a partially-updated selection set.
-     *
-     * The [strategy] parameter is accepted for API compatibility but is not used
-     * during the test build; the pools cover all strategies equally.
      */
-    private fun onCrossfadeStarted(strategy: MixStrategy) {
+    private fun onCrossfadeStarted() {
         // Lock in the full sample set for this transition before firing anything.
         val startSample    = START_POOL.random()
         selectedMid1Sample = MID_1_POOL.random()
@@ -438,11 +432,8 @@ class SamplerEngine @Inject constructor(
 
     /**
      * Fires the DROP sample that was locked in at crossfade-start.
-     *
-     * The [strategy] parameter is accepted for API compatibility but is not used
-     * during the test build.
      */
-    private fun onDropCompleted(strategy: MixStrategy) {
+    private fun onDropCompleted() {
         triggerSample(selectedDropSample)
         Log.d(TAG, "Auto: drop completed → $selectedDropSample")
     }
