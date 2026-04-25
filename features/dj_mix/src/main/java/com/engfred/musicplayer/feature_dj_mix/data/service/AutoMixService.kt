@@ -245,8 +245,7 @@ class AutoMixService : Service() {
     private fun observeEngineSettings() {
         serviceScope.launch {
             djSessionManager.settings.collect { settings ->
-//                crossfadeEngine.crossfadeDurationMs = settings.crossfadeDurationSec * 1000L
-                crossfadeEngine.crossfadeDurationMs = 3
+                crossfadeEngine.crossfadeDurationMs = settings.crossfadeDurationSec * 1000L
                 crossfadeEngine.isRealMixMode       = settings.isRealMixMode
                 crossfadeEngine.maxTrackDurationMs  = settings.maxTrackDurationSec * 1000L
                 crossfadeEngine.useHalfwayMix       = !settings.useManualMaxDuration

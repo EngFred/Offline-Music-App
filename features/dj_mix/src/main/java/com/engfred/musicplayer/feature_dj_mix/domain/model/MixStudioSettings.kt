@@ -54,7 +54,7 @@ val CUE_POINT_OPTIONS_SEC = listOf(0, 5, 10, 15, 20, 25, 30)
  *                                a balanced experience on both sides of the transition.
  */
 data class MixStudioSettings(
-    val crossfadeDurationSec: Int     = 3,
+    val crossfadeDurationSec: Int     = 5,
     val bpmTolerance: Float           = 5f,
     val isRealMixMode: Boolean        = true,
     val maxTrackDurationSec: Int      = 146,
