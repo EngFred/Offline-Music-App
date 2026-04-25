@@ -39,10 +39,9 @@ internal fun CenterMixerStrip(
     deck2Bpm: Float?,
     deck1Color: Color,
     deck2Color: Color,
-    strategyColor: Color,
     isPlaying: Boolean,
     isCrossfading: Boolean,
-    activeDeckIndex: Int,   // ← NEW: 0 = Deck 1 is the current/main deck, 1 = Deck 2
+    activeDeckIndex: Int,
     vinylSize: Dp,
 ) {
     val bpmDiff = if (deck1Bpm != null && deck2Bpm != null) deck2Bpm - deck1Bpm else null

@@ -9,7 +9,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.engfred.musicplayer.core.domain.model.AudioFile
-import com.engfred.musicplayer.feature_dj_mix.data.crossfade.MixStrategy
 import androidx.compose.material3.MaterialTheme
 
 /**
@@ -54,12 +53,10 @@ fun DualDeckSection(
     // Shared mix state
     isCrossfading: Boolean,
     crossfadeProgress: Float,
-    currentMixStrategy: MixStrategy,
     timeToNextMixMs: Long?,
 ) {
     val primaryColor   = MaterialTheme.colorScheme.primary
     val secondaryColor = MaterialTheme.colorScheme.secondary
-    val strategyColor  = currentMixStrategy.themeColor
 
     // ── Deck alternation: toggle which physical deck plays the current song ───
     var activeDeckIndex by remember { mutableIntStateOf(0) }
@@ -151,7 +148,6 @@ fun DualDeckSection(
                     deck2Bpm        = deck2Bpm,
                     deck1Color      = primaryColor,
                     deck2Color      = secondaryColor,
-                    strategyColor   = strategyColor,
                     isPlaying       = isPlaying,
                     isCrossfading   = isCrossfading,
                     activeDeckIndex = activeDeckIndex,   // ← passed down for VU fix
@@ -182,8 +178,6 @@ fun DualDeckSection(
                 activeDeckIndex    = activeDeckIndex,
                 deck1Color         = primaryColor,
                 deck2Color         = secondaryColor,
-                strategyColor      = strategyColor,
-                currentMixStrategy = currentMixStrategy,
                 modifier           = Modifier.fillMaxWidth()
             )
         }

@@ -1,29 +1,48 @@
 package com.engfred.musicplayer.feature_dj_mix.presentation.components
 
-import android.net.Uri
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.*
-import com.engfred.musicplayer.core.domain.model.AudioFile
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import android.graphics.BlurMaskFilter as AndroidBlurMaskFilter
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -37,12 +56,10 @@ import android.graphics.BlurMaskFilter as AndroidBlurMaskFilter
 //
 //  An "AUTO" badge + lock icon make it visually clear the fader is
 //  engine-controlled and cannot be dragged.
-//
-//  NOTE: The strategy label was replaced with a state-driven label
-//  ("AUTO MIX" / "MIXING NOW") because the test build forces all
-//  transitions to WIDE_TRANSITION — displaying a fixed strategy name
-//  would be meaningless to the user.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Accent colour used for all crossfader / mix-state chrome. */
+private val CrossfaderAccent = Color(0xFFD32F2F)
 
 @Composable
 internal fun ProDJCrossfader(
@@ -51,9 +68,11 @@ internal fun ProDJCrossfader(
     activeDeckIndex: Int,
     deck1Color: Color,
     deck2Color: Color,
-    strategyColor: Color,
     modifier: Modifier = Modifier,
 ) {
+    // Fixed accent — no longer derived from a strategy enum.
+    val accentColor = CrossfaderAccent
+
     val targetPos = when {
         !isCrossfading && activeDeckIndex == 0 -> 0f
         !isCrossfading && activeDeckIndex == 1 -> 1f
@@ -72,7 +91,7 @@ internal fun ProDJCrossfader(
             .background(Color(0xFF0D1117))
             .border(
                 width = 1.dp,
-                color = if (isCrossfading) strategyColor.copy(alpha = 0.40f)
+                color = if (isCrossfading) accentColor.copy(alpha = 0.40f)
                 else Color.White.copy(alpha = 0.06f),
                 shape = RoundedCornerShape(12.dp)
             )
@@ -85,7 +104,6 @@ internal fun ProDJCrossfader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment     = Alignment.CenterVertically
         ) {
-            // State-driven label — honest regardless of which strategy is active.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (isCrossfading) {
                     val glow by rememberInfiniteTransition(label = "badge_glow").animateFloat(
@@ -98,14 +116,14 @@ internal fun ProDJCrossfader(
                         Modifier
                             .size(7.dp)
                             .clip(CircleShape)
-                            .background(strategyColor.copy(alpha = glow))
+                            .background(accentColor.copy(alpha = glow))
                     )
                 } else {
                     Box(
                         Modifier
                             .size(5.dp)
                             .clip(CircleShape)
-                            .background(strategyColor)
+                            .background(accentColor)
                     )
                 }
                 Spacer(Modifier.width(6.dp))
@@ -114,7 +132,7 @@ internal fun ProDJCrossfader(
                     style         = MaterialTheme.typography.labelSmall,
                     fontWeight    = FontWeight.Black,
                     letterSpacing = 1.2.sp,
-                    color         = strategyColor.copy(alpha = if (isCrossfading) 1f else 0.70f)
+                    color         = accentColor.copy(alpha = if (isCrossfading) 1f else 0.70f)
                 )
             }
 
@@ -164,9 +182,9 @@ internal fun ProDJCrossfader(
             verticalAlignment     = Alignment.CenterVertically
         ) {
             VcaIndicator(
-                label    = "D1",
-                color    = deck1Color,
-                isLouder = animPos < 0.5f,
+                label     = "D1",
+                color     = deck1Color,
+                isLouder  = animPos < 0.5f,
                 isCutting = animPos > 0.85f
             )
             Text(
@@ -177,17 +195,18 @@ internal fun ProDJCrossfader(
                 color         = Color.White.copy(alpha = 0.22f)
             )
             VcaIndicator(
-                label    = "D2",
-                color    = deck2Color,
-                isLouder = animPos >= 0.5f,
+                label     = "D2",
+                color     = deck2Color,
+                isLouder  = animPos >= 0.5f,
                 isCutting = animPos < 0.15f
             )
         }
 
         // ── Fader track + thumb ───────────────────────────────────────────────
-        Canvas(modifier = Modifier
-            .fillMaxWidth()
-            .height(32.dp)
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(32.dp)
         ) {
             val trackH  = 6.dp.toPx()
             val thumbW  = 22.dp.toPx()
@@ -201,11 +220,11 @@ internal fun ProDJCrossfader(
 
             // Track background
             drawRoundRect(
-                brush       = Brush.horizontalGradient(
+                brush        = Brush.horizontalGradient(
                     listOf(deck1Color.copy(0.20f), deck2Color.copy(0.20f))
                 ),
-                topLeft     = Offset(0f, trackY),
-                size        = Size(size.width, trackH),
+                topLeft      = Offset(0f, trackY),
+                size         = Size(size.width, trackH),
                 cornerRadius = cr
             )
 
@@ -339,182 +358,6 @@ internal fun VcaIndicator(
                         .background(color.copy(alpha = barAlpha))
                 )
             }
-        }
-    }
-}
-
-/**
- * ═══════════════════════════════════════════════════════════════════
- * PRO DJ DUAL-DECK SECTION  —  Virtual DJ–inspired booth layout
- * ═══════════════════════════════════════════════════════════════════
- *
- * Layout (portrait):
- *
- * ┌──────────────────────────────────────────────┐
- * │  ▓▓▓▓▓▓│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    │  ← single waveform
- * ├──────────────────────────────────────────────┤
- * │ ┌────┐  ┌──────────────┐  ┌────┐             │
- * │ │vinyl│  │  VU METERS  │  │vinyl│             │  ← decks + mixer
- * │ │     │  │  SYNC: BPM  │  │     │             │
- * │ └────┘  └──────────────┘  └────┘             │
- * │  120 BPM    ±2 BPM       125 BPM             │
- * │  Title 1                  Title 2            │
- * ├──────────────────────────────────────────────┤
- * │ ── HARMONIC DROP ── [AUTO]                   │  ← read-only crossfader
- * │ D1  [●──────────────────────────────]  D2    │  ← starts at D1 side
- * └──────────────────────────────────────────────┘
- *
- * Deck alternation: each new song rotates on the opposite deck.
- * Song 1 → Deck 1 spins. Song 2 → Deck 2 spins. Etc.
- */
-@Composable
-fun DualDeckSection(
-    modifier: Modifier = Modifier,
-    // Deck 1 — current track
-    currentTrack: AudioFile,
-    currentBpm: Float?,
-    positionMs: Long,
-    durationMs: Long,
-    isPlaying: Boolean,
-    waveform: List<Float>,
-    currentAlbumArtUri: Uri?,
-    // Deck 2 — next / incoming track
-    nextTrack: AudioFile?,
-    nextBpm: Float?,
-    nextAlbumArtUri: Uri?,
-    // Shared mix state
-    isCrossfading: Boolean,
-    crossfadeProgress: Float,
-    timeToNextMixMs: Long?,
-) {
-    val primaryColor   = MaterialTheme.colorScheme.primary
-    val secondaryColor = MaterialTheme.colorScheme.secondary
-    val strategyColor  = Color(0xFFD32F2F)
-
-    // ── Deck alternation: toggle which physical deck plays the current song ───
-    var activeDeckIndex by remember { mutableIntStateOf(0) }
-    var wasCrossfading  by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isCrossfading) {
-        if (wasCrossfading && !isCrossfading) {
-            activeDeckIndex = 1 - activeDeckIndex
-        }
-        wasCrossfading = isCrossfading
-    }
-
-    // ── Derive per-deck values from activeDeckIndex ───────────────────────────
-    val deck1Track = if (activeDeckIndex == 0) currentTrack   else nextTrack
-    val deck2Track = if (activeDeckIndex == 0) nextTrack       else currentTrack
-    val deck1Bpm   = if (activeDeckIndex == 0) currentBpm      else nextBpm
-    val deck2Bpm   = if (activeDeckIndex == 0) nextBpm         else currentBpm
-    val deck1Art   = if (activeDeckIndex == 0) currentAlbumArtUri else nextAlbumArtUri
-    val deck2Art   = if (activeDeckIndex == 0) nextAlbumArtUri    else currentAlbumArtUri
-
-    val deck1Spinning = if (activeDeckIndex == 0) isPlaying    else isCrossfading
-    val deck2Spinning = if (activeDeckIndex == 0) isCrossfading else isPlaying
-    val deck1Active   = if (activeDeckIndex == 0) true          else isCrossfading
-    val deck2Active   = if (activeDeckIndex == 0) isCrossfading else true
-
-    val deck1Position  = if (activeDeckIndex == 0) positionMs else 0L
-    val deck1Duration  = if (activeDeckIndex == 0) durationMs else (nextTrack?.duration ?: 0L)
-    val deck2Position  = if (activeDeckIndex == 0) 0L else positionMs
-    val deck2Duration  = if (activeDeckIndex == 0) (nextTrack?.duration ?: 0L) else durationMs
-    val deck1TimeToMix = if (activeDeckIndex == 0) timeToNextMixMs else null
-    val deck2TimeToMix = if (activeDeckIndex == 0) null else timeToNextMixMs
-
-    val activeColor = if (activeDeckIndex == 0) primaryColor else secondaryColor
-
-    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val totalWidth = maxWidth
-        val vinylSize  = when {
-            totalWidth >= 420.dp -> 120.dp
-            totalWidth >= 360.dp ->  96.dp
-            else                 ->  80.dp
-        }
-        val waveHeight = if (totalWidth >= 360.dp) 72.dp else 58.dp
-        val mixerWidth = if (totalWidth >= 360.dp) 62.dp else 50.dp
-
-        Column(
-            modifier            = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // ── 1. Scrolling waveform ─────────────────────────────────────────
-            SingleDeckWaveform(
-                waveform      = waveform,
-                positionMs    = positionMs,
-                durationMs    = durationMs,
-                deckColor     = activeColor,
-                currentBpm    = currentBpm,
-                isPlaying     = isPlaying,
-                isCrossfading = isCrossfading,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(waveHeight)
-                    .clip(RoundedCornerShape(10.dp))
-            )
-
-            // ── 2. Deck platters + centre mixer ───────────────────────────────
-            Row(
-                modifier              = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment     = Alignment.Top
-            ) {
-                DeckPlatterColumn(
-                    modifier        = Modifier.weight(1f),
-                    deckLabel       = "DECK 1",
-                    deckColor       = primaryColor,
-                    track           = deck1Track,
-                    albumArtUri     = deck1Art,
-                    bpm             = deck1Bpm,
-                    isSpinning      = deck1Spinning,
-                    isActive        = deck1Active,
-                    positionMs      = deck1Position,
-                    durationMs      = deck1Duration,
-                    timeToNextMixMs = deck1TimeToMix,
-                    vinylSize       = vinylSize,
-                    alignEnd        = false,
-                )
-
-                CenterMixerStrip(
-                    modifier        = Modifier.width(mixerWidth),
-                    deck1Bpm        = deck1Bpm,
-                    deck2Bpm        = deck2Bpm,
-                    deck1Color      = primaryColor,
-                    deck2Color      = secondaryColor,
-                    strategyColor   = strategyColor,
-                    isPlaying       = isPlaying,
-                    isCrossfading   = isCrossfading,
-                    activeDeckIndex = activeDeckIndex,   // ← passed down for VU alignment
-                    vinylSize       = vinylSize,
-                )
-
-                DeckPlatterColumn(
-                    modifier        = Modifier.weight(1f),
-                    deckLabel       = "DECK 2",
-                    deckColor       = secondaryColor,
-                    track           = deck2Track,
-                    albumArtUri     = deck2Art,
-                    bpm             = deck2Bpm,
-                    isSpinning      = deck2Spinning,
-                    isActive        = deck2Active,
-                    positionMs      = deck2Position,
-                    durationMs      = deck2Duration,
-                    timeToNextMixMs = deck2TimeToMix,
-                    vinylSize       = vinylSize,
-                    alignEnd        = true,
-                )
-            }
-
-            // ── 3. Read-only auto crossfader ──────────────────────────────────
-            ProDJCrossfader(
-                crossfadeProgress  = crossfadeProgress,
-                isCrossfading      = isCrossfading,
-                activeDeckIndex    = activeDeckIndex,
-                deck1Color         = primaryColor,
-                deck2Color         = secondaryColor,
-                strategyColor      = strategyColor,
-                modifier           = Modifier.fillMaxWidth()
-            )
         }
     }
 }
