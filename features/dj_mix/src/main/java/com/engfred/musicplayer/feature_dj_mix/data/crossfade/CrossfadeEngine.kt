@@ -323,7 +323,7 @@ class CrossfadeEngine @Inject constructor(
     // ═════════════════════════════════════════════════════════════════════════
 
     /** Duration of the volume-ramp overlap between outgoing and incoming tracks. */
-    var crossfadeDurationMs: Long = 3_000L
+    var crossfadeDurationMs: Long = 5_000L
 
     /**
      * When true: Auto-Mix mode. Crossfades are phase-aligned, bass-killed, and
@@ -440,9 +440,25 @@ class CrossfadeEngine @Inject constructor(
             iterations++
         }
 
-        Log.d(TAG, "[CUE] Guard: raw=${rawFirstBeatMs}ms → guarded=${adjusted}ms " +
-                "(offset=${offsetMs}ms bpm=$bpm interval=${beatIntervalMs}ms advances=$iterations)")
-        return adjusted
+        // ── NEW: snap to the nearest bar boundary ─────────────────────────────
+        // The while-loop above advances by individual beats, which can land on
+        // beat 2, 3, or 4 of a bar. Round DOWN to the most recent bar boundary
+        // (multiple of 4 beats from rawFirstBeatMs) so that the guarded value
+        // always sits on beat 1 of a bar. This is the prerequisite for bar-level
+        // phase alignment to work correctly.
+        val barIntervalMs  = beatIntervalMs * 4
+        val beatsAdvanced  = (adjusted - rawFirstBeatMs) / beatIntervalMs
+        val barsAdvanced   = (beatsAdvanced / 4) * 4          // round DOWN to bar boundary
+        val barAligned     = rawFirstBeatMs + (barsAdvanced * beatIntervalMs)
+
+        // barAligned might now be below offsetMs (we rounded down). If so, add
+        // one more bar to clear it.
+        val finalAdjusted = if (barAligned < offsetMs) barAligned + barIntervalMs else barAligned
+
+        Log.d(TAG, "[CUE] Guard: raw=${rawFirstBeatMs}ms → guarded=${finalAdjusted}ms " +
+                "(offset=${offsetMs}ms bpm=$bpm interval=${beatIntervalMs}ms " +
+                "advances=$iterations barAligned=${barAligned}ms)")
+        return finalAdjusted
     }
 
     // ═════════════════════════════════════════════════════════════════════════
