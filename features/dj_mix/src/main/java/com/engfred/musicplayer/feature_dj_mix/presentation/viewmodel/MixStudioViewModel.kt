@@ -66,7 +66,6 @@ class MixStudioViewModel @Inject constructor(
 
     private var rawPlaylistSongs: List<AudioFile> = emptyList()
     private var rebuildJob: Job? = null
-
     private var pendingAutoStart = false
 
     init {
@@ -82,7 +81,6 @@ class MixStudioViewModel @Inject constructor(
         when (event) {
             MixStudioEvent.PlayPause -> {
                 val engineState = crossfadeEngine.state.value
-
                 val isAtEndOfTrack = engineState.currentDurationMs > 0L &&
                         (engineState.currentDurationMs - engineState.currentPositionMs) <= 500L
                 val isQueueExhausted = engineState.currentTrack != null &&
@@ -92,13 +90,11 @@ class MixStudioViewModel @Inject constructor(
                 if (!crossfadeEngine.isActive || engineState.currentTrack == null || isMixFinished) {
                     val analysisStillRunning = _uiState.value.isAnalyzing
                     val alreadyWaiting       = _uiState.value.pendingAutoStartAfterAnalysis
-
                     if (analysisStillRunning && !alreadyWaiting) {
                         Log.d(TAG, "[ANALYSIS] Analysis in progress — showing confirmation dialog")
                         _uiState.update { it.copy(showAnalysisDialog = true) }
                         return
                     }
-
                     if (alreadyWaiting) {
                         Log.d(TAG, "[ANALYSIS] User re-tapped while waiting — starting immediately")
                         _uiState.update { it.copy(pendingAutoStartAfterAnalysis = false) }
@@ -110,7 +106,6 @@ class MixStudioViewModel @Inject constructor(
             }
 
             MixStudioEvent.MixStudioNow   -> crossfadeEngine.triggerMixNow()
-            MixStudioEvent.AbortCrossfade -> crossfadeEngine.abortCurrentCrossfade()
 
             MixStudioEvent.DismissAnalysisDialog -> {
                 Log.d(TAG, "[ANALYSIS] Dialog dismissed — no action taken")
@@ -143,7 +138,6 @@ class MixStudioViewModel @Inject constructor(
 
             is MixStudioEvent.ToggleRealMixStudioMode -> {
                 val s = _uiState.value.settings.copy(isRealMixMode = event.enabled)
-                crossfadeEngine.isRealMixMode = event.enabled
                 samplerEngine.isAutoSamplerEnabled = s.autoSamplerEnabled && event.enabled
                 _uiState.update { it.copy(settings = s) }
                 djSessionManager.updateSettings(s)
@@ -166,35 +160,11 @@ class MixStudioViewModel @Inject constructor(
                 djSessionManager.updateSettings(s)
                 viewModelScope.launch { settingsRepository.updateDjSampleVolume(event.volume) }
             }
-
-            is MixStudioEvent.UpdateCuePointOffset -> {
-                val clampedSec = event.sec.coerceIn(0, 15)
-
-                if (clampedSec != event.sec) {
-                    Log.w(TAG, "[SETTINGS] CuePointOffset ${event.sec}s clamped to ${clampedSec}s")
-                }
-
-                val s = _uiState.value.settings.copy(cuePointOffsetSec = clampedSec)
-
-                crossfadeEngine.cuePointOffsetMs = clampedSec * 1000L
-                _uiState.value.currentTrack?.id?.let { syncBeatGridForTrack(it) }
-
-                _uiState.update { it.copy(settings = s) }
-                djSessionManager.updateSettings(s)
-                viewModelScope.launch {
-                    settingsRepository.updateDjCuePointOffset(clampedSec)
-                }
-
-                Log.d(TAG, "[SETTINGS] CuePointOffset → ${clampedSec}s " +
-                        "(${clampedSec * 1000}ms). " +
-                        "Mix trigger for current track recalculated.")
-            }
         }
     }
 
     private fun startFreshMixSession() {
         Log.i(TAG, "[PLAYBACK] Starting fresh mix session")
-
         crossfadeEngine.initialize()
         djSessionManager.startSession(playlistId)
         djSessionManager.resetPlayHistory()
@@ -208,7 +178,6 @@ class MixStudioViewModel @Inject constructor(
         activePlayerRegistry.onDjMixStarted()
         syncBeatGridForTrack(firstTrack.id)
         crossfadeEngine.startPlayback(firstTrack)
-
         samplerEngine.onSessionStarted()
 
         _uiState.update { it.copy(currentTrack = firstTrack) }
@@ -241,37 +210,22 @@ class MixStudioViewModel @Inject constructor(
     private fun observeSettings() {
         settingsRepository.getAppSettings()
             .onEach { appSettings ->
-                val clampedCuePointSec = appSettings.cuePointOffsetSec.coerceIn(0, 15)
-
-                if (clampedCuePointSec != appSettings.cuePointOffsetSec) {
-                    viewModelScope.launch {
-                        settingsRepository.updateDjCuePointOffset(clampedCuePointSec)
-                    }
-                }
-
                 val newSettings = MixStudioSettings(
-                    bpmTolerance         = appSettings.bpmTolerance,
-                    isRealMixMode        = appSettings.isRealMixMode,
-                    maxTrackDurationSec  = appSettings.maxTrackDurationSec,
-                    loopQueue            = appSettings.loopQueue,
-                    useManualMaxDuration = appSettings.useManualMaxDuration,
-                    autoSamplerEnabled   = appSettings.autoSamplerEnabled,
-                    sampleVolume         = appSettings.sampleVolume,
-                    cuePointOffsetSec    = clampedCuePointSec,
+                    isRealMixMode      = appSettings.isRealMixMode,
+                    loopQueue          = appSettings.loopQueue,
+                    autoSamplerEnabled = appSettings.autoSamplerEnabled,
+                    sampleVolume       = appSettings.sampleVolume,
                 )
-
-                crossfadeEngine.isRealMixMode       = newSettings.isRealMixMode
-                crossfadeEngine.maxTrackDurationMs  = newSettings.maxTrackDurationSec * 1000L
-                crossfadeEngine.useHalfwayMix       = !newSettings.useManualMaxDuration
-                crossfadeEngine.cuePointOffsetMs    = newSettings.cuePointOffsetSec * 1000L
-                samplerEngine.isAutoSamplerEnabled  = newSettings.autoSamplerEnabled && newSettings.isRealMixMode
-                samplerEngine.sampleVolume          = newSettings.sampleVolume
+                samplerEngine.isAutoSamplerEnabled = newSettings.autoSamplerEnabled && newSettings.isRealMixMode
+                samplerEngine.sampleVolume         = newSettings.sampleVolume
 
                 val toleranceChanged = _uiState.value.settings.bpmTolerance != newSettings.bpmTolerance
-                _uiState.update { it.copy(
-                    settings = newSettings,
-                    isDualDeckMode = appSettings.isDualDeckMode
-                ) }
+                _uiState.update {
+                    it.copy(
+                        settings      = newSettings,
+                        isDualDeckMode = appSettings.isDualDeckMode
+                    )
+                }
                 djSessionManager.updateSettings(newSettings)
                 if (toleranceChanged) rebuildSmartQueue()
             }
@@ -285,7 +239,6 @@ class MixStudioViewModel @Inject constructor(
                     _uiState.update { it.copy(isLoading = false, error = "Playlist not found.") }
                     return@onEach
                 }
-
                 val activeId = djSessionManager.activePlaylistId
                 if (djSessionManager.isSessionActive.value && activeId != null && activeId != playlistId) {
                     Log.i(TAG, "[LIFECYCLE] Different playlist detected ($playlistId). " +
@@ -296,18 +249,14 @@ class MixStudioViewModel @Inject constructor(
                     crossfadeEngine.initialize()
                     pendingAutoStart = true
                 }
-
                 val songs = playlist.songs
                 rawPlaylistSongs = songs
-
                 val sessionAlreadyActive = djSessionManager.isSessionActive.value &&
                         djSessionManager.activePlaylistId == playlistId
-
                 if (songs.isNotEmpty() && !sessionAlreadyActive) {
                     _uiState.update { it.copy(isAnalyzing = true) }
                     analyzeBpmUseCase(playlistId, songs)
                 }
-
                 _uiState.update {
                     it.copy(playlistName = playlist.name, totalSongs = songs.size, isLoading = false)
                 }
@@ -331,14 +280,11 @@ class MixStudioViewModel @Inject constructor(
                     val isNewlyAnalyzed = freshBpmInfo != null &&
                             cachedBpmInfo == null &&
                             !freshBpmInfo.analysisFailed
-
                     if (isNewlyAnalyzed) {
                         crossfadeEngine.updateCurrentBpmInfo(
                             bpm              = freshBpmInfo!!.bpm,
-                            rawFirstBeatMs   = freshBpmInfo.firstBeatMs,
                             amplitude        = freshBpmInfo.amplitude,
                             waveformEnvelope = freshBpmInfo.waveformEnvelope,
-                            mixOutMs         = null
                         )
                     }
                 }
@@ -351,7 +297,6 @@ class MixStudioViewModel @Inject constructor(
                         analysisFailedCount = failedCount
                     )
                 }
-
                 djSessionManager.updateBpmCache(bpmCache)
                 rebuildSmartQueue(bpmCache = bpmCache)
             }
@@ -363,12 +308,10 @@ class MixStudioViewModel @Inject constructor(
             .onEach { engineState ->
                 val prevTrackId = _uiState.value.currentTrack?.id
                 val newTrackId  = engineState.currentTrack?.id
-
                 if (newTrackId != null && newTrackId != prevTrackId) {
                     djSessionManager.markTrackPlayed(newTrackId)
                     syncBeatGridForTrack(newTrackId)
                 }
-
                 _uiState.update {
                     it.copy(
                         currentTrack              = engineState.currentTrack,
@@ -382,7 +325,6 @@ class MixStudioViewModel @Inject constructor(
                         timeToNextMixMs           = engineState.timeToNextMixMs
                     )
                 }
-
                 if (newTrackId != null && newTrackId != prevTrackId) {
                     updateNextTrackPreview()
                 }
@@ -390,15 +332,18 @@ class MixStudioViewModel @Inject constructor(
             .launchIn(viewModelScope)
     }
 
+    /**
+     * Pushes the latest BPM/amplitude/waveform data for [trackId] into the engine.
+     * Called on track change and when new analysis results arrive for the current track.
+     * Songs always start from position 0 — no seek positions are involved.
+     */
     private fun syncBeatGridForTrack(trackId: Long) {
         val bpmInfo = _uiState.value.bpmCache[trackId] ?: return
         if (bpmInfo.analysisFailed) return
         crossfadeEngine.updateCurrentBpmInfo(
             bpm              = bpmInfo.bpm,
-            rawFirstBeatMs   = bpmInfo.firstBeatMs,
             amplitude        = bpmInfo.amplitude,
             waveformEnvelope = bpmInfo.waveformEnvelope,
-            mixOutMs         = null
         )
     }
 
@@ -414,7 +359,6 @@ class MixStudioViewModel @Inject constructor(
 
     private fun performRebuild(bpmCache: Map<Long, BpmInfo>) {
         if (rawPlaylistSongs.isEmpty()) return
-
         val tolerance = _uiState.value.settings.bpmTolerance
         val remaining = rawPlaylistSongs.toMutableList()
         val result    = mutableListOf<AudioFile>()
@@ -431,7 +375,6 @@ class MixStudioViewModel @Inject constructor(
         while (remaining.isNotEmpty()) {
             val lastInfo = bpmCache[result.last().id]
             val lastBpm  = if (lastInfo?.analysisFailed == true) 120f else lastInfo?.bpm ?: 120f
-
             val next = getSmartNextTrackUseCase(
                 currentBpm     = lastBpm,
                 remainingQueue = remaining,
@@ -441,10 +384,8 @@ class MixStudioViewModel @Inject constructor(
                 tolerance      = tolerance,
                 recentBpms     = recentBpms.toList()
             ) ?: remaining.first()
-
             result.add(next)
             remaining.remove(next)
-
             val nextBpm = bpmCache[next.id]?.bpm?.takeIf { bpmCache[next.id]?.analysisFailed != true }
             if (nextBpm != null && nextBpm > 0f) {
                 recentBpms.addLast(nextBpm)
@@ -477,7 +418,6 @@ class MixStudioViewModel @Inject constructor(
         val withBpm = songs.filter {
             bpmCache.containsKey(it.id) && bpmCache[it.id]?.analysisFailed != true
         }
-
         if (withBpm.isEmpty()) return songs.first()
         return withBpm.minByOrNull { bpmCache[it.id]!!.bpm } ?: songs.first()
     }

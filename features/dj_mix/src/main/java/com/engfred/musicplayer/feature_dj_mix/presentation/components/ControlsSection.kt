@@ -21,8 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.ViewColumn
 import androidx.compose.material.icons.rounded.ViewStream
 import androidx.compose.material3.HorizontalDivider
@@ -47,13 +45,9 @@ fun ControlsSection(
     isRealMixMode: Boolean,
     autoSamplerEnabled: Boolean,
     sampleVolume: Float,
-    cuePointOffsetSec: Int,
-//    crossfadeDurationSec: Int,
     onToggleRealMixMode: (Boolean) -> Unit,
     onToggleAutoSampler: (Boolean) -> Unit,
     onSampleVolumeChanged: (Float) -> Unit,
-    onCuePointOffsetChanged: (Int) -> Unit,
-//    onCrossfadeDurationChanged: (Int) -> Unit,
     isDualDeckMode: Boolean = false,
     onToggleDeckLayout: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -62,11 +56,10 @@ fun ControlsSection(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-
-        // ── NEW: Dual Deck View toggle (top of settings, always visible) ───────
+        // ── Dual Deck View toggle ─────────────────────────────────────────────
         DualDeckToggleRow(
-            isDualDeckMode   = isDualDeckMode,
-            onToggle         = onToggleDeckLayout
+            isDualDeckMode = isDualDeckMode,
+            onToggle       = onToggleDeckLayout
         )
 
         HorizontalDivider(
@@ -75,30 +68,22 @@ fun ControlsSection(
 
         // ── Auto-Mix Mode toggle ──────────────────────────────────────────────
         PremiumToggleRow(
-            title           = "Auto-Mix Mode",
-            subtitle        = "Starts the next track before this one ends",
+            title     = "Real Mix Mode",
+            subtitle  = if (isRealMixMode)
+                "DJ-style crossfade begins 1 minute before track ends — full intro overlap"
+            else
+                "Crossfade begins in the final 10 seconds — songs play nearly to the end",
             isChecked       = isRealMixMode,
             onCheckedChange = onToggleRealMixMode
         )
 
-        // ── Real-Mix-only controls — animate in/out ───────────────────────────
+        // ── Sampler controls — only meaningful in Real Mix (early blend) mode ─
         AnimatedVisibility(
             visible = isRealMixMode,
             enter   = fadeIn(tween(220)) + expandVertically(tween(260)),
             exit    = fadeOut(tween(160)) + shrinkVertically(tween(200))
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
-                )
-
-                // ── Cue Point Offset ──────────────────────────────────────────
-                CuePointOffsetRow(
-                    selectedSec = cuePointOffsetSec,
-                    onSelected  = onCuePointOffsetChanged
-                )
-
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
                 )
@@ -131,21 +116,16 @@ fun ControlsSection(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  NEW: Dual Deck View Toggle Row
+//  Dual Deck View Toggle Row
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * A rich toggle row for enabling/disabling the Dual Deck (Virtual-DJ) layout.
- * Shows the relevant icon and a description of what each mode looks like.
- * Moved here from the TopAppBar so it's discoverable inside Settings.
- */
 @Composable
 private fun DualDeckToggleRow(
     isDualDeckMode: Boolean,
     onToggle: () -> Unit
 ) {
     Row(
-        modifier              = Modifier
+        modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(
@@ -168,7 +148,6 @@ private fun DualDeckToggleRow(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-            // Icon reflecting current mode
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -217,126 +196,6 @@ private fun DualDeckToggleRow(
                 uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
             )
-        )
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Crossfade Duration Slider
-// ─────────────────────────────────────────────────────────────────────────────
-
-//@Composable
-//private fun CrossfadeDurationSlider(
-//    durationSec: Int,
-//    onValueChange: (Int) -> Unit
-//) {
-//    Column(modifier = Modifier.fillMaxWidth()) {
-//        Row(
-//            modifier              = Modifier.fillMaxWidth(),
-//            verticalAlignment     = Alignment.CenterVertically,
-//            horizontalArrangement = Arrangement.SpaceBetween
-//        ) {
-//            Row(verticalAlignment = Alignment.CenterVertically) {
-//                Icon(
-//                    imageVector        = Icons.Rounded.Shuffle,
-//                    contentDescription = null,
-//                    tint               = MaterialTheme.colorScheme.primary.copy(alpha = 0.80f),
-//                    modifier           = Modifier.size(16.dp)
-//                )
-//                Spacer(Modifier.width(6.dp))
-//                Text(
-//                    text          = "CROSSFADE DURATION",
-//                    style         = MaterialTheme.typography.labelSmall,
-//                    fontWeight    = FontWeight.Bold,
-//                    letterSpacing = 1.sp,
-//                    color         = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)
-//                )
-//            }
-//            Text(
-//                text       = "${durationSec}s",
-//                style      = MaterialTheme.typography.labelMedium,
-//                fontWeight = FontWeight.Black,
-//                color      = MaterialTheme.colorScheme.primary
-//            )
-//        }
-//
-//        Slider(
-//            value         = durationSec.toFloat(),
-//            onValueChange = { onValueChange(it.roundToInt()) },
-//            valueRange    = 3f..10f, // Updated to 10 seconds max
-//            steps         = 6,       // Updated steps: (10 - 3) - 1 = 6, ensuring clean 1-second increments
-//            colors        = SliderDefaults.colors(
-//                thumbColor         = MaterialTheme.colorScheme.primary,
-//                activeTrackColor   = MaterialTheme.colorScheme.primary,
-//                inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-//            )
-//        )
-//
-//        Text(
-//            text     = "How long the outgoing and incoming tracks overlap during a mix",
-//            style    = MaterialTheme.typography.bodySmall,
-//            color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
-//            modifier = Modifier.padding(top = 2.dp)
-//        )
-//    }
-//}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Cue Point Offset Row
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun CuePointOffsetRow(
-    selectedSec: Int,
-    onSelected: (Int) -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier              = Modifier.fillMaxWidth(),
-            verticalAlignment     = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector        = Icons.Rounded.Timer,
-                    contentDescription = null,
-                    tint               = MaterialTheme.colorScheme.primary.copy(alpha = 0.80f),
-                    modifier           = Modifier.size(16.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text          = "CUE POINT",
-                    style         = MaterialTheme.typography.labelSmall,
-                    fontWeight    = FontWeight.Bold,
-                    letterSpacing = 1.sp,
-                    color         = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)
-                )
-            }
-            Text(
-                text       = if (selectedSec == 0) "OFF" else "${selectedSec}s",
-                style      = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Black,
-                color      = MaterialTheme.colorScheme.primary
-            )
-        }
-
-        Slider(
-            value         = selectedSec.toFloat(),
-            onValueChange = { onSelected(it.roundToInt()) },
-            valueRange    = 0f..15f, // Max 15 seconds
-            steps         = 14,      // (15 - 0) - 1 = 14 steps for clean 1-second increments
-            colors        = SliderDefaults.colors(
-                thumbColor         = MaterialTheme.colorScheme.primary,
-                activeTrackColor   = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-            )
-        )
-
-        Text(
-            text     = "Minimum position of the incoming track's first beat during a mix",
-            style    = MaterialTheme.typography.bodySmall,
-            color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
-            modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
         )
     }
 }

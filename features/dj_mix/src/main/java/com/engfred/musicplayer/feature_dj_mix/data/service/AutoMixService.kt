@@ -44,13 +44,12 @@ class AutoMixService : Service() {
 
     private lateinit var mediaSession: MediaSessionCompat
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-
     private var engineReleased = false
-    @Volatile private var lastSkipTimestampMs: Long = 0L
 
-    @Volatile private var lastNotifiedTrackId: Long?   = null
+    @Volatile private var lastSkipTimestampMs: Long = 0L
+    @Volatile private var lastNotifiedTrackId: Long?      = null
     @Volatile private var lastNotifiedIsPlaying: Boolean? = null
-    @Volatile private var lastProgressNotifyMs: Long   = 0L
+    @Volatile private var lastProgressNotifyMs: Long      = 0L
 
     private val PROGRESS_NOTIFY_INTERVAL_MS = 5_000L
 
@@ -62,7 +61,6 @@ class AutoMixService : Service() {
         const val ACTION_PLAY_PAUSE = "com.engfred.musicplayer.dj.PLAY_PAUSE"
         const val ACTION_NEXT       = "com.engfred.musicplayer.dj.NEXT"
         const val ACTION_STOP       = "com.engfred.musicplayer.dj.STOP"
-
         private const val SKIP_DEBOUNCE_MS = 1_500L
     }
 
@@ -75,7 +73,7 @@ class AutoMixService : Service() {
         observeEngineState()
         observeNextTrackRequests()
         observePrebufferRequests()
-        observeEngineSettings() // Restored: The service is now completely autonomous
+        observeEngineSettings()
         observeStopSignal()
         samplerEngine.initialize()
         observeFirstPlay()
@@ -87,21 +85,15 @@ class AutoMixService : Service() {
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay()  { crossfadeEngine.playPause() }
                 override fun onPause() { crossfadeEngine.playPause() }
-
                 override fun onSkipToNext() {
                     val now = System.currentTimeMillis()
-                    if (now - lastSkipTimestampMs < SKIP_DEBOUNCE_MS) {
-                        return
-                    }
+                    if (now - lastSkipTimestampMs < SKIP_DEBOUNCE_MS) return
                     lastSkipTimestampMs = now
-
                     val engineState = crossfadeEngine.state.value
                     if (engineState.isCrossfading) return
-
                     val currentId = engineState.currentTrack?.id ?: return
                     executeNextTrackTransition(currentId, isManualSkip = true)
                 }
-
                 override fun onStop() { releaseAndStop() }
             })
         }
@@ -110,10 +102,10 @@ class AutoMixService : Service() {
     private fun executeNextTrackTransition(currentTrackId: Long, isManualSkip: Boolean = false) {
         val nextTrack = djSessionManager.selectNextTrack(currentTrackId)
         if (nextTrack != null) {
-            val (firstBeatMs, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(nextTrack)
+            val (_, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(nextTrack)
             djSessionManager.markTrackPlayed(nextTrack.id)
-            crossfadeEngine.queueNextTrack(nextTrack, firstBeatMs, bpm, amplitude)
-            Log.d(TAG, "[SKIP] ${if(isManualSkip) "Manual skip" else "Auto-mix queued"} → '${nextTrack.title}'")
+            crossfadeEngine.queueNextTrack(nextTrack, bpm, amplitude)
+            Log.d(TAG, "[SKIP] ${if (isManualSkip) "Manual skip" else "Auto-mix queued"} → '${nextTrack.title}'")
         } else {
             Log.d(TAG, "[SKIP] Queue exhausted — DJ Mix will finish after current track.")
         }
@@ -128,19 +120,16 @@ class AutoMixService : Service() {
                     position  = state.currentPositionMs,
                     duration  = state.currentDurationMs
                 )
-
                 val now = System.currentTimeMillis()
-                val trackChanged    = state.currentTrack?.id != lastNotifiedTrackId
-                val playingChanged  = state.isPlaying != lastNotifiedIsPlaying
-                val progressDue     = now - lastProgressNotifyMs > PROGRESS_NOTIFY_INTERVAL_MS
-
+                val trackChanged   = state.currentTrack?.id != lastNotifiedTrackId
+                val playingChanged = state.isPlaying != lastNotifiedIsPlaying
+                val progressDue    = now - lastProgressNotifyMs > PROGRESS_NOTIFY_INTERVAL_MS
                 if (trackChanged || playingChanged || progressDue) {
-                    lastNotifiedTrackId  = state.currentTrack?.id
+                    lastNotifiedTrackId   = state.currentTrack?.id
                     lastNotifiedIsPlaying = state.isPlaying
-                    lastProgressNotifyMs = now
-
+                    lastProgressNotifyMs  = now
                     postNotification(
-                        track    = state.currentTrack,
+                        track     = state.currentTrack,
                         isPlaying = state.isPlaying,
                         position  = state.currentPositionMs,
                         duration  = state.currentDurationMs
@@ -150,6 +139,12 @@ class AutoMixService : Service() {
         }
     }
 
+    /**
+     * Both Real Mix ON and Real Mix OFF use crossfade — the difference is only
+     * the trigger timing, which is handled entirely inside CrossfadeEngine via
+     * [CrossfadeEngine.isRealMixMode]. No gating here; every nextTrackRequest
+     * leads to a proper crossfade transition.
+     */
     private fun observeNextTrackRequests() {
         serviceScope.launch {
             crossfadeEngine.nextTrackRequest.collect { currentTrackId ->
@@ -168,53 +163,37 @@ class AutoMixService : Service() {
                 if (crossfadeEngine.state.value.isCrossfading) return@collect
 
                 val nextTrack = djSessionManager.selectNextTrack(currentTrackId) ?: return@collect
-                val (firstBeatMs, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(nextTrack)
-                crossfadeEngine.prebufferTrack(nextTrack, firstBeatMs, bpm, amplitude)
+                val (_, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(nextTrack)
+                crossfadeEngine.prebufferTrack(nextTrack, bpm, amplitude)
                 Log.d(TAG, "Prebuffering '${nextTrack.title}'")
             }
         }
     }
 
     /**
-     * The Service must observe settings independently of the UI.
-     * This guarantees that if Android kills and restarts this background process
-     * while the user's app is closed, the engine will still initialize with
-     * the user's saved preferences instead of hardcoded defaults.
+     * Observes app settings and pushes them into the engine and sampler.
+     * Running in the service ensures correct values even when Android restarts
+     * the process while the UI is closed.
      */
     private fun observeEngineSettings() {
         serviceScope.launch {
             var lastPreset: AudioPreset? = null
-
             settingsRepository.getAppSettings().collect { appSettings ->
-                // 1. Audio EQ
+                // 1. Real Mix mode — tells the engine which trigger threshold to use.
+                //    ON  → crossfade fires 60 s before end (DJ early blend)
+                //    OFF → crossfade fires ~10 s before end (near-end seamless)
+                crossfadeEngine.isRealMixMode = appSettings.isRealMixMode
+
+                // 2. Audio EQ preset
                 if (appSettings.audioPreset != lastPreset) {
                     lastPreset = appSettings.audioPreset
                     crossfadeEngine.applyEqPreset(appSettings.audioPreset)
                 }
 
-                // 2. Hardware Engine Config
-                val clampedCuePointSec = appSettings.cuePointOffsetSec.coerceIn(0, 15)
-                crossfadeEngine.isRealMixMode       = appSettings.isRealMixMode
-                crossfadeEngine.maxTrackDurationMs  = appSettings.maxTrackDurationSec * 1000L
-                crossfadeEngine.useHalfwayMix       = !appSettings.useManualMaxDuration
-                crossfadeEngine.cuePointOffsetMs    = clampedCuePointSec * 1000L
-                samplerEngine.isAutoSamplerEnabled  = appSettings.autoSamplerEnabled && appSettings.isRealMixMode
-                samplerEngine.sampleVolume          = appSettings.sampleVolume
-
-                // 3. Immediately sync the running track in case the cue point changed
-                val currentTrack = crossfadeEngine.state.value.currentTrack
-                if (currentTrack != null) {
-                    val (firstBeat, bpm, amp) = djSessionManager.getTrackTransitionInfo(currentTrack)
-                    if (bpm > 0f) {
-                        crossfadeEngine.updateCurrentBpmInfo(
-                            bpm              = bpm,
-                            rawFirstBeatMs   = firstBeat,
-                            amplitude        = amp,
-                            waveformEnvelope = FloatArray(0),
-                            mixOutMs         = null
-                        )
-                    }
-                }
+                // 3. Sampler — only fires on Real Mix ON (early blend has room for fx)
+                samplerEngine.isAutoSamplerEnabled =
+                    appSettings.autoSamplerEnabled && appSettings.isRealMixMode
+                samplerEngine.sampleVolume = appSettings.sampleVolume
             }
         }
     }
@@ -274,7 +253,6 @@ class AutoMixService : Service() {
                 position, 1.0f
             ).build()
         mediaSession.setPlaybackState(playbackState)
-
         if (track != null) {
             val metadata = MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, track.title)
@@ -292,7 +270,6 @@ class AutoMixService : Service() {
         duration: Long = 0L
     ) {
         if (track == null) return
-
         val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause
         else android.R.drawable.ic_media_play
 
@@ -366,16 +343,13 @@ class AutoMixService : Service() {
 
     private fun releaseAndStop() {
         serviceScope.cancel()
-
         if (!engineReleased) {
             engineReleased = true
             crossfadeEngine.release()
             samplerEngine.release()
         }
         djSessionManager.endSession()
-
         activePlayerRegistry.acknowledgeDjMixStopped()
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -384,7 +358,6 @@ class AutoMixService : Service() {
         }
         (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
             ?.cancel(NOTIFICATION_ID)
-
         stopSelf()
         Log.i(TAG, "[LIFECYCLE] AutoMixService stopped and notification removed.")
     }

@@ -11,7 +11,7 @@ import com.engfred.musicplayer.feature_dj_mix.data.local.entity.BpmCacheEntity
 
 @Database(
     entities = [BpmCacheEntity::class],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 @TypeConverters(FloatArrayTypeConverter::class)
@@ -97,6 +97,15 @@ abstract class AutoMixDatabase : RoomDatabase() {
         val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DELETE FROM bpm_cache")
+            }
+        }
+
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Wipe cached BPM entries so stale firstBeatMs values (formerly used as
+                // seek positions) are cleared. Songs now always start at position 0.
+                // BPM values will be re-analysed on next playlist open.
+                database.execSQL("DELETE FROM bpm_cache")
             }
         }
     }

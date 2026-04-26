@@ -19,20 +19,7 @@ import javax.inject.Singleton
 /**
  * Hilt module for :features:dj_mix.
  *
- * Wires:
- * - [AutoMixDatabase]       — Room database (BPM cache), currently at version 11.
- * - [BpmCacheDao]           — DAO from the database.
- * - [AutoMixRepository]     — bound to [AutoMixRepositoryImpl].
- *
- * Auto-provided by Hilt (no manual @Provides needed):
- * - [BpmAnalyzer]              — @Singleton @Inject constructor.
- * - [BpmAnalysisWorker]        — @HiltWorker, handled by hilt-work integration.
- * - [CrossfadeEngine]          — @Singleton @Inject constructor.
- * - [DjSessionManager]         — @Singleton @Inject constructor.
- * - [GetSmartNextTrackUseCase] — @Inject constructor, stateless.
- * - [AnalyzeBpmUseCase]        — @Inject constructor, delegates to repository.
- *
- * Database version history (for posterity):
+ * Database version history:
  *   v1  — initial schema
  *   v2  — added firstBeatMs
  *   v3  — added amplitude
@@ -43,6 +30,10 @@ import javax.inject.Singleton
  *   v9  — cache wipe (algorithm update)
  *   v10 — cache wipe (algorithm update)
  *   v11 — cache wipe: firstBeatMs is now raw (pre-guard). See MIGRATION_10_11.
+ *   v12 — (previous migration)
+ *   v13 — cache wipe: firstBeatMs is now inert in the engine (songs start at 0).
+ *          Avoids stale cached values confusing future tooling. BPM values are
+ *          preserved conceptually but a fresh analysis gives the cleanest slate.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -71,8 +62,9 @@ abstract class AutoMixModule {
                     AutoMixDatabase.MIGRATION_7_8,
                     AutoMixDatabase.MIGRATION_8_9,
                     AutoMixDatabase.MIGRATION_9_10,
-                    AutoMixDatabase.MIGRATION_10_11, // raw firstBeatMs — cue guard moved to engine
+                    AutoMixDatabase.MIGRATION_10_11,
                     AutoMixDatabase.MIGRATION_11_12,
+                    AutoMixDatabase.MIGRATION_12_13, // cache wipe: firstBeatMs inert, songs start at 0
                 )
                 .fallbackToDestructiveMigration(true)
                 .build()
