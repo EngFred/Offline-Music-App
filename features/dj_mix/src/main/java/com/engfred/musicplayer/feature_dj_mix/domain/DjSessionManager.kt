@@ -122,6 +122,30 @@ class DjSessionManager @Inject constructor(
         ).also { Log.d(TAG, "selectNextTrack: '${it?.title}' for currentId=$currentTrackId") }
     }
 
+    // ── Previous-track selection ──────────────────────────────────────────────
+
+    /**
+     * Returns the track that was playing immediately before [currentTrackId]
+     * in the play history, or null if there is no previous track.
+     *
+     * Does NOT modify the history — the crossfade engine will call
+     * [markTrackPlayed] for the returned track once it starts playing,
+     * naturally appending it back to the history as the new current entry.
+     */
+    fun skipBack(currentTrackId: Long): AudioFile? {
+        val history = synchronized(this) { playHistory.toList() }
+        // Find the last occurrence of the current track in history
+        val currentIndex = history.lastIndexOf(currentTrackId)
+        if (currentIndex <= 0) {
+            Log.d(TAG, "skipBack: no previous track in history (currentIndex=$currentIndex)")
+            return null
+        }
+        val prevId    = history[currentIndex - 1]
+        val prevTrack = _smartQueue.value.firstOrNull { it.id == prevId }
+        Log.d(TAG, "skipBack: returning '${prevTrack?.title}' (id=$prevId)")
+        return prevTrack
+    }
+
     fun getTrackTransitionInfo(audioFile: AudioFile): Triple<Long, Float, Float> {
         val info = _bpmCache.value[audioFile.id]
         val cueInMs = info?.firstBeatMs ?: 0L

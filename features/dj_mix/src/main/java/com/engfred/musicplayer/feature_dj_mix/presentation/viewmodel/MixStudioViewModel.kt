@@ -105,7 +105,20 @@ class MixStudioViewModel @Inject constructor(
                 }
             }
 
-            MixStudioEvent.MixStudioNow   -> crossfadeEngine.triggerMixNow()
+            MixStudioEvent.MixStudioNow -> crossfadeEngine.triggerMixNow()
+
+            MixStudioEvent.SkipBack -> {
+                val engineState = crossfadeEngine.state.value
+                if (!crossfadeEngine.isActive || engineState.isCrossfading) return
+                val currentId = engineState.currentTrack?.id ?: return
+                val prevTrack = djSessionManager.skipBack(currentId) ?: run {
+                    Log.d(TAG, "[SKIP_BACK] No previous track available")
+                    return
+                }
+                val (_, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(prevTrack)
+                crossfadeEngine.queueNextTrack(prevTrack, bpm, amplitude)
+                Log.i(TAG, "[SKIP_BACK] Crossfading back to '${prevTrack.title}'")
+            }
 
             MixStudioEvent.DismissAnalysisDialog -> {
                 Log.d(TAG, "[ANALYSIS] Dialog dismissed — no action taken")
@@ -143,6 +156,14 @@ class MixStudioViewModel @Inject constructor(
                 djSessionManager.updateSettings(s)
                 viewModelScope.launch { settingsRepository.updateDjRealMixMode(event.enabled) }
                 Log.d(TAG, "[SETTINGS] ToggleRealMixMode=${event.enabled}")
+            }
+
+            is MixStudioEvent.ToggleLoopQueue -> {
+                val s = _uiState.value.settings.copy(loopQueue = event.enabled)
+                _uiState.update { it.copy(settings = s) }
+                djSessionManager.updateSettings(s)
+                viewModelScope.launch { settingsRepository.updateLoopQueue(event.enabled) }
+                Log.d(TAG, "[SETTINGS] LoopQueue=${event.enabled}")
             }
 
             is MixStudioEvent.ToggleAutoSampler -> {
@@ -222,7 +243,7 @@ class MixStudioViewModel @Inject constructor(
                 val toleranceChanged = _uiState.value.settings.bpmTolerance != newSettings.bpmTolerance
                 _uiState.update {
                     it.copy(
-                        settings      = newSettings,
+                        settings       = newSettings,
                         isDualDeckMode = appSettings.isDualDeckMode
                     )
                 }
@@ -332,11 +353,6 @@ class MixStudioViewModel @Inject constructor(
             .launchIn(viewModelScope)
     }
 
-    /**
-     * Pushes the latest BPM/amplitude/waveform data for [trackId] into the engine.
-     * Called on track change and when new analysis results arrive for the current track.
-     * Songs always start from position 0 — no seek positions are involved.
-     */
     private fun syncBeatGridForTrack(trackId: Long) {
         val bpmInfo = _uiState.value.bpmCache[trackId] ?: return
         if (bpmInfo.analysisFailed) return

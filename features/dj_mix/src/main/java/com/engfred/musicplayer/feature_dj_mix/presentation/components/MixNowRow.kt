@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,39 +36,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/**
- * "Mix Now" action row.
- *
- * ── States ────────────────────────────────────────────────────────────────────
- *  • Idle    → outlined button, fully tappable.
- *  • Mixing  → progress indicator + "Mixing…" label, NOT tappable.
- *              The button itself is disabled; the engine's isCrossfading guard
- *              already rejects calls from triggerMixNow(), but disabling the
- *              button provides immediate visual feedback and prevents the user
- *              from wondering why nothing happened on a second tap.
- *
- * ── Why OutlinedButton ───────────────────────────────────────────────────────
- * The play/pause FAB is already at the bottom of the screen as the primary
- * action. "Mix Now" is a secondary action — OutlinedButton preserves the visual
- * hierarchy while still being obvious enough to discover.
- */
 @Composable
 fun MixNowRow(
     isCrossfading: Boolean,
-    onMixNow:      () -> Unit,
-    modifier:      Modifier = Modifier
+    canSkipBack: Boolean,
+    onMixNow: () -> Unit,
+    onSkipBack: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     AnimatedContent(
-        targetState     = isCrossfading,
-        transitionSpec  = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
-        label           = "mix_now_state"
+        targetState    = isCrossfading,
+        transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+        label          = "mix_now_state"
     ) { crossfading ->
         if (crossfading) {
-            // ── Mixing indicator ──────────────────────────────────────────────
             val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(
-                initialValue   = 0.55f,
-                targetValue    = 1.0f,
-                animationSpec  = infiniteRepeatable(
+                initialValue  = 0.55f,
+                targetValue   = 1.0f,
+                animationSpec = infiniteRepeatable(
                     animation  = tween(600, easing = LinearEasing),
                     repeatMode = RepeatMode.Reverse
                 ),
@@ -93,29 +80,69 @@ fun MixNowRow(
                 )
             }
         } else {
-            // ── Idle button ───────────────────────────────────────────────────
-            OutlinedButton(
-                onClick  = onMixNow,
-                modifier = modifier.fillMaxWidth(),
-                shape    = RoundedCornerShape(percent = 50),
-                border   = BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                )
+            Row(
+                modifier              = modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    imageVector        = Icons.Rounded.Shuffle,
-                    contentDescription = null,
-                    modifier           = Modifier.size(18.dp),
-                    tint               = MaterialTheme.colorScheme.primary
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text          = "MIX NOW",
-                    fontWeight    = FontWeight.Black,
-                    letterSpacing = 1.5.sp,
-                    color         = MaterialTheme.colorScheme.primary
-                )
+                // ── PREV button ───────────────────────────────────────────────
+                OutlinedButton(
+                    onClick  = onSkipBack,
+                    enabled  = canSkipBack,
+                    modifier = Modifier.weight(1f),
+                    shape    = RoundedCornerShape(percent = 50),
+                    border   = BorderStroke(
+                        1.dp,
+                        if (canSkipBack)
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                        else
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                    )
+                ) {
+                    Icon(
+                        imageVector        = Icons.Rounded.SkipPrevious,
+                        contentDescription = null,
+                        modifier           = Modifier.size(18.dp),
+                        tint               = if (canSkipBack)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text          = "PREV MIX",
+                        fontWeight    = FontWeight.Black,
+                        letterSpacing = 1.sp,
+                        color         = if (canSkipBack)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                    )
+                }
+
+                // ── MIX NOW button ────────────────────────────────────────────
+                OutlinedButton(
+                    onClick  = onMixNow,
+                    modifier = Modifier.weight(1f),
+                    shape    = RoundedCornerShape(percent = 50),
+                    border   = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                    )
+                ) {
+                    Icon(
+                        imageVector        = Icons.Rounded.SkipNext,
+                        contentDescription = null,
+                        modifier           = Modifier.size(18.dp),
+                        tint               = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text          = "MIX NOW",
+                        fontWeight    = FontWeight.Black,
+                        letterSpacing = 1.5.sp,
+                        color         = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }

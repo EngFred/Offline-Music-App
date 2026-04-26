@@ -240,12 +240,14 @@ fun MixStudioScreen(
                                 }
                             }
 
-                            // MixNowRow is always available — both modes support manual mix
+                            // MixNowRow — both modes support prev + mix now
                             if (uiState.currentTrack != null) {
                                 item(key = "mix_now_row") {
                                     MixNowRow(
                                         isCrossfading = uiState.isCrossfading,
+                                        canSkipBack   = uiState.canSkipBack,
                                         onMixNow      = { viewModel.onEvent(MixStudioEvent.MixStudioNow) },
+                                        onSkipBack    = { viewModel.onEvent(MixStudioEvent.SkipBack) },
                                         modifier      = Modifier.fillMaxWidth()
                                     )
                                 }
@@ -540,12 +542,14 @@ fun MixStudioScreen(
                         }
                     }
 
-                    // MixNowRow is always available — both modes support manual mix now
+                    // MixNowRow — both modes support prev + mix now
                     if (uiState.currentTrack != null) {
                         item(key = "mix_now_row") {
                             MixNowRow(
                                 isCrossfading = uiState.isCrossfading,
+                                canSkipBack   = uiState.canSkipBack,
                                 onMixNow      = { viewModel.onEvent(MixStudioEvent.MixStudioNow) },
+                                onSkipBack    = { viewModel.onEvent(MixStudioEvent.SkipBack) },
                                 modifier      = Modifier.padding(horizontal = 24.dp)
                             )
                         }
@@ -631,7 +635,9 @@ fun MixStudioScreen(
                 )
                 ControlsSection(
                     isRealMixMode         = uiState.settings.isRealMixMode,
+                    loopQueue             = uiState.settings.loopQueue,
                     onToggleRealMixMode   = { viewModel.onEvent(MixStudioEvent.ToggleRealMixStudioMode(it)) },
+                    onToggleLoopQueue     = { viewModel.onEvent(MixStudioEvent.ToggleLoopQueue(it)) },
                     autoSamplerEnabled    = uiState.settings.autoSamplerEnabled,
                     sampleVolume          = uiState.settings.sampleVolume,
                     onToggleAutoSampler   = { viewModel.onEvent(MixStudioEvent.ToggleAutoSampler(it)) },

@@ -61,6 +61,8 @@ class SettingsRepositoryImpl @Inject constructor(
         private val DJ_SAMPLE_VOLUME       = floatPreferencesKey("dj_sample_volume")
         private val DJ_DUAL_DECK_MODE         = booleanPreferencesKey("dj_dual_deck_mode")
 
+        private val DJ_LOOP_QUEUE = booleanPreferencesKey("dj_loop_queue")
+
         private val LAST_MIX_OF_THE_DAY_TIMESTAMP     = longPreferencesKey("last_mix_of_the_day_timestamp")
         private val DJ_MIX_PLAYLIST_FILTER            = stringPreferencesKey("dj_mix_playlist_filter")
         private val LAST_UPDATE_CHECK_TIMESTAMP        = longPreferencesKey("last_update_check_timestamp")
@@ -116,6 +118,7 @@ class SettingsRepositoryImpl @Inject constructor(
                     autoSamplerEnabled         = preferences[DJ_AUTO_SAMPLER] ?: true,
                     sampleVolume               = preferences[DJ_SAMPLE_VOLUME] ?: 1f,
                     isDualDeckMode             = preferences[DJ_DUAL_DECK_MODE] ?: false,
+                    loopQueue                  = preferences[DJ_LOOP_QUEUE] ?: false,
                     mixOfTheDayFilterByDuration = preferences[MIX_OF_THE_DAY_FILTER_BY_DURATION] ?: false,
                     customPlayerBackgroundUri = preferences[CUSTOM_PLAYER_BACKGROUND_URI],
                 )
@@ -235,10 +238,6 @@ class SettingsRepositoryImpl @Inject constructor(
         dataStore.edit { it[DJ_REAL_MIX_MODE] = enabled }
     }
 
-//    override suspend fun updateDjCrossfadeDuration(sec: Int) {
-//        dataStore.edit { it[DJ_CROSSFADE_DURATION_SEC] = sec }
-//    }
-
     override suspend fun updateDjAutoSampler(enabled: Boolean) {
         dataStore.edit { it[DJ_AUTO_SAMPLER] = enabled }
     }
@@ -249,6 +248,10 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun updateDjDualDeckMode(enabled: Boolean) {
         dataStore.edit { it[DJ_DUAL_DECK_MODE] = enabled }
+    }
+
+    override suspend fun updateLoopQueue(enabled: Boolean) {
+        dataStore.edit { it[DJ_LOOP_QUEUE] = enabled }
     }
 
     override suspend fun getLastMixOfTheDayTimestamp(): Long {

@@ -59,6 +59,7 @@ class AutoMixService : Service() {
         const val NOTIFICATION_ID = 505
         const val ACTION_START      = "com.engfred.musicplayer.dj.START"
         const val ACTION_PLAY_PAUSE = "com.engfred.musicplayer.dj.PLAY_PAUSE"
+        const val ACTION_PREV       = "com.engfred.musicplayer.dj.PREV"
         const val ACTION_NEXT       = "com.engfred.musicplayer.dj.NEXT"
         const val ACTION_STOP       = "com.engfred.musicplayer.dj.STOP"
         private const val SKIP_DEBOUNCE_MS = 1_500L
@@ -85,6 +86,14 @@ class AutoMixService : Service() {
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay()  { crossfadeEngine.playPause() }
                 override fun onPause() { crossfadeEngine.playPause() }
+
+                override fun onSkipToPrevious() {
+                    val now = System.currentTimeMillis()
+                    if (now - lastSkipTimestampMs < SKIP_DEBOUNCE_MS) return
+                    lastSkipTimestampMs = now
+                    executePrevTrackTransition()
+                }
+
                 override fun onSkipToNext() {
                     val now = System.currentTimeMillis()
                     if (now - lastSkipTimestampMs < SKIP_DEBOUNCE_MS) return
@@ -94,10 +103,13 @@ class AutoMixService : Service() {
                     val currentId = engineState.currentTrack?.id ?: return
                     executeNextTrackTransition(currentId, isManualSkip = true)
                 }
+
                 override fun onStop() { releaseAndStop() }
             })
         }
     }
+
+    // ── Next track ────────────────────────────────────────────────────────────
 
     private fun executeNextTrackTransition(currentTrackId: Long, isManualSkip: Boolean = false) {
         val nextTrack = djSessionManager.selectNextTrack(currentTrackId)
@@ -109,6 +121,21 @@ class AutoMixService : Service() {
         } else {
             Log.d(TAG, "[SKIP] Queue exhausted — DJ Mix will finish after current track.")
         }
+    }
+
+    // ── Previous track ────────────────────────────────────────────────────────
+
+    private fun executePrevTrackTransition() {
+        val engineState = crossfadeEngine.state.value
+        if (engineState.isCrossfading) return
+        val currentId = engineState.currentTrack?.id ?: return
+        val prevTrack = djSessionManager.skipBack(currentId) ?: run {
+            Log.d(TAG, "[PREV] No previous track in history — ignoring")
+            return
+        }
+        val (_, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(prevTrack)
+        crossfadeEngine.queueNextTrack(prevTrack, bpm, amplitude)
+        Log.d(TAG, "[PREV] Crossfading back → '${prevTrack.title}'")
     }
 
     private fun observeEngineState() {
@@ -139,12 +166,6 @@ class AutoMixService : Service() {
         }
     }
 
-    /**
-     * Both Real Mix ON and Real Mix OFF use crossfade — the difference is only
-     * the trigger timing, which is handled entirely inside CrossfadeEngine via
-     * [CrossfadeEngine.isRealMixMode]. No gating here; every nextTrackRequest
-     * leads to a proper crossfade transition.
-     */
     private fun observeNextTrackRequests() {
         serviceScope.launch {
             crossfadeEngine.nextTrackRequest.collect { currentTrackId ->
@@ -170,27 +191,17 @@ class AutoMixService : Service() {
         }
     }
 
-    /**
-     * Observes app settings and pushes them into the engine and sampler.
-     * Running in the service ensures correct values even when Android restarts
-     * the process while the UI is closed.
-     */
     private fun observeEngineSettings() {
         serviceScope.launch {
             var lastPreset: AudioPreset? = null
             settingsRepository.getAppSettings().collect { appSettings ->
-                // 1. Real Mix mode — tells the engine which trigger threshold to use.
-                //    ON  → crossfade fires 60 s before end (DJ early blend)
-                //    OFF → crossfade fires ~10 s before end (near-end seamless)
                 crossfadeEngine.isRealMixMode = appSettings.isRealMixMode
 
-                // 2. Audio EQ preset
                 if (appSettings.audioPreset != lastPreset) {
                     lastPreset = appSettings.audioPreset
                     crossfadeEngine.applyEqPreset(appSettings.audioPreset)
                 }
 
-                // 3. Sampler — only fires on Real Mix ON (early blend has room for fx)
                 samplerEngine.isAutoSamplerEnabled =
                     appSettings.autoSamplerEnabled && appSettings.isRealMixMode
                 samplerEngine.sampleVolume = appSettings.sampleVolume
@@ -217,6 +228,7 @@ class AutoMixService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_PLAY_PAUSE -> crossfadeEngine.playPause()
+            ACTION_PREV       -> executePrevTrackTransition()
             ACTION_STOP       -> releaseAndStop()
         }
         return START_NOT_STICKY
@@ -245,6 +257,7 @@ class AutoMixService : Service() {
             .setActions(
                 PlaybackStateCompat.ACTION_PLAY or
                         PlaybackStateCompat.ACTION_PAUSE or
+                        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
                         PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                         PlaybackStateCompat.ACTION_STOP
             )
@@ -270,6 +283,7 @@ class AutoMixService : Service() {
         duration: Long = 0L
     ) {
         if (track == null) return
+
         val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause
         else android.R.drawable.ic_media_play
 
@@ -295,13 +309,25 @@ class AutoMixService : Service() {
             .setLargeIcon(appIconBitmap)
             .setContentIntent(openAppPi)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            // action index 0 — Previous
+            .addAction(
+                android.R.drawable.ic_media_previous,
+                "Previous",
+                getServicePendingIntent(ACTION_PREV)
+            )
+            // action index 1 — Play/Pause
             .addAction(playPauseIcon, "Play/Pause", getServicePendingIntent(ACTION_PLAY_PAUSE))
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", getServicePendingIntent(ACTION_STOP))
+            // action index 2 — Stop
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Stop",
+                getServicePendingIntent(ACTION_STOP)
+            )
             .setProgress(duration.toInt(), position.toInt(), false)
             .setStyle(
                 androidx.media.app.NotificationCompat.MediaStyle()
                     .setMediaSession(mediaSession.sessionToken)
-                    .setShowActionsInCompactView(0, 1)
+                    .setShowActionsInCompactView(0, 1, 2) // prev, play/pause, stop
             )
             .setSilent(true)
             .build()

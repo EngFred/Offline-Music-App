@@ -43,9 +43,11 @@ import kotlin.math.roundToInt
 @Composable
 fun ControlsSection(
     isRealMixMode: Boolean,
+    loopQueue: Boolean,
     autoSamplerEnabled: Boolean,
     sampleVolume: Float,
     onToggleRealMixMode: (Boolean) -> Unit,
+    onToggleLoopQueue: (Boolean) -> Unit,
     onToggleAutoSampler: (Boolean) -> Unit,
     onSampleVolumeChanged: (Float) -> Unit,
     isDualDeckMode: Boolean = false,
@@ -56,17 +58,13 @@ fun ControlsSection(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        // ── Dual Deck View toggle ─────────────────────────────────────────────
         DualDeckToggleRow(
             isDualDeckMode = isDualDeckMode,
             onToggle       = onToggleDeckLayout
         )
 
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
-        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
 
-        // ── Auto-Mix Mode toggle ──────────────────────────────────────────────
         PremiumToggleRow(
             title     = "Real Mix Mode",
             subtitle  = if (isRealMixMode)
@@ -77,18 +75,27 @@ fun ControlsSection(
             onCheckedChange = onToggleRealMixMode
         )
 
-        // ── Sampler controls — only meaningful in Real Mix (early blend) mode ─
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+
+        // ── Loop Queue toggle ─────────────────────────────────────────────────
+        PremiumToggleRow(
+            title     = "Loop Queue",
+            subtitle  = if (loopQueue)
+                "Mix restarts from the beginning when the queue ends"
+            else
+                "Mix stops after the last track",
+            isChecked       = loopQueue,
+            onCheckedChange = onToggleLoopQueue
+        )
+
         AnimatedVisibility(
             visible = isRealMixMode,
             enter   = fadeIn(tween(220)) + expandVertically(tween(260)),
             exit    = fadeOut(tween(160)) + shrinkVertically(tween(200))
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
-                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
 
-                // ── Sampler ───────────────────────────────────────────────────
                 PremiumToggleRow(
                     title    = "Mix Sound Effects",
                     subtitle = if (autoSamplerEnabled)

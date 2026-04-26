@@ -38,14 +38,7 @@ interface SettingsRepository {
     // ── DJ Mix ────────────────────────────────────────────────────────────
     suspend fun updateDjRealMixMode(enabled: Boolean)
 
-//    suspend fun updateDjCrossfadeDuration(sec: Int)
-
-    /**
-     * Persists the user's chosen cue-point offset (in seconds).
-     *
-     * Valid values are defined by [CUE_POINT_OPTIONS_SEC] in MixStudioSettings.kt.
-     */
-//    suspend fun updateDjCuePointOffset(sec: Int)
+    suspend fun updateLoopQueue(enabled: Boolean)
 
     suspend fun updateDjDualDeckMode(enabled: Boolean)
 
