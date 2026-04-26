@@ -517,7 +517,6 @@ class CrossfadeEngine @Inject constructor(
 
         abortCrossfade = false
 
-        // Use the shared DjConstants array
         val (harmonicTempoRatio, targetIncomingBpm) = if (currentTrackBpm > 0f && nextBpm > 0f) {
             val bestHarmonic = DjConstants.HARMONIC_RATIOS.minByOrNull { ratio ->
                 abs((currentTrackBpm * ratio) - nextBpm)
@@ -558,6 +557,10 @@ class CrossfadeEngine @Inject constructor(
         Log.i(TAG, "╚══════════════════════════════════════════════════════════╝")
 
         _state.update { it.copy(isCrossfading = true, crossfadeProgressFraction = 0f) }
+
+        // We capture the outgoing EQ processor so we can restore its gains later.
+        val outgoingEq = if (isPrimaryA) eqProcessorA else eqProcessorB
+        val originalGains = outgoingEq?.getGains() ?: DoubleArray(10) { 0.0 }
 
         try {
             val secondaryBaseVolume = (if (nextAmplitude > 0f)
@@ -676,6 +679,22 @@ class CrossfadeEngine @Inject constructor(
                         "(largeBpmGap=$isLargeBpmGap ratio=${"%.4f".format(tempoSyncRatio)})")
             }
 
+            // ── 4c. Bass Kill (Outgoing Track) ────────────────────────────────
+            if (isRealMixMode) {
+                val bassKillGains = originalGains.clone()
+                if (bassKillGains.size >= 3) {
+                    bassKillGains[0] = -12.0 // ~31 Hz
+                    bassKillGains[1] = -12.0 // ~62 Hz
+                    bassKillGains[2] = -12.0 // ~125 Hz
+                }
+                withContext(Dispatchers.Main) {
+                    outgoingEq?.setGains(bassKillGains)
+                }
+                Log.i(TAG, "[CROSSFADE] ④c Bass Kill: Outgoing track low frequencies dropped to -12.0dB")
+            } else {
+                Log.d(TAG, "[CROSSFADE] ④c Bass Kill: Skipped (Continuous mode)")
+            }
+
             val primaryStartVolume = withContext(Dispatchers.Main) { primaryRef.volume }
                 .coerceIn(0f, 1f)
             val stepDelayMs = (effectiveDurationMs / FADE_STEPS).coerceAtLeast(16L)
@@ -731,6 +750,7 @@ class CrossfadeEngine @Inject constructor(
                 withContext(Dispatchers.Main) {
                     primaryRef.volume = primaryStartVolume
                     primaryRef.playbackParameters = PlaybackParameters.DEFAULT
+                    outgoingEq?.setGains(originalGains) // Restore EQ
                     try {
                         secondaryRef.pause()
                         secondaryRef.volume = 0f
@@ -748,6 +768,7 @@ class CrossfadeEngine @Inject constructor(
                     secondaryRef.volume = secondaryBaseVolume.coerceIn(0f, 1f)
                 }
                 secondaryRef.playbackParameters = PlaybackParameters.DEFAULT
+                outgoingEq?.setGains(originalGains) // Restore EQ for the old primary
 
                 isPrimaryA = !isPrimaryA
 

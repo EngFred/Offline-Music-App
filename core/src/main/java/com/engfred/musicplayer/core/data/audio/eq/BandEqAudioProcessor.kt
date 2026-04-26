@@ -8,79 +8,35 @@ import androidx.media3.common.util.UnstableApi
 import com.engfred.musicplayer.core.domain.model.AudioPreset
 import java.nio.ByteBuffer
 import javax.inject.Inject
-import javax.inject.Singleton
 
-/**
- * Production-grade 10-band parametric EQ as an ExoPlayer [AudioProcessor].
- *
- * ── Why this beats android.media.audiofx.Equalizer ───────────────────────────
- *
- *  • Device-independent: processes raw PCM before it reaches audio hardware,
- *    so OEM EQ overrides (Samsung Adapt Sound, LG HD Audio, etc.) don't interfere.
- *  • Session-safe: no audio session attach/detach — the processor lives in the
- *    ExoPlayer render pipeline for the lifetime of the service.
- *  • Format-aware: handles both PCM_16BIT and PCM_FLOAT without external config.
- *  • Zero-cost passthrough: when all band gains are 0 dB, each BiquadPeakingFilter
- *    sets isPassthrough = true and returns the sample unmodified — no floating point
- *    arithmetic, no memory bandwidth overhead.
- *  • Seek-safe: onFlush() resets filter delay elements to prevent clicks/pops
- *    after scrubbing.
- *
- * ── Thread model ─────────────────────────────────────────────────────────────
- *
- *  • onConfigure / queueInput / onFlush run on ExoPlayer's audio thread.
- *  • setPreset / setGains are called from the main (settings observer) thread.
- *  • @Volatile on [pendingGains] + [gainsChanged] provides the required JMM
- *    happens-before guarantee without locks or coroutines.
- *
- * ── Wiring ───────────────────────────────────────────────────────────────────
- *
- *  Inject this singleton into PlaybackService and pass it to ExoPlayer via
- *  DefaultRenderersFactory.buildAudioSink → DefaultAudioSink.setAudioProcessors.
- */
 @UnstableApi
 class BandEqAudioProcessor @Inject constructor() : BaseAudioProcessor() {
 
     companion object {
         const val NUM_BANDS = 10
-
-        /**
-         * Q = 1.41 gives ~0.7 octave bandwidth per band.
-         * At ISO 10-band spacing (1-octave steps), adjacent bands overlap at −3 dB —
-         * the standard for graphic equalizers (IEC 61938).
-         */
         private const val Q = 1.41
-
         private const val MAX_GAIN_DB =  12.0
         private const val MIN_GAIN_DB = -12.0
     }
 
-    // ── Public API (main thread) ──────────────────────────────────────────────
-
-    /** Pending gains written atomically from the main thread. */
     @Volatile private var pendingGains: DoubleArray = DoubleArray(NUM_BANDS)
-
-    /** Set by main thread, read by audio thread at the start of each queueInput call. */
     @Volatile private var gainsChanged = false
+
+    /** NEW: Allows the Crossfade Engine to capture the current EQ state before modifying it */
+    fun getGains(): DoubleArray {
+        return pendingGains.clone()
+    }
 
     fun setPreset(preset: AudioPreset) {
         setGains(EqPresets.forPreset(preset))
     }
 
-    /**
-     * Update all band gains.
-     * Gains outside [MIN_GAIN_DB.MAX_GAIN_DB] are clamped to protect hardware.
-     */
     fun setGains(gainDb: DoubleArray) {
         require(gainDb.size == NUM_BANDS) { "Expected $NUM_BANDS gains, got ${gainDb.size}" }
-        // Assign new array atomically (reference assignment is atomic on JVM)
         pendingGains = DoubleArray(NUM_BANDS) { gainDb[it].coerceIn(MIN_GAIN_DB, MAX_GAIN_DB) }
         gainsChanged = true
     }
 
-    // ── Filter bank (audio thread) ────────────────────────────────────────────
-
-    /** filters[channel][band] */
     private var filters: Array<Array<BiquadPeakingFilter>> = emptyArray()
 
     private fun buildFilters(sampleRate: Int, channelCount: Int, gains: DoubleArray) {
@@ -98,30 +54,18 @@ class BandEqAudioProcessor @Inject constructor() : BaseAudioProcessor() {
         }
     }
 
-    /**
-     * Check for pending gain updates and rebuild filters if needed.
-     * Called at the top of every queueInput — audio thread only.
-     */
     @OptIn(UnstableApi::class)
     private fun applyPendingGainsIfNeeded() {
         if (!gainsChanged) return
-        gainsChanged = false                       // clear before reading gains (JMM ordering)
-        val gains = pendingGains                   // single volatile read
+        gainsChanged = false
+        val gains = pendingGains
         val fmt   = inputAudioFormat
         if (fmt.sampleRate > 0 && fmt.channelCount > 0) {
             buildFilters(fmt.sampleRate, fmt.channelCount, gains)
-            // Reset delay elements to silence any transient from the coefficient change
             filters.forEach { ch -> ch.forEach { it.reset() } }
         }
     }
 
-    // ── BaseAudioProcessor overrides ──────────────────────────────────────────
-
-    /**
-     * Always active — we manage passthrough internally via [BiquadPeakingFilter.isPassthrough].
-     * This avoids the need for ExoPlayer to reconfigure the pipeline when the user
-     * toggles the EQ on/off, which would cause a brief audio gap.
-     */
     override fun isActive(): Boolean = super.isActive()
 
     @OptIn(UnstableApi::class)
@@ -130,13 +74,12 @@ class BandEqAudioProcessor @Inject constructor() : BaseAudioProcessor() {
             C.ENCODING_PCM_16BIT,
             C.ENCODING_PCM_FLOAT -> {
                 buildFilters(inputAudioFormat.sampleRate, inputAudioFormat.channelCount, pendingGains)
-                inputAudioFormat   // EQ is a gain-only effect; format is unchanged
+                inputAudioFormat
             }
             else -> throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
         }
     }
 
-    /** Reset delay elements on seek to prevent clicks. */
     override fun onFlush() {
         filters.forEach { ch -> ch.forEach { it.reset() } }
     }
@@ -158,8 +101,6 @@ class BandEqAudioProcessor @Inject constructor() : BaseAudioProcessor() {
         }
         output.flip()
     }
-
-    // ── PCM processing ────────────────────────────────────────────────────────
 
     private fun processFloat(input: ByteBuffer, output: ByteBuffer) {
         val chCount = inputAudioFormat.channelCount
@@ -183,7 +124,6 @@ class BandEqAudioProcessor @Inject constructor() : BaseAudioProcessor() {
         }
     }
 
-    /** Run sample through all 10 bands for the given channel. */
     private fun applyFilterChain(channel: Int, sample: Float): Float {
         if (filters.isEmpty() || channel >= filters.size) return sample
         var s = sample
