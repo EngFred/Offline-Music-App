@@ -32,39 +32,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/**
- * Foreground Service for the DJ Mix feature.
- *
- * ── Notification update strategy ─────────────────────────────────────────────
- * The CrossfadeEngine state flow emits on EVERY position poll (300 ms normal,
- * 50 ms during fast-poll near a transition). Calling startForeground() or even
- * NotificationManager.notify() on every emission floods the Android notification
- * binder with up to 20 heavyweight IPC calls per second. On budget devices this
- * directly causes the quick-settings panel and notification shade to lag/freeze.
- *
- * Fix: separate concerns into two paths:
- *
- * A) MEDIA SESSION (lightweight, every emission)
- *    updateMediaSession() sets PlaybackStateCompat (position + playing flag)
- *    on the MediaSession. The system reads this directly for lock-screen art and
- *    the media control row — no notification rebuild required.
- *
- * B) NOTIFICATION (throttled, only when content actually changes)
- *    postNotification() rebuilds and posts the notification only when:
- *    • The track changes (new title/artist after a crossfade)
- *    • isPlaying flips (user hit play/pause)
- *    • More than PROGRESS_NOTIFY_INTERVAL_MS have elapsed (keeps the progress
- *      bar roughly in sync without spamming; users don't read ms on a DJ mix).
- *
- * This reduces notification rebuilds from ~20/s → at most once every few
- * seconds, eliminating the system binder backlog that was causing the freeze.
- *
- * ── Teardown fix ─────────────────────────────────────────────────────────────
- * The deprecated stopForeground(Boolean) behaves inconsistently on API 26+.
- * We now use stopForeground(STOP_FOREGROUND_REMOVE) on API 24+ so the
- * notification is immediately removed from the shade, clearing the UI freeze
- * the stale DJ-mix notification was causing while the library player started.
- */
 @UnstableApi
 @AndroidEntryPoint
 class AutoMixService : Service() {
@@ -81,17 +48,10 @@ class AutoMixService : Service() {
     private var engineReleased = false
     @Volatile private var lastSkipTimestampMs: Long = 0L
 
-    // ── Notification throttle state ───────────────────────────────────────────
-    // Track the last values we posted so we can skip redundant rebuilds.
     @Volatile private var lastNotifiedTrackId: Long?   = null
     @Volatile private var lastNotifiedIsPlaying: Boolean? = null
     @Volatile private var lastProgressNotifyMs: Long   = 0L
 
-    /**
-     * How often the notification progress bar is refreshed when nothing else
-     * changed. 5 s is imperceptible to users of a DJ mix and keeps binder
-     * traffic to a minimum.
-     */
     private val PROGRESS_NOTIFY_INTERVAL_MS = 5_000L
 
     companion object {
@@ -115,8 +75,7 @@ class AutoMixService : Service() {
         observeEngineState()
         observeNextTrackRequests()
         observePrebufferRequests()
-        observeEngineSettings()
-        observeAppSettings()
+        observeEngineSettings() // Restored: The service is now completely autonomous
         observeStopSignal()
         samplerEngine.initialize()
         observeFirstPlay()
@@ -132,23 +91,15 @@ class AutoMixService : Service() {
                 override fun onSkipToNext() {
                     val now = System.currentTimeMillis()
                     if (now - lastSkipTimestampMs < SKIP_DEBOUNCE_MS) {
-                        Log.d(TAG, "[SKIP] Debounced (${now - lastSkipTimestampMs}ms < ${SKIP_DEBOUNCE_MS}ms)")
                         return
                     }
                     lastSkipTimestampMs = now
 
                     val engineState = crossfadeEngine.state.value
-                    if (engineState.isCrossfading) {
-                        Log.d(TAG, "[SKIP] Crossfade in progress — skip ignored")
-                        return
-                    }
+                    if (engineState.isCrossfading) return
 
                     val currentId = engineState.currentTrack?.id ?: return
-                    val nextTrack = djSessionManager.selectNextTrack(currentId) ?: return
-                    val (firstBeatMs, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(nextTrack)
-                    djSessionManager.markTrackPlayed(nextTrack.id)
-                    crossfadeEngine.queueNextTrack(nextTrack, firstBeatMs, bpm, amplitude)
-                    Log.d(TAG, "[SKIP] Manual skip → '${nextTrack.title}'")
+                    executeNextTrackTransition(currentId, isManualSkip = true)
                 }
 
                 override fun onStop() { releaseAndStop() }
@@ -156,27 +107,21 @@ class AutoMixService : Service() {
         }
     }
 
-    /**
-     * Observes engine state with a TWO-PATH strategy:
-     *
-     * Path A — MediaSession (every emission, very cheap):
-     *   Keeps position and playing state accurate for lock-screen / media controls.
-     *
-     * Path B — Notification rebuild (throttled):
-     *   Only rebuilds and posts the notification when:
-     *   • track id changed  (crossfade completed → show new song title)
-     *   • isPlaying changed (play/pause tapped)
-     *   • progress interval elapsed (keeps progress bar loosely accurate)
-     *
-     * This collapses ~20 startForeground()/notify() calls per second down to at
-     * most 1 per PROGRESS_NOTIFY_INTERVAL_MS, eliminating the binder backlog
-     * that caused the quick-settings panel to freeze.
-     */
+    private fun executeNextTrackTransition(currentTrackId: Long, isManualSkip: Boolean = false) {
+        val nextTrack = djSessionManager.selectNextTrack(currentTrackId)
+        if (nextTrack != null) {
+            val (firstBeatMs, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(nextTrack)
+            djSessionManager.markTrackPlayed(nextTrack.id)
+            crossfadeEngine.queueNextTrack(nextTrack, firstBeatMs, bpm, amplitude)
+            Log.d(TAG, "[SKIP] ${if(isManualSkip) "Manual skip" else "Auto-mix queued"} → '${nextTrack.title}'")
+        } else {
+            Log.d(TAG, "[SKIP] Queue exhausted — DJ Mix will finish after current track.")
+        }
+    }
+
     private fun observeEngineState() {
         serviceScope.launch {
             crossfadeEngine.state.collectLatest { state ->
-
-                // ── Path A: always update MediaSession (lightweight IPC) ──────
                 updateMediaSession(
                     track     = state.currentTrack,
                     isPlaying = state.isPlaying,
@@ -184,7 +129,6 @@ class AutoMixService : Service() {
                     duration  = state.currentDurationMs
                 )
 
-                // ── Path B: throttled notification rebuild ────────────────────
                 val now = System.currentTimeMillis()
                 val trackChanged    = state.currentTrack?.id != lastNotifiedTrackId
                 val playingChanged  = state.isPlaying != lastNotifiedIsPlaying
@@ -210,19 +154,8 @@ class AutoMixService : Service() {
         serviceScope.launch {
             crossfadeEngine.nextTrackRequest.collect { currentTrackId ->
                 val actualCurrentId = crossfadeEngine.state.value.currentTrack?.id
-                if (currentTrackId != actualCurrentId) {
-                    Log.d(TAG, "Ignored stale nextTrackRequest for ID $currentTrackId")
-                    return@collect
-                }
-                val nextTrack = djSessionManager.selectNextTrack(currentTrackId)
-                if (nextTrack != null) {
-                    val (firstBeatMs, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(nextTrack)
-                    djSessionManager.markTrackPlayed(nextTrack.id)
-                    crossfadeEngine.queueNextTrack(nextTrack, firstBeatMs, bpm, amplitude)
-                    Log.d(TAG, "Queued next track: '${nextTrack.title}'")
-                } else {
-                    Log.d(TAG, "Queue exhausted — DJ Mix will finish after current track.")
-                }
+                if (currentTrackId != actualCurrentId) return@collect
+                executeNextTrackTransition(currentTrackId, isManualSkip = false)
             }
         }
     }
@@ -242,27 +175,45 @@ class AutoMixService : Service() {
         }
     }
 
+    /**
+     * The Service must observe settings independently of the UI.
+     * This guarantees that if Android kills and restarts this background process
+     * while the user's app is closed, the engine will still initialize with
+     * the user's saved preferences instead of hardcoded defaults.
+     */
     private fun observeEngineSettings() {
         serviceScope.launch {
-            djSessionManager.settings.collect { settings ->
-                crossfadeEngine.isRealMixMode       = settings.isRealMixMode
-                crossfadeEngine.maxTrackDurationMs  = settings.maxTrackDurationSec * 1000L
-                crossfadeEngine.useHalfwayMix       = !settings.useManualMaxDuration
-                crossfadeEngine.cuePointOffsetMs    = settings.cuePointOffsetSec * 1000L
-                samplerEngine.isAutoSamplerEnabled  = settings.autoSamplerEnabled && settings.isRealMixMode
-                samplerEngine.sampleVolume          = settings.sampleVolume
-            }
-        }
-    }
-
-    private fun observeAppSettings() {
-        serviceScope.launch {
             var lastPreset: AudioPreset? = null
+
             settingsRepository.getAppSettings().collect { appSettings ->
+                // 1. Audio EQ
                 if (appSettings.audioPreset != lastPreset) {
                     lastPreset = appSettings.audioPreset
                     crossfadeEngine.applyEqPreset(appSettings.audioPreset)
-                    Log.d(TAG, "[EQ] Preset forwarded to DJ engine: ${appSettings.audioPreset}")
+                }
+
+                // 2. Hardware Engine Config
+                val clampedCuePointSec = appSettings.cuePointOffsetSec.coerceIn(0, 15)
+                crossfadeEngine.isRealMixMode       = appSettings.isRealMixMode
+                crossfadeEngine.maxTrackDurationMs  = appSettings.maxTrackDurationSec * 1000L
+                crossfadeEngine.useHalfwayMix       = !appSettings.useManualMaxDuration
+                crossfadeEngine.cuePointOffsetMs    = clampedCuePointSec * 1000L
+                samplerEngine.isAutoSamplerEnabled  = appSettings.autoSamplerEnabled && appSettings.isRealMixMode
+                samplerEngine.sampleVolume          = appSettings.sampleVolume
+
+                // 3. Immediately sync the running track in case the cue point changed
+                val currentTrack = crossfadeEngine.state.value.currentTrack
+                if (currentTrack != null) {
+                    val (firstBeat, bpm, amp) = djSessionManager.getTrackTransitionInfo(currentTrack)
+                    if (bpm > 0f) {
+                        crossfadeEngine.updateCurrentBpmInfo(
+                            bpm              = bpm,
+                            rawFirstBeatMs   = firstBeat,
+                            amplitude        = amp,
+                            waveformEnvelope = FloatArray(0),
+                            mixOutMs         = null
+                        )
+                    }
                 }
             }
         }
@@ -294,10 +245,6 @@ class AutoMixService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // NOTIFICATION
-    // ═════════════════════════════════════════════════════════════════════════
-
     private fun showStartingNotification() {
         val notification = NotificationCompat.Builder(this, DJ_CHANNEL_ID)
             .setContentTitle("DJ Auto-Mix")
@@ -309,13 +256,6 @@ class AutoMixService : Service() {
         startForeground(NOTIFICATION_ID, notification)
     }
 
-    /**
-     * Updates ONLY the MediaSession playback state (position + playing flag).
-     *
-     * This is cheap — a single Binder call to the system MediaSession. It keeps
-     * the lock-screen media controls and any external media controller accurate
-     * without triggering a notification rebuild. Called on every state emission.
-     */
     private fun updateMediaSession(
         track: AudioFile?,
         isPlaying: Boolean,
@@ -345,14 +285,6 @@ class AutoMixService : Service() {
         }
     }
 
-    /**
-     * Rebuilds and posts the full notification.
-     *
-     * Called ONLY when track, isPlaying, or a timed progress update is due.
-     * Uses [NotificationManager.notify] after the initial [startForeground] call
-     * to avoid the overhead of re-attaching the service to the notification on
-     * every update. Both paths produce identical visual results.
-     */
     private fun postNotification(
         track: AudioFile?,
         isPlaying: Boolean,
@@ -397,14 +329,10 @@ class AutoMixService : Service() {
             .setSilent(true)
             .build()
 
-        // Use notify() rather than startForeground() for updates — both update
-        // the same notification but notify() skips the expensive foreground-service
-        // rebinding overhead that was flooding the system binder.
         try {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(NOTIFICATION_ID, notification)
         } catch (e: Exception) {
-            // Fall back to startForeground if notify fails (e.g. service not yet started)
             Log.w(TAG, "notify() failed, falling back to startForeground: ${e.message}")
             startForeground(NOTIFICATION_ID, notification)
         }
@@ -436,39 +364,9 @@ class AutoMixService : Service() {
         }
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // LIFECYCLE
-    // ═════════════════════════════════════════════════════════════════════════
-
-    /**
-     * Shutdown sequence — ORDER MATTERS:
-     *
-     * 1. serviceScope.cancel()           — kills all coroutines immediately so
-     *                                      observeEngineState() CANNOT re-post
-     *                                      notification 505 after we remove it.
-     * 2. crossfadeEngine.release()       — releases ExoPlayers + audio focus.
-     * 3. samplerEngine.release()
-     * 4. djSessionManager.endSession()
-     * 5. activePlayerRegistry            — called AFTER engine release so audio
-     *    .acknowledgeDjMixStopped()        focus is genuinely free before the
-     *                                      normal player resumes.
-     * 6. Explicit notification removal   — stopForeground(STOP_FOREGROUND_REMOVE)
-     *    + stopSelf()                       immediately removes the notification
-     *                                      from the shade, ending the UI freeze
-     *                                      that the stale DJ notification caused.
-     *
-     * WHY the notification was lingering:
-     * The old code used the deprecated stopForeground(Boolean=true). On API 26+
-     * this is unreliable — the notification can stay visible for several seconds
-     * after the service stops. STOP_FOREGROUND_REMOVE atomically detaches AND
-     * cancels the notification in a single system call.
-     */
     private fun releaseAndStop() {
-        // Step 1: Cancel all coroutines — observeEngineState() can no longer
-        // re-post the notification after this line.
         serviceScope.cancel()
 
-        // Steps 2–4: Release engines.
         if (!engineReleased) {
             engineReleased = true
             crossfadeEngine.release()
@@ -476,25 +374,14 @@ class AutoMixService : Service() {
         }
         djSessionManager.endSession()
 
-        // Step 5: Signal registry AFTER engine release.
         activePlayerRegistry.acknowledgeDjMixStopped()
 
-        // Step 6: Remove notification immediately and stop.
-        //
-        // stopForeground(STOP_FOREGROUND_REMOVE) atomically:
-        //   a) Detaches this notification from the foreground-service binding
-        //   b) Cancels / removes the notification from the shade
-        // This replaces the deprecated stopForeground(true) which was unreliable
-        // on API 26+ and left the notification visible for several seconds,
-        // blocking quick-settings interactions during that window.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
             @Suppress("DEPRECATION")
             stopForeground(true)
         }
-        // Belt-and-suspenders: explicit cancel ensures it is gone even if
-        // stopForeground has an edge-case delay on some OEM ROMs.
         (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
             ?.cancel(NOTIFICATION_ID)
 

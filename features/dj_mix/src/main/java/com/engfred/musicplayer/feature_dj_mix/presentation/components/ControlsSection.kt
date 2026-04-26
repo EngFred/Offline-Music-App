@@ -12,8 +12,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,10 +40,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.engfred.musicplayer.feature_dj_mix.domain.model.CUE_POINT_OPTIONS_SEC
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ControlsSection(
     isRealMixMode: Boolean,
@@ -76,16 +72,6 @@ fun ControlsSection(
         HorizontalDivider(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
         )
-
-//        // ── Crossfade Duration — always visible, affects both modes ───────────
-//        CrossfadeDurationSlider(
-//            durationSec   = crossfadeDurationSec,
-//            onValueChange = onCrossfadeDurationChanged
-//        )
-//
-//        HorizontalDivider(
-//            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
-//        )
 
         // ── Auto-Mix Mode toggle ──────────────────────────────────────────────
         PremiumToggleRow(
@@ -299,86 +285,59 @@ private fun DualDeckToggleRow(
 //  Cue Point Offset Row
 // ─────────────────────────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CuePointOffsetRow(
     selectedSec: Int,
     onSelected: (Int) -> Unit
 ) {
-    val primary   = MaterialTheme.colorScheme.primary
-    val onPrimary = MaterialTheme.colorScheme.onPrimary
-    val surface   = MaterialTheme.colorScheme.surfaceVariant
-    val onSurface = MaterialTheme.colorScheme.onSurfaceVariant
-    val chipShape = RoundedCornerShape(8.dp)
-
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier          = Modifier.padding(bottom = 4.dp)
+            modifier              = Modifier.fillMaxWidth(),
+            verticalAlignment     = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(
-                imageVector        = Icons.Rounded.Timer,
-                contentDescription = null,
-                tint               = primary.copy(alpha = 0.80f),
-                modifier           = Modifier.size(16.dp)
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text          = "CUE POINT",
-                style         = MaterialTheme.typography.labelSmall,
-                fontWeight    = FontWeight.Bold,
-                letterSpacing = 1.sp,
-                color         = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)
-            )
-            Spacer(Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector        = Icons.Rounded.Timer,
+                    contentDescription = null,
+                    tint               = MaterialTheme.colorScheme.primary.copy(alpha = 0.80f),
+                    modifier           = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text          = "CUE POINT",
+                    style         = MaterialTheme.typography.labelSmall,
+                    fontWeight    = FontWeight.Bold,
+                    letterSpacing = 1.sp,
+                    color         = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f)
+                )
+            }
             Text(
                 text       = if (selectedSec == 0) "OFF" else "${selectedSec}s",
                 style      = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Black,
-                color      = primary
+                color      = MaterialTheme.colorScheme.primary
             )
         }
 
-        Spacer(Modifier.height(4.dp))
+        Slider(
+            value         = selectedSec.toFloat(),
+            onValueChange = { onSelected(it.roundToInt()) },
+            valueRange    = 0f..15f, // Max 15 seconds
+            steps         = 14,      // (15 - 0) - 1 = 14 steps for clean 1-second increments
+            colors        = SliderDefaults.colors(
+                thumbColor         = MaterialTheme.colorScheme.primary,
+                activeTrackColor   = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+            )
+        )
 
         Text(
             text     = "Minimum position of the incoming track's first beat during a mix",
             style    = MaterialTheme.typography.bodySmall,
             color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
-            modifier = Modifier.padding(bottom = 12.dp)
+            modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
         )
-
-        FlowRow(
-            modifier              = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement   = Arrangement.spacedBy(8.dp)
-        ) {
-            CUE_POINT_OPTIONS_SEC.forEach { sec ->
-                val isSelected = sec == selectedSec
-                val label      = if (sec == 0) "OFF" else "${sec}s"
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .clip(chipShape)
-                        .background(if (isSelected) primary else surface)
-                        .border(
-                            width = if (isSelected) 0.dp else 1.dp,
-                            color = primary.copy(alpha = if (isSelected) 0f else 0.20f),
-                            shape = chipShape
-                        )
-                        .clickable { onSelected(sec) }
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text          = label,
-                        style         = MaterialTheme.typography.labelMedium,
-                        fontWeight    = if (isSelected) FontWeight.Black else FontWeight.Medium,
-                        color         = if (isSelected) onPrimary else onSurface,
-                        letterSpacing = 0.5.sp
-                    )
-                }
-            }
-        }
     }
 }
 

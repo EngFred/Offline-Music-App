@@ -12,7 +12,6 @@ import com.engfred.musicplayer.core.domain.repository.SettingsRepository
 import com.engfred.musicplayer.feature_dj_mix.data.crossfade.CrossfadeEngine
 import com.engfred.musicplayer.feature_dj_mix.data.sampler.SamplerEngine
 import com.engfred.musicplayer.feature_dj_mix.domain.DjSessionManager
-import com.engfred.musicplayer.feature_dj_mix.domain.model.CUE_POINT_OPTIONS_SEC
 import com.engfred.musicplayer.feature_dj_mix.domain.model.MixStudioSettings
 import com.engfred.musicplayer.feature_dj_mix.domain.repository.BpmInfo
 import com.engfred.musicplayer.feature_dj_mix.domain.repository.AutoMixRepository
@@ -32,7 +31,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import kotlin.random.Random
 
 object DjMixArgs {
     const val PLAYLIST_ID = "playlistId"
@@ -40,42 +38,6 @@ object DjMixArgs {
 
 private const val TAG = "MixStudioViewModel"
 
-/**
- * ViewModel / orchestrator for the DJ Mix session.
- *
- * Coordinates the CrossfadeEngine (hardware), SamplerEngine (audio FX),
- * and DjSessionManager (state/history).
- *
- * ── Cue-point setting flow ────────────────────────────────────────────────────
- *
- * The cue-point offset (how far into the track the incoming beat is placed)
- * is user-configurable from 0–30 s in steps defined by [CUE_POINT_OPTIONS_SEC].
- *
- * 1. User selects a new cue point in the UI → dispatches [MixStudioEvent.UpdateCuePointOffset].
- * 2. ViewModel updates [CrossfadeEngine.cuePointOffsetMs] immediately (no re-analysis).
- * 3. Current track's beat grid is re-synced via [syncBeatGridForTrack] so the
- * ongoing mix-trigger recalculates with the new offset.
- * 4. Setting is persisted via [SettingsRepository.updateDjCuePointOffset].
- *
- * On app restart, [observeSettings] reads the persisted value and pushes it into
- * the engine before any playback begins, so the correct offset is in effect from
- * the first track.
- *
- * ── Why no re-analysis is needed ─────────────────────────────────────────────
- * [BpmInfo.firstBeatMs] now stores the RAW aubio beat-0 (pre-guard).
- * [CrossfadeEngine.applyFirstBeatGuard] applies the offset dynamically every time
- * firstBeatMs enters the engine, so changing the setting takes effect for all
- * tracks instantly, even those already cached.
- *
- * ── Sampler suppression rule ──────────────────────────────────────────────────
- * samplerEngine.isAutoSamplerEnabled = settings.autoSamplerEnabled AND settings.isRealMixMode
- *
- * ── Deck layout toggle ────────────────────────────────────────────────────────
- * [MixStudioEvent.ToggleDeckLayout] flips [MixStudioUiState.isDualDeckMode] between
- * single-deck (classic NowPlayingSection) and dual-deck (DualDeckSection with
- * animated crossfader) layouts. The preference is persisted via DataStore so
- * the user's layout choice remains across app restarts.
- */
 @UnstableApi
 @HiltViewModel
 class MixStudioViewModel @Inject constructor(
@@ -116,14 +78,8 @@ class MixStudioViewModel @Inject constructor(
         loadPlaylist()
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // EVENT HANDLER
-    // ═════════════════════════════════════════════════════════════════════════
-
     fun onEvent(event: MixStudioEvent) {
         when (event) {
-
-            // ── Play / Pause ──────────────────────────────────────────────────
             MixStudioEvent.PlayPause -> {
                 val engineState = crossfadeEngine.state.value
 
@@ -134,7 +90,6 @@ class MixStudioViewModel @Inject constructor(
                 val isMixFinished = !engineState.isPlaying && isAtEndOfTrack && isQueueExhausted
 
                 if (!crossfadeEngine.isActive || engineState.currentTrack == null || isMixFinished) {
-
                     val analysisStillRunning = _uiState.value.isAnalyzing
                     val alreadyWaiting       = _uiState.value.pendingAutoStartAfterAnalysis
 
@@ -148,19 +103,15 @@ class MixStudioViewModel @Inject constructor(
                         Log.d(TAG, "[ANALYSIS] User re-tapped while waiting — starting immediately")
                         _uiState.update { it.copy(pendingAutoStartAfterAnalysis = false) }
                     }
-
                     startFreshMixSession()
-
                 } else {
                     crossfadeEngine.playPause()
                 }
             }
 
-            // ── Mix controls ──────────────────────────────────────────────────
             MixStudioEvent.MixStudioNow   -> crossfadeEngine.triggerMixNow()
             MixStudioEvent.AbortCrossfade -> crossfadeEngine.abortCurrentCrossfade()
 
-            // ── Analysis-in-progress dialog ───────────────────────────────────
             MixStudioEvent.DismissAnalysisDialog -> {
                 Log.d(TAG, "[ANALYSIS] Dialog dismissed — no action taken")
                 _uiState.update { it.copy(showAnalysisDialog = false) }
@@ -181,7 +132,6 @@ class MixStudioViewModel @Inject constructor(
                 startFreshMixSession()
             }
 
-            // ── Deck layout toggle ────────────────────────────────────────────
             MixStudioEvent.ToggleDeckLayout -> {
                 val newMode = !_uiState.value.isDualDeckMode
                 _uiState.update { it.copy(isDualDeckMode = newMode) }
@@ -191,7 +141,6 @@ class MixStudioViewModel @Inject constructor(
                 Log.d(TAG, "[UI] Deck layout → ${if (newMode) "DUAL DECK" else "SINGLE DECK"}")
             }
 
-            // ── Settings ──────────────────────────────────────────────────────
             is MixStudioEvent.ToggleRealMixStudioMode -> {
                 val s = _uiState.value.settings.copy(isRealMixMode = event.enabled)
                 crossfadeEngine.isRealMixMode = event.enabled
@@ -218,32 +167,18 @@ class MixStudioViewModel @Inject constructor(
                 viewModelScope.launch { settingsRepository.updateDjSampleVolume(event.volume) }
             }
 
-            // ── Cue point ─────────────────────────────────────────────────────
             is MixStudioEvent.UpdateCuePointOffset -> {
-                // Validate the incoming value against the approved options list.
-                // Silently clamp to nearest valid option rather than throwing, so a
-                // stale UI state or a bad deep-link can never put the engine into an
-                // undefined state.
-                val clampedSec = CUE_POINT_OPTIONS_SEC
-                    .minByOrNull { kotlin.math.abs(it - event.sec) }
-                    ?: event.sec
+                val clampedSec = event.sec.coerceIn(0, 15)
 
                 if (clampedSec != event.sec) {
-                    Log.w(TAG, "[SETTINGS] CuePointOffset ${event.sec}s not in options list — " +
-                            "clamped to ${clampedSec}s")
+                    Log.w(TAG, "[SETTINGS] CuePointOffset ${event.sec}s clamped to ${clampedSec}s")
                 }
 
                 val s = _uiState.value.settings.copy(cuePointOffsetSec = clampedSec)
 
-                // ── 1. Push into engine immediately (takes effect on next guard call) ──
                 crossfadeEngine.cuePointOffsetMs = clampedSec * 1000L
-
-                // ── 2. Re-sync the current track's beat grid so the mix trigger
-                //       recalculates with the new offset right away, without waiting
-                //       for the next BPM-cache emission. ───────────────────────────────
                 _uiState.value.currentTrack?.id?.let { syncBeatGridForTrack(it) }
 
-                // ── 3. Update state and persist ──────────────────────────────────────
                 _uiState.update { it.copy(settings = s) }
                 djSessionManager.updateSettings(s)
                 viewModelScope.launch {
@@ -254,29 +189,8 @@ class MixStudioViewModel @Inject constructor(
                         "(${clampedSec * 1000}ms). " +
                         "Mix trigger for current track recalculated.")
             }
-
-//            is MixStudioEvent.UpdateCrossfadeDuration -> {
-//                // Clamp to the valid engine range (MixDecisionEngine caps effective duration to 14 s,
-//                // so offering 15 s as a ceiling is safe and gives headroom for HARMONIC × 0.80).
-//                val clampedSec = event.sec.coerceIn(3, 15)
-//                val s = _uiState.value.settings.copy(crossfadeDurationSec = clampedSec)
-//
-//                // Push into engine immediately — no restart required.
-//                crossfadeEngine.crossfadeDurationMs = clampedSec * 1000L
-//
-//                _uiState.update { it.copy(settings = s) }
-//                djSessionManager.updateSettings(s)
-//                viewModelScope.launch {
-//                    settingsRepository.updateDjCrossfadeDuration(clampedSec)
-//                    Log.d(TAG, "[SETTINGS] CrossfadeDuration → ${clampedSec}s")
-//                }
-//            }
         }
     }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // FRESH MIX SESSION
-    // ═════════════════════════════════════════════════════════════════════════
 
     private fun startFreshMixSession() {
         Log.i(TAG, "[PLAYBACK] Starting fresh mix session")
@@ -302,10 +216,6 @@ class MixStudioViewModel @Inject constructor(
         updateNextTrackPreview()
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // HELPERS
-    // ═════════════════════════════════════════════════════════════════════════
-
     private fun updateNextTrackPreview() {
         val currentId = _uiState.value.currentTrack?.id
         if (currentId == null) {
@@ -315,10 +225,6 @@ class MixStudioViewModel @Inject constructor(
         val next = djSessionManager.selectNextTrack(currentId)
         _uiState.update { it.copy(nextTrack = next) }
     }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // OBSERVERS
-    // ═════════════════════════════════════════════════════════════════════════
 
     private fun observeCanSkipBack() {
         djSessionManager.canSkipBack
@@ -335,8 +241,15 @@ class MixStudioViewModel @Inject constructor(
     private fun observeSettings() {
         settingsRepository.getAppSettings()
             .onEach { appSettings ->
+                val clampedCuePointSec = appSettings.cuePointOffsetSec.coerceIn(0, 15)
+
+                if (clampedCuePointSec != appSettings.cuePointOffsetSec) {
+                    viewModelScope.launch {
+                        settingsRepository.updateDjCuePointOffset(clampedCuePointSec)
+                    }
+                }
+
                 val newSettings = MixStudioSettings(
-//                    crossfadeDurationSec = appSettings.crossfadeDurationSec,
                     bpmTolerance         = appSettings.bpmTolerance,
                     isRealMixMode        = appSettings.isRealMixMode,
                     maxTrackDurationSec  = appSettings.maxTrackDurationSec,
@@ -344,16 +257,12 @@ class MixStudioViewModel @Inject constructor(
                     useManualMaxDuration = appSettings.useManualMaxDuration,
                     autoSamplerEnabled   = appSettings.autoSamplerEnabled,
                     sampleVolume         = appSettings.sampleVolume,
-                    cuePointOffsetSec    = appSettings.cuePointOffsetSec,
+                    cuePointOffsetSec    = clampedCuePointSec,
                 )
 
-//                crossfadeEngine.crossfadeDurationMs = newSettings.crossfadeDurationSec * 1000L
                 crossfadeEngine.isRealMixMode       = newSettings.isRealMixMode
                 crossfadeEngine.maxTrackDurationMs  = newSettings.maxTrackDurationSec * 1000L
                 crossfadeEngine.useHalfwayMix       = !newSettings.useManualMaxDuration
-                // Push the persisted cue-point offset into the engine on every settings
-                // emission, including the very first one at startup. This ensures the
-                // engine has the correct value before any playback begins.
                 crossfadeEngine.cuePointOffsetMs    = newSettings.cuePointOffsetSec * 1000L
                 samplerEngine.isAutoSamplerEnabled  = newSettings.autoSamplerEnabled && newSettings.isRealMixMode
                 samplerEngine.sampleVolume          = newSettings.sampleVolume
@@ -361,7 +270,7 @@ class MixStudioViewModel @Inject constructor(
                 val toleranceChanged = _uiState.value.settings.bpmTolerance != newSettings.bpmTolerance
                 _uiState.update { it.copy(
                     settings = newSettings,
-                    isDualDeckMode = appSettings.isDualDeckMode // Read persisted deck mode
+                    isDualDeckMode = appSettings.isDualDeckMode
                 ) }
                 djSessionManager.updateSettings(newSettings)
                 if (toleranceChanged) rebuildSmartQueue()
@@ -415,9 +324,6 @@ class MixStudioViewModel @Inject constructor(
                 val progress       = if (songs.isEmpty()) 1f else doneCount.toFloat() / songs.size
                 val stillAnalysing = progress < 1f
 
-                // Push fresh BPM data into the engine for the current track.
-                // Only do this if the track was just newly analysed (cache miss → hit)
-                // so we don't reset the guarded firstBeatMs unnecessarily.
                 val currentTrackId = _uiState.value.currentTrack?.id
                 if (currentTrackId != null) {
                     val freshBpmInfo  = bpmCache[currentTrackId]
@@ -427,7 +333,6 @@ class MixStudioViewModel @Inject constructor(
                             !freshBpmInfo.analysisFailed
 
                     if (isNewlyAnalyzed) {
-                        // Pass the raw firstBeatMs — CrossfadeEngine applies the guard.
                         crossfadeEngine.updateCurrentBpmInfo(
                             bpm              = freshBpmInfo!!.bpm,
                             rawFirstBeatMs   = freshBpmInfo.firstBeatMs,
@@ -485,35 +390,17 @@ class MixStudioViewModel @Inject constructor(
             .launchIn(viewModelScope)
     }
 
-    /**
-     * Syncs the beat-grid metadata for [trackId] into the CrossfadeEngine.
-     *
-     * Passes the RAW [BpmInfo.firstBeatMs] — the engine applies the cue-point
-     * guard via [CrossfadeEngine.applyFirstBeatGuard] using the current
-     * [CrossfadeEngine.cuePointOffsetMs]. This is the correct call site for
-     * guard application; do NOT pre-guard the value here.
-     *
-     * This is called:
-     * • When a new track starts playing (from observeCrossfadeEngineState).
-     * • When the cue-point setting changes (from onEvent/UpdateCuePointOffset)
-     * so the mix-trigger formula recalculates immediately.
-     * • When a track's BPM result arrives for the first time (observeBpmCache).
-     */
     private fun syncBeatGridForTrack(trackId: Long) {
         val bpmInfo = _uiState.value.bpmCache[trackId] ?: return
         if (bpmInfo.analysisFailed) return
         crossfadeEngine.updateCurrentBpmInfo(
             bpm              = bpmInfo.bpm,
-            rawFirstBeatMs   = bpmInfo.firstBeatMs, // raw — engine guards it
+            rawFirstBeatMs   = bpmInfo.firstBeatMs,
             amplitude        = bpmInfo.amplitude,
             waveformEnvelope = bpmInfo.waveformEnvelope,
             mixOutMs         = null
         )
     }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // QUEUE REBUILD (WITH SESSION JITTER)
-    // ═════════════════════════════════════════════════════════════════════════
 
     private fun rebuildSmartQueue(bpmCache: Map<Long, BpmInfo> = _uiState.value.bpmCache) {
         if (rawPlaylistSongs.isEmpty()) return
@@ -525,15 +412,6 @@ class MixStudioViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Rebuilds the queue logic.
-     *
-     * We pass a session-scoped [Random] instance and a small [scoreJitter] (8f)
-     * to the [GetSmartNextTrackUseCase]. This guarantees that if multiple tracks
-     * tie for being a "perfect match", the algorithm will pick a different one
-     * each time the user hits Start, but without EVER picking a bad mix over a
-     * good one (since 8f is mathematically too small to override a bad BPM delta).
-     */
     private fun performRebuild(bpmCache: Map<Long, BpmInfo>) {
         if (rawPlaylistSongs.isEmpty()) return
 
@@ -541,12 +419,7 @@ class MixStudioViewModel @Inject constructor(
         val remaining = rawPlaylistSongs.toMutableList()
         val result    = mutableListOf<AudioFile>()
 
-        // ── 1. Create a session-scoped Random instance ────────────────────────
-        // We seed this once per rebuild so the queue order is stable for the
-        // UI but changes every time the user starts a fresh mix session.
-        val sessionRandom = Random(System.currentTimeMillis())
-
-        val opener = selectOpener(remaining, bpmCache, sessionRandom)
+        val opener = selectOpener(remaining, bpmCache)
         result.add(opener)
         remaining.remove(opener)
 
@@ -566,9 +439,7 @@ class MixStudioViewModel @Inject constructor(
                     if (it.value.analysisFailed) 120f else it.value.bpm
                 },
                 tolerance      = tolerance,
-                recentBpms     = recentBpms.toList(),
-                scoreJitter    = 8f,           // ── Jitter tie-breaker ──
-                random         = sessionRandom // ── Session randomizer ──
+                recentBpms     = recentBpms.toList()
             ) ?: remaining.first()
 
             result.add(next)
@@ -599,35 +470,16 @@ class MixStudioViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Selects the first track of the mix.
-     * Instead of calculating the absolute median warm-up track every time, we
-     * now randomly pick a track from the "warm-up" zone (the 20% to 40%
-     * lowest-tempo tracks). This ensures a fresh but appropriate starting song.
-     */
     private fun selectOpener(
         songs: List<AudioFile>,
-        bpmCache: Map<Long, BpmInfo>,
-        random: Random = Random.Default
+        bpmCache: Map<Long, BpmInfo>
     ): AudioFile {
         val withBpm = songs.filter {
             bpmCache.containsKey(it.id) && bpmCache[it.id]?.analysisFailed != true
         }
-        // Fallback: pick a random song if no BPM data is available yet
-        if (withBpm.isEmpty()) return songs.random(random)
 
-        val sorted   = withBpm.sortedBy { bpmCache[it.id]!!.bpm }
-        val n        = sorted.size
-
-        // Define the "warm-up" zone (the lower-middle 20% to 40% of tempos)
-        val lowerIdx = (n * 0.20).toInt().coerceIn(0, n - 1)
-        val upperIdx = (n * 0.40).toInt().coerceIn(lowerIdx, n - 1)
-
-        // ── RANDOM WARM-UP OPENER ─────────────────────────────────────────────
-        // Pick a random track from the warm-up zone instead of the exact median.
-        val warmUpTracks = sorted.subList(lowerIdx, upperIdx + 1)
-
-        return if (warmUpTracks.isNotEmpty()) warmUpTracks.random(random) else sorted.random(random)
+        if (withBpm.isEmpty()) return songs.first()
+        return withBpm.minByOrNull { bpmCache[it.id]!!.bpm } ?: songs.first()
     }
 
     override fun onCleared() {

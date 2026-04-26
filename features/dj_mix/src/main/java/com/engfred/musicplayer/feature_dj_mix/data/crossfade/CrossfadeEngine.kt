@@ -21,6 +21,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import com.engfred.musicplayer.core.data.audio.eq.BandEqAudioProcessor
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.model.AudioPreset
+import com.engfred.musicplayer.feature_dj_mix.domain.util.DjConstants
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,76 +45,15 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.sqrt
 
-/**
- * Dual-ExoPlayer DJ crossfade engine — EQUAL-POWER EDITION.
- *
- * ── What was wrong before and why it sounded terrible ────────────────────────
- *
- * The previous "wide-valley" curve (cos^0.3 / sin^3.0) produced a combined
- * volume of 149–159% during the middle third of every crossfade. The Android
- * audio mixer adds PCM streams directly — exceeding 100% amplitude causes
- * hard clipping on the mix bus. That is the "fighting" sound. It is not a
- * tuning issue; it is a mathematical certainty of that curve.
- *
- * The old curve ALSO had a floating-point trap: cos(π/2) evaluates to
- * approximately -4.37e-8 (not exactly 0.0) in IEEE 754. Raising a negative
- * float to a fractional power (x.pow(0.3f)) produces NaN. NaN passed to
- * AudioTrack.setVolume() throws IllegalArgumentException — the crossfade
- * crash visible in the logs every single time.
- *
- * ── The equal-power solution ─────────────────────────────────────────────────
- *
- * out(θ) = cos(θ × π/2)
- * in(θ)  = sin(θ × π/2)     where θ goes from 0.0 to 1.0
- *
- * Mathematical guarantee (Pythagorean identity):
- *   cos²(θ) + sin²(θ) = 1.0  — at EVERY step, for EVERY value of θ
- *
- * Total power is constant throughout the entire crossfade. The listener's
- * perceived loudness never spikes, dips, or clips. This is the same math
- * used by Pioneer CDJs, Serato DJ, Traktor Pro, and Ableton Live's crossfader.
- *
- * ── Tempo sync ───────────────────────────────────────────────────────────────
- *
- * Equal-power solves clipping, but two tracks at different BPMs will still
- * drift out of phase during the overlap. At 101 BPM vs 98 BPM, the tracks
- * are 440 ms out of phase by the end of an 8-second fade — half a beat.
- * That is the remaining "fighting" cause after fixing the volume curve.
- *
- * Fix: set the incoming track's PlaybackParameters to speed = outgoingBpm/incomingBpm.
- * Android's AudioTrack pitch-correction (sonic stretcher) makes this inaudible
- * up to ±8%. At 101/98 = 1.031, nobody hears it. The beats stay locked for the
- * entire overlap. Restore to 1.0x on swap.
- *
- * ── Volume normalisation ─────────────────────────────────────────────────────
- *
- * Amplitude-based normalisation (0.15/amplitude) is applied to the primary
- * player immediately when BPM metadata arrives via [updateCurrentBpmInfo].
- * This ensures [executeCrossfade] reads the correct normalised volume from the
- * player when it captures [primaryStartVolume] — no stale 1.0f surprises.
- *
- * ── Thread safety ────────────────────────────────────────────────────────────
- *
- * All ExoPlayer calls MUST run on Dispatchers.Main. Every player interaction
- * inside coroutines is wrapped in withContext(Dispatchers.Main).
- */
 @UnstableApi
 @Singleton
 class CrossfadeEngine @Inject constructor(
     @param:ApplicationContext private val context: Context
 ) {
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // CONSTANTS
-    // ═════════════════════════════════════════════════════════════════════════
-
     companion object {
         private const val TAG = "CrossfadeEngine"
-
-        // ── Timing ────────────────────────────────────────────────────────────
-
         private const val POSITION_POLL_MS          = 300L
         private const val FAST_POLL_MS              = 50L
         private const val WAVEFORM_POLL_MS          = 16L
@@ -122,49 +62,24 @@ class CrossfadeEngine @Inject constructor(
         private const val SEEK_SETTLE_DEADLINE_MS   = 300L
         private const val SEEK_SETTLE_TOLERANCE_MS  = 150L
 
-        // ── Crossfade curve ───────────────────────────────────────────────────
-        //
-        // Equal-power: cos²(θ) + sin²(θ) = 1.  No exponents, no shaping, no tricks.
-        // 80 steps at 100ms each = 8-second fade at the default duration.
-        // Increasing to 80 from 60 gives a visibly smoother volume ramp on the UI
-        // without any audible difference (volume steps are 1.25% apart).
         private const val FADE_STEPS = 80
-
-        // ── Tempo sync ────────────────────────────────────────────────────────
-        //
-        // The incoming track's playback speed is adjusted to currentBpm/incomingBpm
-        // so both tracks stay phase-locked during the overlap. Android's audio
-        // renderer applies pitch correction (WSOLA/sonic stretcher) by default, so
-        // tempo changes up to ±8% are inaudible.
-        //
-        // We cap at ±8% because:
-        // a) Beyond 8% the pitch correction introduces audible artefacts on Android
-        // b) A BPM difference > 8% (e.g. 100 vs 92 BPM) is an aggressive jump that
-        //    the track-selection algorithm should have avoided anyway.
         private const val TEMPO_SYNC_MAX_RATIO = 1.08f
         private const val TEMPO_SYNC_MIN_RATIO = 0.92f
 
-        // ── Beat grid / phase alignment ───────────────────────────────────────
+        private const val LARGE_GAP_MIN_FADE_MS     = 1_500L
+        private const val LARGE_GAP_MAX_DRIFT_BEATS = 0.5f
+
         private const val BEAT_SNAP_WINDOW_MS    = 25L
         private const val PHRASE_BARS            = 8
         private const val BARS_PER_BEAT_MULTIPLE = 4
         private const val WAVEFORM_BARS          = 32
 
-        // ── Queue logic ───────────────────────────────────────────────────────
         private const val CONTINUOUS_TRIGGER_WINDOW_MS   = 20_000L
         private const val CONTINUOUS_PREBUFFER_WINDOW_MS = 45_000L
         private const val GUARD_MAX_ITERATIONS           = 1_000
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // COROUTINE SCOPE
-    // ═════════════════════════════════════════════════════════════════════════
-
     private var engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // AUDIO FOCUS
-    // ═════════════════════════════════════════════════════════════════════════
 
     private val audioFocusCoordinator: AudioFocusCoordinator by lazy {
         AudioFocusCoordinator(
@@ -179,10 +94,6 @@ class CrossfadeEngine @Inject constructor(
 
     @Volatile private var resumeAfterFocusGain: Boolean = false
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // PLAYERS & PROCESSORS
-    // ═════════════════════════════════════════════════════════════════════════
-
     private var playerA: ExoPlayer? = null
     private var playerB: ExoPlayer? = null
     private var waveformProcessorA: WaveformCaptureAudioProcessor? = null
@@ -196,10 +107,6 @@ class CrossfadeEngine @Inject constructor(
     private fun secondaryPlayer()          = if (isPrimaryA) playerB            else playerA
     private fun primaryWaveformProcessor() = if (isPrimaryA) waveformProcessorA else waveformProcessorB
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // PUBLIC STATE
-    // ═════════════════════════════════════════════════════════════════════════
-
     private val _state = MutableStateFlow(CrossfadeEngineState())
     val state: StateFlow<CrossfadeEngineState> = _state.asStateFlow()
 
@@ -209,28 +116,11 @@ class CrossfadeEngine @Inject constructor(
     private val _prebufferRequest = MutableSharedFlow<Long>(extraBufferCapacity = 1)
     val prebufferRequest: SharedFlow<Long> = _prebufferRequest.asSharedFlow()
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // SETTINGS
-    // ═════════════════════════════════════════════════════════════════════════
-
-    /**
-     * Base crossfade duration in ms. Exposed as var so the UI can tune it.
-     *
-     * With equal-power, 8 seconds feels natural across all genres. The old
-     * 14.4s (9000 × 1.6) was a workaround — the wide-valley curve needed to
-     * be long because its clipping window occupied the entire middle third.
-     * Equal-power is clean at any length.
-     */
     var crossfadeDurationMs: Long = 8_000L
-
     var isRealMixMode: Boolean = false
     var maxTrackDurationMs: Long = 120_000L
     @Volatile var useHalfwayMix: Boolean = true
     @Volatile var cuePointOffsetMs: Long = 15_000L
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // INTERNAL STATE
-    // ═════════════════════════════════════════════════════════════════════════
 
     private var positionMonitorJob: Job? = null
     private var crossfadeJob: Job?       = null
@@ -265,10 +155,6 @@ class CrossfadeEngine @Inject constructor(
         val amplitude: Float
     )
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // CUE POINT GUARD
-    // ═════════════════════════════════════════════════════════════════════════
-
     private fun applyFirstBeatGuard(rawFirstBeatMs: Long, bpm: Float): Long {
         val offsetMs = cuePointOffsetMs
         if (rawFirstBeatMs <= 0L || bpm <= 0f || offsetMs <= 0L) {
@@ -295,10 +181,6 @@ class CrossfadeEngine @Inject constructor(
                 "(offset=${offsetMs}ms bpm=$bpm iters=$iterations)")
         return finalAdjusted
     }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // AUDIO FOCUS HANDLERS
-    // ═════════════════════════════════════════════════════════════════════════
 
     private fun handleFocusLost() {
         engineScope.launch {
@@ -329,10 +211,6 @@ class CrossfadeEngine @Inject constructor(
             Log.i(TAG, "[FOCUS] Regained — players resumed")
         }
     }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // INITIALIZATION & LIFECYCLE
-    // ═════════════════════════════════════════════════════════════════════════
 
     fun initialize() {
         if (isInitialized) {
@@ -466,10 +344,6 @@ class CrossfadeEngine @Inject constructor(
         Log.i(TAG, "[LIFECYCLE] Released")
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // PLAYBACK CONTROLS
-    // ═════════════════════════════════════════════════════════════════════════
-
     fun startPlayback(audioFile: AudioFile) {
         if (isReleased) return
         Log.i(TAG, "[PLAYBACK] Starting: id=${audioFile.id} '${audioFile.title}'")
@@ -534,15 +408,6 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
-    /**
-     * Updates beat-grid metadata and immediately applies amplitude normalisation
-     * to the primary player's volume.
-     *
-     * Applying normalisation here (not lazily in executeCrossfade) means that
-     * when the crossfade starts and reads primaryRef.volume, it gets the correct
-     * normalised value rather than a stale 1.0f. This keeps the equal-power
-     * fade centred on the track's actual perceived loudness.
-     */
     fun updateCurrentBpmInfo(
         bpm: Float,
         rawFirstBeatMs: Long,
@@ -560,8 +425,6 @@ class CrossfadeEngine @Inject constructor(
             (0.15f / amplitude).coerceIn(0.2f, 1.0f) else 1.0f
         currentTrackBaseVolume = normalisedVolume
 
-        // Apply normalisation to the live player immediately.
-        // This ensures executeCrossfade reads the correct starting volume.
         engineScope.launch {
             withContext(Dispatchers.Main) {
                 primaryPlayer()?.volume = normalisedVolume.coerceIn(0f, 1f)
@@ -642,33 +505,6 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // CROSSFADE EXECUTION — EQUAL-POWER + TEMPO SYNC
-    // ═════════════════════════════════════════════════════════════════════════
-
-    /**
-     * Full DJ crossfade sequence. Steps:
-     *
-     * 1. Prepare secondary player (or confirm it is already prebuffered).
-     * 2. Wait for STATE_READY — usually < 50 ms if prebuffered.
-     * 3. Start secondary muted — decoder warms up before we need it.
-     * 4. Phase-aligned seek (Real Mix only) — sampled AFTER all waits so
-     *    the latency between position sampling and seeking is < 50 ms.
-     * 4b. Tempo sync — adjust incoming speed to current BPM if within ±8%.
-     *     Prevents beat drift during the overlap window.
-     * 5. Equal-power volume ramp over [FADE_STEPS] steps:
-     *    out = cos(θ·π/2) · primaryStartVolume
-     *    in  = sin(θ·π/2) · secondaryBaseVolume
-     *    cos²+sin²=1 → total power is constant at every step → no clipping.
-     *    A suspension wall parks the loop during phone calls; resumes from
-     *    the exact same step when focus returns.
-     * 6. Abort-check with full volume restore if cancelled.
-     * 7. Swap: flip isPrimaryA BEFORE touching the old primary so its
-     *    listener sees it as secondary and cannot corrupt isPlaying state.
-     *    Restore tempo-sync speed to 1.0 on the new primary. Silence the
-     *    old primary completely (was primaryBaseVolume — caused a pop).
-     * 8. State sync and pending transition execution.
-     */
     private suspend fun executeCrossfade(
         nextTrack: AudioFile,
         rawFirstBeatMs: Long = 0L,
@@ -681,7 +517,31 @@ class CrossfadeEngine @Inject constructor(
 
         abortCrossfade = false
 
-        val effectiveDurationMs = crossfadeDurationMs.coerceIn(2_000L, 16_000L)
+        // Use the shared DjConstants array
+        val (harmonicTempoRatio, targetIncomingBpm) = if (currentTrackBpm > 0f && nextBpm > 0f) {
+            val bestHarmonic = DjConstants.HARMONIC_RATIOS.minByOrNull { ratio ->
+                abs((currentTrackBpm * ratio) - nextBpm)
+            } ?: 1.0f
+            val targetBpm = currentTrackBpm * bestHarmonic
+            val speedRatio = targetBpm / nextBpm
+            Pair(speedRatio, targetBpm)
+        } else {
+            Pair(1.0f, nextBpm)
+        }
+
+        val isLargeBpmGap = harmonicTempoRatio < TEMPO_SYNC_MIN_RATIO || harmonicTempoRatio > TEMPO_SYNC_MAX_RATIO
+
+        val effectiveDurationMs: Long = if (isLargeBpmGap && currentTrackBpm > 0f && nextBpm > 0f) {
+            val bpmDiff = abs(targetIncomingBpm - nextBpm)
+            val maxDriftMs = if (bpmDiff > 0f) {
+                (LARGE_GAP_MAX_DRIFT_BEATS * 60_000f / bpmDiff).toLong()
+            } else {
+                crossfadeDurationMs
+            }
+            maxDriftMs.coerceIn(LARGE_GAP_MIN_FADE_MS, crossfadeDurationMs.coerceIn(2_000L, 16_000L))
+        } else {
+            crossfadeDurationMs.coerceIn(2_000L, 16_000L)
+        }
 
         Log.i(TAG, "")
         Log.i(TAG, "╔══════════════════════════════════════════════════════════╗")
@@ -692,19 +552,20 @@ class CrossfadeEngine @Inject constructor(
         Log.i(TAG, "║  Mode     : ${if (isRealMixMode) "Real Mix (phase-aligned)" else "Continuous"}")
         Log.i(TAG, "║  Duration : ${effectiveDurationMs}ms  Steps: $FADE_STEPS  Step-delay: ${effectiveDurationMs / FADE_STEPS}ms")
         Log.i(TAG, "║  Out BPM  : $currentTrackBpm  In BPM: $nextBpm")
+        Log.i(TAG, "║  BPM ratio: ${"%.3f".format(harmonicTempoRatio)}" +
+                if (isLargeBpmGap) "  ⚠ LARGE GAP — tempo sync skipped, fade shortened to ${effectiveDurationMs}ms"
+                else "  (within ±8% harmonic sync window)")
         Log.i(TAG, "╚══════════════════════════════════════════════════════════╝")
 
         _state.update { it.copy(isCrossfading = true, crossfadeProgressFraction = 0f) }
 
         try {
-            // Volume targets — both clamped to [0,1] to prevent any AudioTrack exception.
             val secondaryBaseVolume = (if (nextAmplitude > 0f)
                 (0.15f / nextAmplitude).coerceIn(0.2f, 1.0f) else 1.0f).coerceIn(0f, 1f)
             val primaryBaseVolume = currentTrackBaseVolume.coerceIn(0f, 1f)
 
             Log.d(TAG, "[CROSSFADE] Volume targets → out: ${"%.3f".format(primaryBaseVolume)}  in: ${"%.3f".format(secondaryBaseVolume)}")
 
-            // ── 1. Prepare secondary ──────────────────────────────────────────
             val alreadyPrebuffered = prebufferedTrackId == nextTrack.id
             withContext(Dispatchers.Main) {
                 if (!alreadyPrebuffered) {
@@ -721,7 +582,6 @@ class CrossfadeEngine @Inject constructor(
                 secondaryRef.playbackParameters = PlaybackParameters.DEFAULT
             }
 
-            // ── 2. Wait for STATE_READY ───────────────────────────────────────
             var waitMs = 0L
             var ready  = false
             while (waitMs < 5_000L) {
@@ -741,7 +601,6 @@ class CrossfadeEngine @Inject constructor(
                 return
             }
 
-            // ── 3. Start secondary muted ──────────────────────────────────────
             withContext(Dispatchers.Main) {
                 secondaryRef.volume = 0f
                 try {
@@ -760,10 +619,6 @@ class CrossfadeEngine @Inject constructor(
             }
             Log.i(TAG, "[CROSSFADE] ③  Secondary playing=${secondaryPlaying} after ${playWaitMs}ms")
 
-            // ── 4. Phase-aligned seek (Real Mix only) ─────────────────────────
-            // Sampled AFTER secondary is confirmed playing so the outgoing track
-            // position we measure is as close as possible to when we seek.
-            // The secondary is muted — the seek is completely inaudible.
             if (isRealMixMode) {
                 val guardedIncomingFirstBeat = applyFirstBeatGuard(rawFirstBeatMs, nextBpm)
 
@@ -801,57 +656,26 @@ class CrossfadeEngine @Inject constructor(
                 Log.d(TAG, "[CROSSFADE] ④  Phase seek skipped (Continuous mode)")
             }
 
-            // ── 4b. Tempo Sync ────────────────────────────────────────────────
-            // Without this, two tracks at different BPMs drift apart during the
-            // overlap. At 101 vs 98 BPM the drift is ~440 ms over 8 seconds —
-            // roughly half a beat. That residual "fighting" sound persists even
-            // with a perfect equal-power curve.
-            //
-            // Solution: adjust the incoming track's speed so it runs at the same
-            // BPM as the outgoing track during the overlap. Android applies WSOLA
-            // pitch correction so speed changes up to ±8% are inaudible.
-            // Speed is restored to 1.0 during the swap step below.
-            val tempoSyncRatio = if (isRealMixMode && currentTrackBpm > 0f && nextBpm > 0f) {
-                (currentTrackBpm / nextBpm).coerceIn(TEMPO_SYNC_MIN_RATIO, TEMPO_SYNC_MAX_RATIO)
+            val tempoSyncRatio = if (isRealMixMode && !isLargeBpmGap && currentTrackBpm > 0f && nextBpm > 0f) {
+                harmonicTempoRatio.coerceIn(TEMPO_SYNC_MIN_RATIO, TEMPO_SYNC_MAX_RATIO)
             } else {
                 1.0f
             }
 
-            val tempoSyncApplied = isRealMixMode && abs(tempoSyncRatio - 1.0f) > 0.001f
+            val tempoSyncApplied = isRealMixMode && !isLargeBpmGap && abs(tempoSyncRatio - 1.0f) > 0.001f
             if (tempoSyncApplied) {
                 withContext(Dispatchers.Main) {
                     secondaryRef.playbackParameters = PlaybackParameters(tempoSyncRatio)
                 }
-                Log.i(TAG, "[CROSSFADE] ④b Tempo sync: ${nextBpm}bpm → ${currentTrackBpm}bpm | " +
+                Log.i(TAG, "[CROSSFADE] ④b Tempo sync: ${nextBpm}bpm → ${targetIncomingBpm}bpm (harmonic) | " +
                         "speed=${"%.4f".format(tempoSyncRatio)} | " +
                         "drift prevention over ${effectiveDurationMs}ms: " +
                         "${"%.0f".format(abs(1f - tempoSyncRatio) * effectiveDurationMs)}ms drift blocked")
             } else {
-                Log.d(TAG, "[CROSSFADE] ④b Tempo sync: not needed (ratio=${"%.4f".format(tempoSyncRatio)})")
+                Log.d(TAG, "[CROSSFADE] ④b Tempo sync: skipped " +
+                        "(largeBpmGap=$isLargeBpmGap ratio=${"%.4f".format(tempoSyncRatio)})")
             }
 
-            // ── 5. Equal-power volume ramp ────────────────────────────────────
-            //
-            // MATHEMATICS (for the log below to prove it works):
-            //   out(θ) = cos(θ·π/2) · primaryStartVolume
-            //   in(θ)  = sin(θ·π/2) · secondaryBaseVolume
-            //
-            //   If both volumes = 1.0: out² + in² = cos²+sin² = 1.0 exactly.
-            //   If volumes differ: total power varies by the difference ratio,
-            //   but it is still orders of magnitude better than the old curve
-            //   which hit 159% combined amplitude.
-            //
-            // NaN SAFETY — THIS IS NOT OPTIONAL:
-            //   cos(π/2) in IEEE 754 ≈ -4.37e-8 (not exactly 0.0).
-            //   Without coerceIn, at step 80/80:
-            //     (-4.37e-8f).pow(anything) = NaN
-            //     AudioTrack.clampGainOrLevel(NaN) → IllegalArgumentException → crash
-            //   The coerceIn on angle output prevents this. There is no other fix.
-            //
-            // SUSPENSION WALL:
-            //   while(!isPlaying) parks the coroutine during a phone call.
-            //   The fade resumes from the SAME step when focus returns.
-            //   The step count is not lost.
             val primaryStartVolume = withContext(Dispatchers.Main) { primaryRef.volume }
                 .coerceIn(0f, 1f)
             val stepDelayMs = (effectiveDurationMs / FADE_STEPS).coerceAtLeast(16L)
@@ -863,17 +687,14 @@ class CrossfadeEngine @Inject constructor(
             for (step in 1..FADE_STEPS) {
                 if (!engineScope.isActive || abortCrossfade) break
 
-                // Suspension wall — phone call / audio focus lost
                 while (!_state.value.isPlaying && engineScope.isActive && !abortCrossfade) {
                     delay(FOCUS_RESUME_POLL_MS)
                 }
                 if (abortCrossfade) break
 
-                val theta = step.toFloat() / FADE_STEPS   // 0.0 → 1.0 linearly
-                val angle = theta * (PI.toFloat() / 2f)   // 0 → π/2
+                val theta = step.toFloat() / FADE_STEPS
+                val angle = theta * (PI.toFloat() / 2f)
 
-                // coerceIn(0f, 1f) is the NaN guard described above.
-                // Do NOT remove it — the crash will return.
                 val outFraction = cos(angle).coerceIn(0f, 1f)
                 val inFraction  = sin(angle).coerceIn(0f, 1f)
 
@@ -887,11 +708,6 @@ class CrossfadeEngine @Inject constructor(
 
                 _state.update { it.copy(crossfadeProgressFraction = inFraction) }
 
-                // ── Milestone logging: 25%, 50%, 75% ─────────────────────────
-                // These logs PROVE equal-power is working correctly.
-                // At each milestone:
-                //   - outVol + inVol shows combined amplitude (should peak ~1.41 at 50%)
-                //   - out²+in² / pSV²+sBV² should be ~1.0 (proves equal power)
                 if (step == FADE_STEPS / 4 || step == FADE_STEPS / 2 || step == (FADE_STEPS * 3) / 4) {
                     val combinedAmp   = outVol + inVol
                     val outPower      = outVol * outVol
@@ -910,7 +726,6 @@ class CrossfadeEngine @Inject constructor(
                 delay(stepDelayMs)
             }
 
-            // ── 6. Abort check ────────────────────────────────────────────────
             if (abortCrossfade) {
                 Log.w(TAG, "[CROSSFADE] ✗ Aborted at step — restoring primary volume to ${"%.3f".format(primaryStartVolume)}")
                 withContext(Dispatchers.Main) {
@@ -927,41 +742,26 @@ class CrossfadeEngine @Inject constructor(
                 return
             }
 
-            // ── 7. Swap players ───────────────────────────────────────────────
-            // ORDER IS CRITICAL:
-            // a) Set incoming to its target volume BEFORE the flip.
-            // b) Flip isPrimaryA — now the old secondary is the primary.
-            // c) Stop the OLD primary (now secondary). Set its volume to 0f,
-            //    NOT primaryBaseVolume. Setting it back to a non-zero value
-            //    causes an audible volume pop on the next crossfade's first step.
-            // d) Restore tempo sync speed to 1.0 on the new primary — it was
-            //    running at currentBpm/nextBpm during the overlap.
             Log.i(TAG, "[CROSSFADE] ↔  Swap: '${nextTrack.title}' becomes primary")
             withContext(Dispatchers.Main) {
-                // Lock incoming track at its final target volume
                 if (_state.value.isPlaying) {
                     secondaryRef.volume = secondaryBaseVolume.coerceIn(0f, 1f)
                 }
-                // Restore tempo sync speed BEFORE flip so the new primary plays at 1.0×
                 secondaryRef.playbackParameters = PlaybackParameters.DEFAULT
 
-                // THE FLIP — isPrimaryA changes here
                 isPrimaryA = !isPrimaryA
 
-                // Stop the old primary (now secondary) — silence it completely
                 try {
                     primaryRef.pause()
-                    primaryRef.volume = 0f   // 0f, not primaryBaseVolume — avoids volume pop
+                    primaryRef.volume = 0f
                     primaryRef.playbackParameters = PlaybackParameters.DEFAULT
                 } catch (_: Exception) {}
 
-                // Ensure the new primary is audibly playing
                 if (_state.value.isPlaying) {
                     primaryPlayer()?.play()
                 }
             }
 
-            // ── 8. State reset ────────────────────────────────────────────────
             val actualPlaying = withContext(Dispatchers.Main) {
                 primaryPlayer()?.isPlaying ?: false
             }
@@ -988,11 +788,11 @@ class CrossfadeEngine @Inject constructor(
             Log.i(TAG, "║  Now playing : '${nextTrack.title}'")
             Log.i(TAG, "║  Playing     : $actualPlaying")
             Log.i(TAG, "║  Tempo sync  : $tempoSyncApplied (ratio=${"%.4f".format(tempoSyncRatio)})")
+            Log.i(TAG, "║  Large gap   : $isLargeBpmGap (raw ratio=${"%.3f".format(harmonicTempoRatio)})")
             Log.i(TAG, "║  Guard until : +${effectiveDurationMs}ms")
             Log.i(TAG, "╚══════════════════════════════════════════════════════════╝")
             Log.i(TAG, "")
 
-            // Execute queued pending transition if one arrived during this fade
             pendingNextTrack?.let { pending ->
                 pendingNextTrack = null
                 Log.d(TAG, "[CROSSFADE] Executing pending transition to '${pending.audioFile.title}'")
@@ -1000,16 +800,11 @@ class CrossfadeEngine @Inject constructor(
             }
 
         } finally {
-            // Always clean up isCrossfading flag, even if an exception escaped
             if (_state.value.isCrossfading) {
                 _state.update { it.copy(isCrossfading = false, crossfadeProgressFraction = 0f) }
             }
         }
     }
-
-    // ═════════════════════════════════════════════════════════════════════════
-    // POSITION MONITORING
-    // ═════════════════════════════════════════════════════════════════════════
 
     private fun startPositionMonitoring() {
         positionMonitorJob?.cancel()
@@ -1128,10 +923,6 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // WAVEFORM
-    // ═════════════════════════════════════════════════════════════════════════
-
     private fun startWaveformLoop() {
         waveformJob?.cancel()
         waveformJob = engineScope.launch {
@@ -1171,12 +962,7 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // PLAYER LISTENER
-    // ═════════════════════════════════════════════════════════════════════════
-
     private fun createPlayerListener(isPlayerA: Boolean) = object : Player.Listener {
-
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             val isPrimary = (isPlayerA && isPrimaryA) || (!isPlayerA && !isPrimaryA)
             if (isPrimary) _state.update { it.copy(isPlaying = isPlaying) }
