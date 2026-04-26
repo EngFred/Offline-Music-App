@@ -17,7 +17,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -71,6 +73,19 @@ fun NowPlayingSection(
         animationSpec = tween(durationMillis = 300),
         label         = "playback_progress"
     )
+
+    // ── PERFORMANCE FIX: Hoist waveform list allocations ─────────────────────
+    val barCount = 48
+    val downsampledWaveform by remember(waveform) {
+        derivedStateOf {
+            val source = waveform.ifEmpty { List(barCount) { 0.10f } }
+            List(barCount) { i ->
+                val srcIdx = (i.toFloat() / barCount * source.size)
+                    .toInt().coerceIn(0, source.size - 1)
+                source[srcIdx]
+            }
+        }
+    }
 
     Column(modifier = modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
 
@@ -135,18 +150,11 @@ fun NowPlayingSection(
                 .fillMaxWidth()
                 .height(64.dp)
         ) {
-            val barCount = 48
-            val source   = waveform.ifEmpty { List(barCount) { 0.10f } }
-            val downsampled = List(barCount) { i ->
-                val srcIdx = (i.toFloat() / barCount * source.size)
-                    .toInt().coerceIn(0, source.size - 1)
-                source[srcIdx]
-            }
-            val barWidth    = size.width / downsampled.size
+            val barWidth    = size.width / downsampledWaveform.size
             val strokeWidth = (barWidth * 0.70f).coerceAtLeast(2f)
             val playheadX   = size.width * animatedPlayback
 
-            downsampled.forEachIndexed { index, amplitude ->
+            downsampledWaveform.forEachIndexed { index, amplitude ->
                 val barHeight = (amplitude * size.height * 1.5f).coerceIn(4f, size.height)
                 val x         = index * barWidth + (barWidth / 2)
                 val startY    = (size.height - barHeight) / 2

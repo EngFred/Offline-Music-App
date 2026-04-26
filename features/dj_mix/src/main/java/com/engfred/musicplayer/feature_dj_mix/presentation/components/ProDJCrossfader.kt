@@ -1,5 +1,6 @@
 package com.engfred.musicplayer.feature_dj_mix.presentation.components
 
+import android.graphics.BlurMaskFilter as AndroidBlurMaskFilter
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -25,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,26 +41,12 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.graphics.BlurMaskFilter as AndroidBlurMaskFilter
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Read-only automated crossfader
-//
-//  Position logic:
-//   • activeDeckIndex == 0 (Deck 1 playing): thumb starts LEFT (0f).
-//     During crossfade it travels right (0→1) as Deck 2 fades in.
-//   • activeDeckIndex == 1 (Deck 2 playing): thumb starts RIGHT (1f).
-//     During crossfade it travels left (1→0) as Deck 1 fades in.
-//
-//  An "AUTO" badge + lock icon make it visually clear the fader is
-//  engine-controlled and cannot be dragged.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Accent colour used for all crossfader / mix-state chrome. */
 private val CrossfaderAccent = Color(0xFFD32F2F)
 
 @Composable
@@ -70,7 +58,6 @@ internal fun ProDJCrossfader(
     deck2Color: Color,
     modifier: Modifier = Modifier,
 ) {
-    // Fixed accent — no longer derived from a strategy enum.
     val accentColor = CrossfaderAccent
 
     val targetPos = when {
@@ -85,6 +72,18 @@ internal fun ProDJCrossfader(
         label         = "xfader_pos"
     )
 
+    // ── PERFORMANCE FIX: Cache the expensive Paint mask ──────────────────────
+    val density = LocalDensity.current
+    val faderGlowPaint = remember(density) {
+        android.graphics.Paint().apply {
+            isAntiAlias = true
+            maskFilter = AndroidBlurMaskFilter(
+                with(density) { 8.dp.toPx() },
+                AndroidBlurMaskFilter.Blur.NORMAL
+            )
+        }
+    }
+
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
@@ -98,7 +97,7 @@ internal fun ProDJCrossfader(
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // ── State label + AUTO pill ───────────────────────────────────────────
+        // ... (Keep existing Row with Badges) ...
         Row(
             modifier              = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -113,18 +112,10 @@ internal fun ProDJCrossfader(
                         label         = "glow"
                     )
                     Box(
-                        Modifier
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(accentColor.copy(alpha = glow))
+                        Modifier.size(7.dp).clip(CircleShape).background(accentColor.copy(alpha = glow))
                     )
                 } else {
-                    Box(
-                        Modifier
-                            .size(5.dp)
-                            .clip(CircleShape)
-                            .background(accentColor)
-                    )
+                    Box(Modifier.size(5.dp).clip(CircleShape).background(accentColor))
                 }
                 Spacer(Modifier.width(6.dp))
                 Text(
@@ -145,7 +136,6 @@ internal fun ProDJCrossfader(
                 verticalAlignment     = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // Lock icon drawn with Canvas
                 Canvas(modifier = Modifier.size(8.dp)) {
                     val w = size.width; val h = size.height
                     drawArc(
@@ -248,15 +238,12 @@ internal fun ProDJCrossfader(
             // Glow behind thumb during crossfade
             if (isCrossfading) {
                 drawIntoCanvas { canvas ->
-                    val p = android.graphics.Paint().apply {
-                        isAntiAlias = true
-                        color       = lerp(deck1Color, deck2Color, animPos).copy(0.60f).toArgb()
-                        maskFilter  = AndroidBlurMaskFilter(8.dp.toPx(), AndroidBlurMaskFilter.Blur.NORMAL)
-                    }
+                    // Set the dynamic color on the cached paint object
+                    faderGlowPaint.color = lerp(deck1Color, deck2Color, animPos).copy(0.60f).toArgb()
                     canvas.nativeCanvas.drawRoundRect(
                         thumbX - 2f, 0f,
                         thumbX + thumbW + 2f, thumbH,
-                        5.dp.toPx(), 5.dp.toPx(), p
+                        5.dp.toPx(), 5.dp.toPx(), faderGlowPaint
                     )
                 }
             }
@@ -321,10 +308,6 @@ internal fun ProDJCrossfader(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  VCA level indicator (D1 / D2 labels with volume bar mini-graph)
-// ─────────────────────────────────────────────────────────────────────────────
-
 @Composable
 internal fun VcaIndicator(
     label: String,
@@ -332,6 +315,7 @@ internal fun VcaIndicator(
     isLouder: Boolean,
     isCutting: Boolean
 ) {
+    // ... (Keep existing implementation) ...
     val alpha = when {
         isCutting -> 0.20f
         isLouder  -> 1.00f

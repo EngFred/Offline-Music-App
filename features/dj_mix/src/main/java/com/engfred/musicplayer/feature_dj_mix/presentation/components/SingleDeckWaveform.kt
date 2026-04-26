@@ -11,15 +11,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Single scrolling waveform — the same visual language as the classic deck.
-//  Played bars are fully coloured; upcoming bars are dimmed.
-//  A white playhead line divides past from future.
-//  Four beat-counter dots pulse in sync with the BPM at the top-right.
-// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 internal fun SingleDeckWaveform(
@@ -52,9 +46,37 @@ internal fun SingleDeckWaveform(
         }
     }
 
+    // ── PERFORMANCE FIX: Hoist lists & paints ────────────────────────────────
+    val barCount = 52
+    val downsampledWaveform by remember(waveform) {
+        derivedStateOf {
+            val source = if (waveform.isNotEmpty()) waveform else List(barCount) { 0.10f }
+            List(barCount) { i ->
+                val srcIdx = (i.toFloat() / barCount * source.size)
+                    .toInt().coerceIn(0, source.size - 1)
+                source.getOrElse(srcIdx) { 0.08f }
+            }
+        }
+    }
+
+    val density = LocalDensity.current
+    val playheadGlowPaint = remember(density) {
+        android.graphics.Paint().apply {
+            isAntiAlias = true
+            color       = Color.White.copy(alpha = 0.55f).toArgb()
+            maskFilter  = AndroidBlurMaskFilter(with(density) { 3.dp.toPx() }, AndroidBlurMaskFilter.Blur.NORMAL)
+        }
+    }
+
+    val dotGlowPaint = remember(density, deckColor) {
+        android.graphics.Paint().apply {
+            isAntiAlias = true
+            color       = deckColor.copy(alpha = 0.7f).toArgb()
+            maskFilter  = AndroidBlurMaskFilter(with(density) { 4.dp.toPx() }, AndroidBlurMaskFilter.Blur.NORMAL)
+        }
+    }
+
     Canvas(modifier = modifier) {
-        val barCount  = 52
-        val source    = if (waveform.isNotEmpty()) waveform else List(barCount) { 0.10f }
         val barWidth  = size.width / barCount
         val sw        = (barWidth * 0.68f).coerceAtLeast(2f)
         val playheadX = size.width * animPlayFraction
@@ -73,9 +95,7 @@ internal fun SingleDeckWaveform(
 
         // Waveform bars
         for (i in 0 until barCount) {
-            val srcIdx = (i.toFloat() / barCount * source.size)
-                .toInt().coerceIn(0, source.size - 1)
-            val amp    = source.getOrElse(srcIdx) { 0.08f }
+            val amp    = downsampledWaveform[i]
             val x      = i * barWidth + barWidth / 2f
             val h      = (amp * size.height * 1.55f).coerceIn(3f, size.height * 0.92f)
             val isPast = x <= playheadX
@@ -90,12 +110,7 @@ internal fun SingleDeckWaveform(
 
         // Playhead glow
         drawIntoCanvas { canvas ->
-            val p = android.graphics.Paint().apply {
-                isAntiAlias = true
-                color       = Color.White.copy(alpha = 0.55f).toArgb()
-                maskFilter  = AndroidBlurMaskFilter(3.dp.toPx(), AndroidBlurMaskFilter.Blur.NORMAL)
-            }
-            canvas.nativeCanvas.drawLine(playheadX, 0f, playheadX, size.height, p)
+            canvas.nativeCanvas.drawLine(playheadX, 0f, playheadX, size.height, playheadGlowPaint)
         }
         drawLine(
             color       = Color.White.copy(alpha = 0.90f),
@@ -127,12 +142,7 @@ internal fun SingleDeckWaveform(
             val isOn = isPlaying && i == beatIdx
             if (isOn) {
                 drawIntoCanvas { canvas ->
-                    val p = android.graphics.Paint().apply {
-                        isAntiAlias = true
-                        color = deckColor.copy(alpha = 0.7f).toArgb()
-                        maskFilter = AndroidBlurMaskFilter(4.dp.toPx(), AndroidBlurMaskFilter.Blur.NORMAL)
-                    }
-                    canvas.nativeCanvas.drawCircle(dx, dotY, dotR * 1.5f, p)
+                    canvas.nativeCanvas.drawCircle(dx, dotY, dotR * 1.5f, dotGlowPaint)
                 }
             }
             drawCircle(

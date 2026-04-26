@@ -17,15 +17,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import com.engfred.musicplayer.core.domain.model.AudioFile
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Deck platter column — vinyl disc, BPM readout, track title/artist, time
-// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 internal fun DeckPlatterColumn(
@@ -44,6 +41,19 @@ internal fun DeckPlatterColumn(
     alignEnd: Boolean,
 ) {
     val alignment = if (alignEnd) Alignment.End else Alignment.Start
+
+    // ── PERFORMANCE FIX: Cache the glowing platter shadow paint ─────────────
+    val density = LocalDensity.current
+    val shadowPaint = remember(density, deckColor, vinylSize) {
+        android.graphics.Paint().apply {
+            isAntiAlias = true
+            color = deckColor.copy(alpha = 0.35f).toArgb()
+            val blurRadiusPx = with(density) { vinylSize.toPx() * 0.12f }
+            if (blurRadiusPx > 0f) {
+                maskFilter = AndroidBlurMaskFilter(blurRadiusPx, AndroidBlurMaskFilter.Blur.NORMAL)
+            }
+        }
+    }
 
     Column(
         modifier            = modifier,
@@ -99,16 +109,8 @@ internal fun DeckPlatterColumn(
                 .then(
                     if (isActive) Modifier.drawBehind {
                         drawIntoCanvas { canvas ->
-                            val p = android.graphics.Paint().apply {
-                                isAntiAlias = true
-                                color = deckColor.copy(alpha = 0.35f).toArgb()
-                                maskFilter = AndroidBlurMaskFilter(
-                                    (vinylSize.toPx() * 0.12f),
-                                    AndroidBlurMaskFilter.Blur.NORMAL
-                                )
-                            }
                             val r = vinylSize.toPx() / 2f + 4.dp.toPx()
-                            canvas.nativeCanvas.drawCircle(center.x, center.y, r, p)
+                            canvas.nativeCanvas.drawCircle(center.x, center.y, r, shadowPaint)
                         }
                     } else Modifier
                 )
