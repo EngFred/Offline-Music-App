@@ -158,6 +158,7 @@ class CrossfadeEngine @Inject constructor(
     @Volatile private var currentTrackBpm: Float              = 0f
     @Volatile private var currentTrackBaseVolume: Float       = 1.0f
     @Volatile private var currentTrackAmplitude: Float        = 0f
+    @Volatile private var currentTrackFirstBeatMs: Long       = 0L
     @Volatile private var currentWaveformEnvelope: FloatArray = FloatArray(0)
 
     // ── Internal bookkeeping ──────────────────────────────────────────────────
@@ -179,6 +180,7 @@ class CrossfadeEngine @Inject constructor(
     private data class PendingTrack(
         val audioFile: AudioFile,
         val bpm: Float,
+        val firstBeatMs: Long,
         val amplitude: Float
     )
 
@@ -246,6 +248,7 @@ class CrossfadeEngine @Inject constructor(
             currentTrackBpm           = 0f
             currentTrackBaseVolume    = 1.0f
             currentTrackAmplitude     = 0f
+            currentTrackFirstBeatMs   = 0L
             currentWaveformEnvelope   = FloatArray(0)
             postCrossfadeGuardUntilMs = 0L
         }
@@ -424,12 +427,14 @@ class CrossfadeEngine @Inject constructor(
 
     fun updateCurrentBpmInfo(
         bpm: Float,
+        firstBeatMs: Long = 0L,
         amplitude: Float = 0f,
         waveformEnvelope: FloatArray = FloatArray(0)
     ) {
-        currentTrackBpm         = bpm
-        currentTrackAmplitude   = amplitude
-        currentWaveformEnvelope = waveformEnvelope
+        currentTrackBpm           = bpm
+        currentTrackFirstBeatMs   = firstBeatMs
+        currentTrackAmplitude     = amplitude
+        currentWaveformEnvelope   = waveformEnvelope
 
         val normalisedVolume = if (amplitude > 0f)
             (0.15f / amplitude).coerceIn(0.2f, 1.0f) else 1.0f
@@ -492,17 +497,18 @@ class CrossfadeEngine @Inject constructor(
     fun queueNextTrack(
         audioFile: AudioFile,
         nextBpm: Float = 0f,
+        nextFirstBeatMs: Long = 0L,
         nextAmplitude: Float = 0f
     ) {
         if (isReleased) return
         if (_state.value.isCrossfading) {
-            pendingNextTrack = PendingTrack(audioFile, nextBpm, nextAmplitude)
+            pendingNextTrack = PendingTrack(audioFile, nextBpm, nextFirstBeatMs, nextAmplitude)
             Log.d(TAG, "[MIXER] Crossfade in progress — '${audioFile.title}' queued as pending")
             return
         }
         crossfadeJob?.cancel()
         crossfadeJob = engineScope.launch {
-            executeCrossfade(audioFile, nextBpm, nextAmplitude)
+            executeCrossfade(audioFile, nextBpm, nextFirstBeatMs, nextAmplitude)
         }
     }
 
@@ -513,6 +519,7 @@ class CrossfadeEngine @Inject constructor(
     private suspend fun executeCrossfade(
         nextTrack: AudioFile,
         nextBpm: Float = 0f,
+        nextFirstBeatMs: Long = 0L,
         nextAmplitude: Float = 0f
     ) {
         val primaryRef   = primaryPlayer()
@@ -601,9 +608,19 @@ class CrossfadeEngine @Inject constructor(
                 return
             }
 
-            // ── ③ Seek to 0 (safety) and begin muted playback ─────────────────
+            // ── ③ Phase-aligned seek and begin muted playback ─────────────────
+            // Snapshot outgoing position NOW (after prepare wait) for accurate phase.
+            val outgoingPositionMs = withContext(Dispatchers.Main) {
+                primaryRef.currentPosition
+            }
+            val phaseAlignedSeekMs = calculatePhaseAlignedSeekMs(
+                outgoingPositionMs  = outgoingPositionMs,
+                outgoingFirstBeatMs = currentTrackFirstBeatMs,
+                outgoingBpm         = currentTrackBpm,
+                incomingFirstBeatMs = nextFirstBeatMs
+            )
             withContext(Dispatchers.Main) {
-                secondaryRef.seekTo(0L)
+                secondaryRef.seekTo(phaseAlignedSeekMs)
                 secondaryRef.volume = 0f
                 try { secondaryRef.play() }
                 catch (e: Exception) { Log.e(TAG, "[CROSSFADE] Secondary play() failed", e) }
@@ -763,7 +780,7 @@ class CrossfadeEngine @Inject constructor(
             pendingNextTrack?.let { pending ->
                 pendingNextTrack = null
                 Log.d(TAG, "[CROSSFADE] Executing pending → '${pending.audioFile.title}'")
-                executeCrossfade(pending.audioFile, pending.bpm, pending.amplitude)
+                executeCrossfade(pending.audioFile, pending.bpm, pending.firstBeatMs, pending.amplitude)
             }
 
         } finally {
@@ -771,6 +788,54 @@ class CrossfadeEngine @Inject constructor(
                 _state.update { it.copy(isCrossfading = false, crossfadeProgressFraction = 0f) }
             }
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  PHASE ALIGNMENT
+    // ══════════════════════════════════════════════════════════════════════════
+    /**
+     * Calculates the seek position in the incoming track so its beat phase
+     * matches the outgoing track's current beat phase.
+     *
+     * This is the core of what Serato/Rekordbox call "SYNC" — tempo matching
+     * alone is not sufficient. We also need the beats to land at the same
+     * wall-clock moment (phase alignment).
+     *
+     * Formula:
+     * outgoing_phase = (outgoingPosition - outgoingFirstBeatMs) % beatInterval
+     * incoming_seek  = incomingFirstBeatMs + outgoing_phase
+     *
+     * After tempo sync both tracks share the same effective beat interval, so
+     * placing the incoming track at this offset guarantees simultaneous beats.
+     */
+    private fun calculatePhaseAlignedSeekMs(
+        outgoingPositionMs: Long,
+        outgoingFirstBeatMs: Long,
+        outgoingBpm: Float,
+        incomingFirstBeatMs: Long
+    ): Long {
+        // No BPM data → start from incoming's first detected beat (safest fallback)
+        if (outgoingBpm <= 0f) {
+            Log.d(TAG, "[PHASE SYNC] No outgoing BPM — falling back to incomingFirstBeat=${incomingFirstBeatMs}ms")
+            return incomingFirstBeatMs.coerceAtLeast(0L)
+        }
+        val beatIntervalMs = 60_000.0 / outgoingBpm
+        // How far into the current beat is the outgoing track right now?
+        val outgoingPhaseMs = if (outgoingPositionMs >= outgoingFirstBeatMs) {
+            (outgoingPositionMs - outgoingFirstBeatMs).toDouble().mod(beatIntervalMs)
+        } else {
+            // Haven't reached first beat yet (very short into track)
+            outgoingPositionMs.toDouble().mod(beatIntervalMs)
+        }
+        // Place incoming at the same phase within its own beat grid
+        val seekMs = (incomingFirstBeatMs + outgoingPhaseMs).toLong().coerceAtLeast(0L)
+        Log.i(TAG, "[PHASE SYNC] outPos=${outgoingPositionMs}ms " +
+                "outFirstBeat=${outgoingFirstBeatMs}ms " +
+                "beatInterval=${"%.1f".format(beatIntervalMs)}ms " +
+                "outPhase=${"%.1f".format(outgoingPhaseMs)}ms " +
+                "inFirstBeat=${incomingFirstBeatMs}ms " +
+                "→ seekTo=${seekMs}ms")
+        return seekMs
     }
 
     // ══════════════════════════════════════════════════════════════════════════

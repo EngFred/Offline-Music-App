@@ -20,20 +20,18 @@ import javax.inject.Singleton
  * Hilt module for :features:dj_mix.
  *
  * Database version history:
- *   v1  — initial schema
- *   v2  — added firstBeatMs
- *   v3  — added amplitude
- *   v4  — added waveformEnvelope
- *   v5  — added analysisFailed
- *   v7  — cache wipe (algorithm update)
- *   v8  — cache wipe (algorithm update)
- *   v9  — cache wipe (algorithm update)
- *   v10 — cache wipe (algorithm update)
- *   v11 — cache wipe: firstBeatMs is now raw (pre-guard). See MIGRATION_10_11.
- *   v12 — (previous migration)
- *   v13 — cache wipe: firstBeatMs is now inert in the engine (songs start at 0).
- *          Avoids stale cached values confusing future tooling. BPM values are
- *          preserved conceptually but a fresh analysis gives the cleanest slate.
+ * v1  — initial schema
+ * v2  — added firstBeatMs
+ * v3  — added amplitude
+ * v4  — added waveformEnvelope
+ * v5  — added analysisFailed
+ * v7  — cache wipe (algorithm update)
+ * v8  — cache wipe (algorithm update)
+ * v9  — cache wipe (algorithm update)
+ * v10 — cache wipe (algorithm update)
+ * v11 — cache wipe: firstBeatMs is now raw (pre-guard). See MIGRATION_10_11.
+ * v12 — (previous migration)
+ * v13 — cache wipe: firstBeatMs used for phase alignment (CrossfadeEngine.calculatePhaseAlignedSeekMs).
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -64,7 +62,7 @@ abstract class AutoMixModule {
                     AutoMixDatabase.MIGRATION_9_10,
                     AutoMixDatabase.MIGRATION_10_11,
                     AutoMixDatabase.MIGRATION_11_12,
-                    AutoMixDatabase.MIGRATION_12_13, // cache wipe: firstBeatMs inert, songs start at 0
+                    AutoMixDatabase.MIGRATION_12_13, // cache wiped at v13 for phase-alignment transition
                 )
                 .fallbackToDestructiveMigration(true)
                 .build()

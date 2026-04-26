@@ -64,27 +64,27 @@ abstract class AutoMixDatabase : RoomDatabase() {
          * Version 10 → 11: Wipe BPM cache so all tracks are re-analysed.
          *
          * WHY this wipe is necessary:
-         *   In version ≤ 10, [BpmCacheEntity.firstBeatMs] stored the GUARDED value —
-         *   i.e. the raw aubio beat-0 had already been phase-advanced to clear the
-         *   hardcoded 15-second minimum offset before being written to the database.
+         * In version ≤ 10, [BpmCacheEntity.firstBeatMs] stored the GUARDED value —
+         * i.e. the raw aubio beat-0 had already been phase-advanced to clear the
+         * hardcoded 15-second minimum offset before being written to the database.
          *
-         *   As of version 11, [BpmCacheEntity.firstBeatMs] stores the RAW aubio
-         *   beat-0 (after beat-snap and onset offset, but WITHOUT the minimum-offset
-         *   guard). The guard is now applied dynamically at runtime by
-         *   CrossfadeEngine.applyFirstBeatGuard() using the user's configurable
-         *   cue-point setting (0–30 s, default 15 s).
+         * As of version 11, [BpmCacheEntity.firstBeatMs] stores the RAW aubio
+         * beat-0 (after beat-snap and onset offset, but WITHOUT the minimum-offset
+         * guard). The guard is now applied dynamically at runtime by
+         * CrossfadeEngine.applyFirstBeatGuard() using the user's configurable
+         * cue-point setting (0–30 s, default 15 s).
          *
-         *   Any cached entry from version ≤ 10 carries the old 15-second-guarded
-         *   value, which would be incorrectly treated as a raw beat-0 and then
-         *   guarded AGAIN, resulting in a firstBeatMs that is ~15 s too late.
+         * Any cached entry from version ≤ 10 carries the old 15-second-guarded
+         * value, which would be incorrectly treated as a raw beat-0 and then
+         * guarded AGAIN, resulting in a firstBeatMs that is ~15 s too late.
          *
-         *   Wiping the cache forces a full re-analysis pass on the user's next
-         *   session start, after which all entries are stored in the new raw format.
+         * Wiping the cache forces a full re-analysis pass on the user's next
+         * session start, after which all entries are stored in the new raw format.
          *
          * Impact on the user:
-         *   BPM analysis will run again on first launch after the update, exactly
-         *   as it did when the user first installed the app. The queue ordering
-         *   and mix quality are unaffected.
+         * BPM analysis will run again on first launch after the update, exactly
+         * as it did when the user first installed the app. The queue ordering
+         * and mix quality are unaffected.
          */
         val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -102,9 +102,9 @@ abstract class AutoMixDatabase : RoomDatabase() {
 
         val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(database: SupportSQLiteDatabase) {
-                // Wipe cached BPM entries so stale firstBeatMs values (formerly used as
-                // seek positions) are cleared. Songs now always start at position 0.
-                // BPM values will be re-analysed on next playlist open.
+                // Cache wiped at v13. Entries re-analysed from this point forward store
+                // raw firstBeatMs (aubio beat-0, no guard), which is used for phase
+                // alignment in CrossfadeEngine.calculatePhaseAlignedSeekMs().
                 database.execSQL("DELETE FROM bpm_cache")
             }
         }

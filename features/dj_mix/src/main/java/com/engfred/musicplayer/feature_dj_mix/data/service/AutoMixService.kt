@@ -57,11 +57,13 @@ class AutoMixService : Service() {
         private const val TAG = "DjMixService"
         const val DJ_CHANNEL_ID   = "dj_mix_channel"
         const val NOTIFICATION_ID = 505
+
         const val ACTION_START      = "com.engfred.musicplayer.dj.START"
         const val ACTION_PLAY_PAUSE = "com.engfred.musicplayer.dj.PLAY_PAUSE"
         const val ACTION_PREV       = "com.engfred.musicplayer.dj.PREV"
         const val ACTION_NEXT       = "com.engfred.musicplayer.dj.NEXT"
         const val ACTION_STOP       = "com.engfred.musicplayer.dj.STOP"
+
         private const val SKIP_DEBOUNCE_MS = 1_500L
     }
 
@@ -70,6 +72,7 @@ class AutoMixService : Service() {
         createNotificationChannel()
         showStartingNotification()
         activePlayerRegistry.onDjMixStarted()
+
         setupMediaSession()
         observeEngineState()
         observeNextTrackRequests()
@@ -86,14 +89,12 @@ class AutoMixService : Service() {
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay()  { crossfadeEngine.playPause() }
                 override fun onPause() { crossfadeEngine.playPause() }
-
                 override fun onSkipToPrevious() {
                     val now = System.currentTimeMillis()
                     if (now - lastSkipTimestampMs < SKIP_DEBOUNCE_MS) return
                     lastSkipTimestampMs = now
                     executePrevTrackTransition()
                 }
-
                 override fun onSkipToNext() {
                     val now = System.currentTimeMillis()
                     if (now - lastSkipTimestampMs < SKIP_DEBOUNCE_MS) return
@@ -103,20 +104,18 @@ class AutoMixService : Service() {
                     val currentId = engineState.currentTrack?.id ?: return
                     executeNextTrackTransition(currentId, isManualSkip = true)
                 }
-
                 override fun onStop() { releaseAndStop() }
             })
         }
     }
 
     // ── Next track ────────────────────────────────────────────────────────────
-
     private fun executeNextTrackTransition(currentTrackId: Long, isManualSkip: Boolean = false) {
         val nextTrack = djSessionManager.selectNextTrack(currentTrackId)
         if (nextTrack != null) {
-            val (_, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(nextTrack)
+            val (firstBeatMs, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(nextTrack)
             djSessionManager.markTrackPlayed(nextTrack.id)
-            crossfadeEngine.queueNextTrack(nextTrack, bpm, amplitude)
+            crossfadeEngine.queueNextTrack(nextTrack, bpm, firstBeatMs, amplitude)
             Log.d(TAG, "[SKIP] ${if (isManualSkip) "Manual skip" else "Auto-mix queued"} → '${nextTrack.title}'")
         } else {
             Log.d(TAG, "[SKIP] Queue exhausted — DJ Mix will finish after current track.")
@@ -124,7 +123,6 @@ class AutoMixService : Service() {
     }
 
     // ── Previous track ────────────────────────────────────────────────────────
-
     private fun executePrevTrackTransition() {
         val engineState = crossfadeEngine.state.value
         if (engineState.isCrossfading) return
@@ -133,8 +131,8 @@ class AutoMixService : Service() {
             Log.d(TAG, "[PREV] No previous track in history — ignoring")
             return
         }
-        val (_, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(prevTrack)
-        crossfadeEngine.queueNextTrack(prevTrack, bpm, amplitude)
+        val (firstBeatMs, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(prevTrack)
+        crossfadeEngine.queueNextTrack(prevTrack, bpm, firstBeatMs, amplitude)
         Log.d(TAG, "[PREV] Crossfading back → '${prevTrack.title}'")
     }
 
@@ -147,10 +145,12 @@ class AutoMixService : Service() {
                     position  = state.currentPositionMs,
                     duration  = state.currentDurationMs
                 )
+
                 val now = System.currentTimeMillis()
                 val trackChanged   = state.currentTrack?.id != lastNotifiedTrackId
                 val playingChanged = state.isPlaying != lastNotifiedIsPlaying
                 val progressDue    = now - lastProgressNotifyMs > PROGRESS_NOTIFY_INTERVAL_MS
+
                 if (trackChanged || playingChanged || progressDue) {
                     lastNotifiedTrackId   = state.currentTrack?.id
                     lastNotifiedIsPlaying = state.isPlaying
@@ -196,7 +196,6 @@ class AutoMixService : Service() {
             var lastPreset: AudioPreset? = null
             settingsRepository.getAppSettings().collect { appSettings ->
                 crossfadeEngine.isRealMixMode = appSettings.isRealMixMode
-
                 if (appSettings.audioPreset != lastPreset) {
                     lastPreset = appSettings.audioPreset
                     crossfadeEngine.applyEqPreset(appSettings.audioPreset)
@@ -265,7 +264,9 @@ class AutoMixService : Service() {
                 if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED,
                 position, 1.0f
             ).build()
+
         mediaSession.setPlaybackState(playbackState)
+
         if (track != null) {
             val metadata = MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, track.title)
@@ -291,12 +292,14 @@ class AutoMixService : Service() {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("OPEN_DJ_MIX", true)
         }
+
         val openAppPi = launchIntent?.let {
             PendingIntent.getActivity(
                 this, 0, it,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
         }
+
         val appIconBitmap = runCatching {
             BitmapFactory.decodeResource(resources, applicationInfo.icon)
         }.getOrNull()
@@ -376,6 +379,7 @@ class AutoMixService : Service() {
         }
         djSessionManager.endSession()
         activePlayerRegistry.acknowledgeDjMixStopped()
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -384,6 +388,7 @@ class AutoMixService : Service() {
         }
         (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
             ?.cancel(NOTIFICATION_ID)
+
         stopSelf()
         Log.i(TAG, "[LIFECYCLE] AutoMixService stopped and notification removed.")
     }
@@ -397,6 +402,7 @@ class AutoMixService : Service() {
             djSessionManager.endSession()
             activePlayerRegistry.acknowledgeDjMixStopped()
         }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -405,6 +411,7 @@ class AutoMixService : Service() {
         }
         (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
             ?.cancel(NOTIFICATION_ID)
+
         mediaSession.release()
         super.onDestroy()
     }

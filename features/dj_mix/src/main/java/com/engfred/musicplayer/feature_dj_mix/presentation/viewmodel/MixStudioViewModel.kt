@@ -115,8 +115,8 @@ class MixStudioViewModel @Inject constructor(
                     Log.d(TAG, "[SKIP_BACK] No previous track available")
                     return
                 }
-                val (_, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(prevTrack)
-                crossfadeEngine.queueNextTrack(prevTrack, bpm, amplitude)
+                val (firstBeatMs, bpm, amplitude) = djSessionManager.getTrackTransitionInfo(prevTrack)
+                crossfadeEngine.queueNextTrack(prevTrack, bpm, firstBeatMs, amplitude)
                 Log.i(TAG, "[SKIP_BACK] Crossfading back to '${prevTrack.title}'")
             }
 
@@ -304,6 +304,7 @@ class MixStudioViewModel @Inject constructor(
                     if (isNewlyAnalyzed) {
                         crossfadeEngine.updateCurrentBpmInfo(
                             bpm              = freshBpmInfo!!.bpm,
+                            firstBeatMs      = freshBpmInfo.firstBeatMs,
                             amplitude        = freshBpmInfo.amplitude,
                             waveformEnvelope = freshBpmInfo.waveformEnvelope,
                         )
@@ -358,6 +359,7 @@ class MixStudioViewModel @Inject constructor(
         if (bpmInfo.analysisFailed) return
         crossfadeEngine.updateCurrentBpmInfo(
             bpm              = bpmInfo.bpm,
+            firstBeatMs      = bpmInfo.firstBeatMs,
             amplitude        = bpmInfo.amplitude,
             waveformEnvelope = bpmInfo.waveformEnvelope,
         )
