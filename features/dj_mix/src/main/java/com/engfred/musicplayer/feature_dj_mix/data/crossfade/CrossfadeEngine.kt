@@ -54,64 +54,41 @@ class CrossfadeEngine @Inject constructor(
 
     companion object {
         private const val TAG = "CrossfadeEngine"
-        private const val POSITION_POLL_MS     = 300L
-        private const val FAST_POLL_MS         = 50L
-        private const val WAVEFORM_POLL_MS     = 16L
-        private const val CROSSFADE_GUARD_MS   = 200L
+        private const val POSITION_POLL_MS = 300L
+        private const val FAST_POLL_MS = 50L
+        private const val WAVEFORM_POLL_MS = 16L
+        private const val CROSSFADE_GUARD_MS = 200L
         private const val FOCUS_RESUME_POLL_MS = 50L
 
-        private const val FADE_STEPS            = 80
-        private const val TEMPO_SYNC_MAX_RATIO  = 1.08f
-        private const val TEMPO_SYNC_MIN_RATIO  = 0.92f
+        private const val FADE_STEPS = 80
+        private const val TEMPO_SYNC_MAX_RATIO = 1.08f
+        private const val TEMPO_SYNC_MIN_RATIO = 0.92f
 
         private const val WAVEFORM_BARS = 32
 
-        // ── Real Mix ON  (DJ-style early blend) ──────────────────────────────
-        // Crossfade fires 60 s before track end so the full intro of the next
-        // track overlaps naturally with the outro of the current one.
-        private const val REAL_MIX_TRIGGER_MS   = 60_000L
-        // Prebuffer fires 30 s before the trigger (90 s before end).
+        private const val REAL_MIX_TRIGGER_MS = 60_000L
         private const val REAL_MIX_PREBUFFER_MS = 90_000L
-
-        // ── Real Mix OFF (near-end crossfade) ─────────────────────────────────
-        // Crossfade fires just before the current track finishes so the listener
-        // hears the song nearly to the end. Uses the same crossfadeDurationMs +
-        // TRIGGER_SETUP_BUFFER_MS formula as before.
         private const val TRIGGER_SETUP_BUFFER_MS = 2_000L
-
-        // How many multiples of crossfadeDurationMs before end to prebuffer in
-        // "near-end" mode. At 8 s crossfade this fires 32 s before end.
         private const val PREBUFFER_MULTIPLIER = 4L
-
-        // Minimum time a track must have been playing before any auto-trigger
-        // fires. Guards against triggering immediately on very short tracks.
         private const val MIN_PLAY_TIME_MS = 10_000L
-
-        /**
-         * After a crossfade completes we block auto-triggers for this long.
-         * 30 s is intentionally generous — if a track is shorter than this the
-         * next trigger will fire naturally via the remaining-time check.
-         */
         private const val POST_CROSSFADE_GUARD_MS = 30_000L
     }
 
-    // ── Scope ─────────────────────────────────────────────────────────────────
     private var engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    // ── Audio focus ───────────────────────────────────────────────────────────
     private val audioFocusCoordinator: AudioFocusCoordinator by lazy {
         AudioFocusCoordinator(
-            context  = context,
+            context = context,
             listener = object : AudioFocusCoordinator.Listener {
-                override fun onFocusLost()          = handleFocusLost()
+                override fun onFocusLost() = handleFocusLost()
                 override fun onFocusLostTransient() = handleFocusLost()
-                override fun onFocusGained()        = handleFocusGain()
+                override fun onFocusGained() = handleFocusGain()
             }
         )
     }
+
     @Volatile private var resumeAfterFocusGain: Boolean = false
 
-    // ── Players ───────────────────────────────────────────────────────────────
     private var playerA: ExoPlayer? = null
     private var playerB: ExoPlayer? = null
     private var waveformProcessorA: WaveformCaptureAudioProcessor? = null
@@ -121,11 +98,10 @@ class CrossfadeEngine @Inject constructor(
 
     @Volatile private var isPrimaryA = true
 
-    private fun primaryPlayer()            = if (isPrimaryA) playerA            else playerB
-    private fun secondaryPlayer()          = if (isPrimaryA) playerB            else playerA
+    private fun primaryPlayer() = if (isPrimaryA) playerA else playerB
+    private fun secondaryPlayer() = if (isPrimaryA) playerB else playerA
     private fun primaryWaveformProcessor() = if (isPrimaryA) waveformProcessorA else waveformProcessorB
 
-    // ── Public state ──────────────────────────────────────────────────────────
     private val _state = MutableStateFlow(CrossfadeEngineState())
     val state: StateFlow<CrossfadeEngineState> = _state.asStateFlow()
 
@@ -135,48 +111,34 @@ class CrossfadeEngine @Inject constructor(
     private val _prebufferRequest = MutableSharedFlow<Long>(extraBufferCapacity = 1)
     val prebufferRequest: SharedFlow<Long> = _prebufferRequest.asSharedFlow()
 
-    // ── Configuration (set by the service from user settings) ────────────────
     var crossfadeDurationMs: Long = 8_000L
-
-    /**
-     * When true the crossfade trigger fires [REAL_MIX_TRIGGER_MS] (60 s) before
-     * the track ends — full DJ-style early blend with intro overlap.
-     * When false the trigger fires [crossfadeDurationMs] + [TRIGGER_SETUP_BUFFER_MS]
-     * before the end (~10 s) so the listener hears the song nearly to completion
-     * before it seamlessly blends into the next track.
-     * Both modes use the same equal-power crossfade and tempo-sync logic.
-     */
     @Volatile var isRealMixMode: Boolean = true
 
-    // ── Jobs ──────────────────────────────────────────────────────────────────
     private var positionMonitorJob: Job? = null
-    private var crossfadeJob: Job?       = null
-    private var waveformJob: Job?        = null
-    private var prebufferJob: Job?       = null
+    private var crossfadeJob: Job? = null
+    private var waveformJob: Job? = null
+    private var prebufferJob: Job? = null
 
-    // ── Per-track metadata ────────────────────────────────────────────────────
-    @Volatile private var currentTrackBpm: Float              = 0f
-    @Volatile private var currentTrackBaseVolume: Float       = 1.0f
-    @Volatile private var currentTrackAmplitude: Float        = 0f
-    @Volatile private var currentTrackFirstBeatMs: Long       = 0L
+    @Volatile private var currentTrackBpm: Float = 0f
+    @Volatile private var currentTrackBaseVolume: Float = 1.0f
+    @Volatile private var currentTrackAmplitude: Float = 0f
+    @Volatile private var currentTrackFirstBeatMs: Long = 0L
     @Volatile private var currentWaveformEnvelope: FloatArray = FloatArray(0)
 
-    // ── Internal bookkeeping ──────────────────────────────────────────────────
     @Volatile private var postCrossfadeGuardUntilMs: Long = 0L
-    @Volatile private var prebufferedTrackId: Long?       = null
-    @Volatile private var isPrebufferingInProgress        = false
-    private var lastPrebufferRequestedId: Long?           = null
-    private var lastRequestedTrackId: Long?               = null
+    @Volatile private var prebufferedTrackId: Long? = null
+    @Volatile private var isPrebufferingInProgress = false
+    private var lastPrebufferRequestedId: Long? = null
+    private var lastRequestedTrackId: Long? = null
     @Volatile private var pendingNextTrack: PendingTrack? = null
-    @Volatile private var isReleased                      = false
-    private var isInitialized                             = false
-    @Volatile private var abortCrossfade                  = false
+    @Volatile private var isReleased = false
+    private var isInitialized = false
+    @Volatile private var abortCrossfade = false
 
     val isActive: Boolean get() = isInitialized && !isReleased
 
     private val waveformSmoothed = FloatArray(WAVEFORM_BARS) { 0f }
 
-    // ── Internal data class ───────────────────────────────────────────────────
     private data class PendingTrack(
         val audioFile: AudioFile,
         val bpm: Float,
@@ -184,14 +146,10 @@ class CrossfadeEngine @Inject constructor(
         val amplitude: Float
     )
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  AUDIO FOCUS
-    // ══════════════════════════════════════════════════════════════════════════
-
     private fun handleFocusLost() {
         engineScope.launch {
             withContext(Dispatchers.Main) {
-                val primary   = primaryPlayer()   ?: return@withContext
+                val primary = primaryPlayer() ?: return@withContext
                 val secondary = secondaryPlayer()
                 resumeAfterFocusGain = primary.isPlaying ||
                         (_state.value.isCrossfading && secondary?.isPlaying == true)
@@ -208,7 +166,7 @@ class CrossfadeEngine @Inject constructor(
         resumeAfterFocusGain = false
         engineScope.launch {
             withContext(Dispatchers.Main) {
-                val primary   = primaryPlayer()   ?: return@withContext
+                val primary = primaryPlayer() ?: return@withContext
                 val secondary = secondaryPlayer()
                 primary.play()
                 if (_state.value.isCrossfading) secondary?.play()
@@ -218,10 +176,6 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  LIFECYCLE
-    // ══════════════════════════════════════════════════════════════════════════
-
     fun initialize() {
         if (isInitialized) {
             _nextTrackRequest.resetReplayCache()
@@ -229,34 +183,34 @@ class CrossfadeEngine @Inject constructor(
         }
 
         if (isReleased) {
-            engineScope              = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-            isReleased               = false
-            isPrimaryA               = true
-            abortCrossfade           = false
-            resumeAfterFocusGain     = false
-            lastRequestedTrackId     = null
+            engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            isReleased = false
+            isPrimaryA = true
+            abortCrossfade = false
+            resumeAfterFocusGain = false
+            lastRequestedTrackId = null
             lastPrebufferRequestedId = null
-            pendingNextTrack         = null
-            prebufferedTrackId       = null
+            pendingNextTrack = null
+            prebufferedTrackId = null
             isPrebufferingInProgress = false
             playerA = null; playerB = null
             waveformProcessorA = null; waveformProcessorB = null
             eqProcessorA = null; eqProcessorB = null
-            _state.value              = CrossfadeEngineState()
+            _state.value = CrossfadeEngineState()
             waveformSmoothed.fill(0f)
             _nextTrackRequest.resetReplayCache()
-            currentTrackBpm           = 0f
-            currentTrackBaseVolume    = 1.0f
-            currentTrackAmplitude     = 0f
-            currentTrackFirstBeatMs   = 0L
-            currentWaveformEnvelope   = FloatArray(0)
+            currentTrackBpm = 0f
+            currentTrackBaseVolume = 1.0f
+            currentTrackAmplitude = 0f
+            currentTrackFirstBeatMs = 0L
+            currentWaveformEnvelope = FloatArray(0)
             postCrossfadeGuardUntilMs = 0L
         }
 
         waveformProcessorA = WaveformCaptureAudioProcessor()
         waveformProcessorB = WaveformCaptureAudioProcessor()
-        eqProcessorA       = BandEqAudioProcessor()
-        eqProcessorB       = BandEqAudioProcessor()
+        eqProcessorA = BandEqAudioProcessor()
+        eqProcessorB = BandEqAudioProcessor()
 
         val attrs = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -282,11 +236,10 @@ class CrossfadeEngine @Inject constructor(
         handleAudioFocus: Boolean,
         isPlayerA: Boolean
     ): ExoPlayer {
-        val eqProcessor       = if (isPlayerA) eqProcessorA       else eqProcessorB
+        val eqProcessor = if (isPlayerA) eqProcessorA else eqProcessorB
         val waveformProcessor = if (isPlayerA) waveformProcessorA else waveformProcessorB
 
-        val processors: Array<AudioProcessor> = listOfNotNull(eqProcessor, waveformProcessor)
-            .toTypedArray()
+        val processors: Array<AudioProcessor> = listOfNotNull(eqProcessor, waveformProcessor).toTypedArray()
 
         val renderersFactory = object : DefaultRenderersFactory(context) {
             override fun buildAudioSink(
@@ -354,27 +307,23 @@ class CrossfadeEngine @Inject constructor(
         Log.i(TAG, "[LIFECYCLE] Released")
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  PLAYBACK CONTROL
-    // ══════════════════════════════════════════════════════════════════════════
-
     fun startPlayback(audioFile: AudioFile) {
         if (isReleased) return
         Log.i(TAG, "[PLAYBACK] Starting: id=${audioFile.id} '${audioFile.title}'")
 
         crossfadeJob?.cancel(); crossfadeJob = null
         prebufferJob?.cancel()
-        prebufferedTrackId       = null
+        prebufferedTrackId = null
         lastPrebufferRequestedId = null
         isPrebufferingInProgress = false
-        isPrimaryA               = true
+        isPrimaryA = true
         _nextTrackRequest.resetReplayCache()
         postCrossfadeGuardUntilMs = System.currentTimeMillis() + 5_000L
-        lastRequestedTrackId      = null
+        lastRequestedTrackId = null
         waveformSmoothed.fill(0f)
-        currentWaveformEnvelope   = FloatArray(0)
-        resumeAfterFocusGain      = false
-        currentTrackBaseVolume    = 1.0f
+        currentWaveformEnvelope = FloatArray(0)
+        resumeAfterFocusGain = false
+        currentTrackBaseVolume = 1.0f
 
         engineScope.launch {
             withContext(Dispatchers.Main) { audioFocusCoordinator.request() }
@@ -404,8 +353,8 @@ class CrossfadeEngine @Inject constructor(
         if (isReleased) return
         engineScope.launch {
             withContext(Dispatchers.Main) {
-                val primary       = primaryPlayer()   ?: return@withContext
-                val secondary     = secondaryPlayer()
+                val primary = primaryPlayer() ?: return@withContext
+                val secondary = secondaryPlayer()
                 val isCrossfading = _state.value.isCrossfading
 
                 if (primary.isPlaying) {
@@ -421,20 +370,16 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  BPM METADATA
-    // ══════════════════════════════════════════════════════════════════════════
-
     fun updateCurrentBpmInfo(
         bpm: Float,
         firstBeatMs: Long = 0L,
         amplitude: Float = 0f,
         waveformEnvelope: FloatArray = FloatArray(0)
     ) {
-        currentTrackBpm           = bpm
-        currentTrackFirstBeatMs   = firstBeatMs
-        currentTrackAmplitude     = amplitude
-        currentWaveformEnvelope   = waveformEnvelope
+        currentTrackBpm = bpm
+        currentTrackFirstBeatMs = firstBeatMs
+        currentTrackAmplitude = amplitude
+        currentWaveformEnvelope = waveformEnvelope
 
         val normalisedVolume = if (amplitude > 0f)
             (0.15f / amplitude).coerceIn(0.2f, 1.0f) else 1.0f
@@ -446,13 +391,8 @@ class CrossfadeEngine @Inject constructor(
             }
         }
 
-        Log.d(TAG, "[METADATA] BPM=$bpm amplitude=${"%.4f".format(amplitude)} " +
-                "normVol=${"%.3f".format(normalisedVolume)}")
+        Log.d(TAG, "[METADATA] BPM=$bpm amplitude=${"%.4f".format(amplitude)} normVol=${"%.3f".format(normalisedVolume)}")
     }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    //  MIX CONTROL
-    // ══════════════════════════════════════════════════════════════════════════
 
     fun triggerMixNow() {
         if (isReleased || _state.value.isCrossfading) return
@@ -460,13 +400,6 @@ class CrossfadeEngine @Inject constructor(
         lastRequestedTrackId = null
         _nextTrackRequest.tryEmit(currentId)
         Log.i(TAG, "[MIXER] Manual mix triggered")
-    }
-
-    fun abortCurrentCrossfade() {
-        if (!_state.value.isCrossfading) return
-        abortCrossfade = true
-        crossfadeJob?.cancel()
-        Log.w(TAG, "[MIXER] Crossfade aborted by caller")
     }
 
     fun prebufferTrack(audioFile: AudioFile, bpm: Float, amplitude: Float) {
@@ -489,7 +422,7 @@ class CrossfadeEngine @Inject constructor(
                 secondary.prepare()
                 Log.d(TAG, "[PREBUFFER] id=${audioFile.id} prepared from position 0")
             }
-            prebufferedTrackId       = audioFile.id
+            prebufferedTrackId = audioFile.id
             isPrebufferingInProgress = false
         }
     }
@@ -512,17 +445,13 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  CROSSFADE EXECUTION
-    // ══════════════════════════════════════════════════════════════════════════
-
     private suspend fun executeCrossfade(
         nextTrack: AudioFile,
         nextBpm: Float = 0f,
         nextFirstBeatMs: Long = 0L,
         nextAmplitude: Float = 0f
     ) {
-        val primaryRef   = primaryPlayer()
+        val primaryRef = primaryPlayer()
         val secondaryRef = secondaryPlayer()
         if (primaryRef == null || secondaryRef == null) return
 
@@ -532,45 +461,40 @@ class CrossfadeEngine @Inject constructor(
             val bestHarmonic = DjConstants.HARMONIC_RATIOS.minByOrNull { ratio ->
                 abs((currentTrackBpm * ratio) - nextBpm)
             } ?: 1.0f
-            val targetBpm  = currentTrackBpm * bestHarmonic
+            val targetBpm = currentTrackBpm * bestHarmonic
             val speedRatio = targetBpm / nextBpm
             Pair(speedRatio, targetBpm)
         } else {
             Pair(1.0f, nextBpm)
         }
 
-        val isLargeBpmGap   = tempoRatio < TEMPO_SYNC_MIN_RATIO || tempoRatio > TEMPO_SYNC_MAX_RATIO
+        val isLargeBpmGap = tempoRatio < TEMPO_SYNC_MIN_RATIO || tempoRatio > TEMPO_SYNC_MAX_RATIO
         val effectiveDurationMs = crossfadeDurationMs.coerceIn(2_000L, 16_000L)
 
         Log.i(TAG, "")
         Log.i(TAG, "╔══════════════════════════════════════════════════════════╗")
-        Log.i(TAG, "║  DJ CROSSFADE START                                      ║")
+        Log.i(TAG, "║ DJ CROSSFADE START ║")
         Log.i(TAG, "╠══════════════════════════════════════════════════════════╣")
-        Log.i(TAG, "║  Outgoing : '${_state.value.currentTrack?.title}'")
-        Log.i(TAG, "║  Incoming : '${nextTrack.title}'  (starts from 0)")
-        Log.i(TAG, "║  Mode     : ${if (isRealMixMode) "REAL MIX (early 60s)" else "NEAR-END (~10s)"}")
-        Log.i(TAG, "║  Duration : ${effectiveDurationMs}ms  Steps: $FADE_STEPS  " +
-                "Step-delay: ${effectiveDurationMs / FADE_STEPS}ms")
-        Log.i(TAG, "║  Out BPM  : $currentTrackBpm  In BPM: $nextBpm")
-        Log.i(TAG, "║  BPM ratio: ${"%.3f".format(tempoRatio)}" +
-                if (isLargeBpmGap) "  ⚠ LARGE GAP — tempo sync skipped"
-                else "  (within ±8% harmonic sync window)")
+        Log.i(TAG, "║ Outgoing : '${_state.value.currentTrack?.title}'")
+        Log.i(TAG, "║ Incoming : '${nextTrack.title}' (starts from 0)")
+        Log.i(TAG, "║ Mode : ${if (isRealMixMode) "REAL MIX" else "NEAR-END"}")
+        Log.i(TAG, "║ Duration : ${effectiveDurationMs}ms Steps: $FADE_STEPS")
+        Log.i(TAG, "║ Out BPM : $currentTrackBpm In BPM: $nextBpm")
+        Log.i(TAG, "║ BPM ratio: ${"%.3f".format(tempoRatio)}" +
+                if (isLargeBpmGap) " ⚠ LARGE GAP — tempo sync skipped"
+                else " (within ±8% harmonic window)")
         Log.i(TAG, "╚══════════════════════════════════════════════════════════╝")
 
         _state.update { it.copy(isCrossfading = true, crossfadeProgressFraction = 0f) }
 
-        val outgoingEq    = if (isPrimaryA) eqProcessorA else eqProcessorB
+        val outgoingEq = if (isPrimaryA) eqProcessorA else eqProcessorB
         val originalGains = outgoingEq?.getGains() ?: DoubleArray(10) { 0.0 }
 
         try {
             val secondaryBaseVolume = (if (nextAmplitude > 0f)
                 (0.15f / nextAmplitude).coerceIn(0.2f, 1.0f) else 1.0f).coerceIn(0f, 1f)
-            val primaryBaseVolume   = currentTrackBaseVolume.coerceIn(0f, 1f)
+            val primaryBaseVolume = currentTrackBaseVolume.coerceIn(0f, 1f)
 
-            Log.d(TAG, "[CROSSFADE] Volume targets → out: ${"%.3f".format(primaryBaseVolume)}" +
-                    "  in: ${"%.3f".format(secondaryBaseVolume)}")
-
-            // ── ① Prepare secondary (or reuse prebuffered) ────────────────────
             val alreadyPrebuffered = prebufferedTrackId == nextTrack.id
             withContext(Dispatchers.Main) {
                 if (!alreadyPrebuffered) {
@@ -579,17 +503,14 @@ class CrossfadeEngine @Inject constructor(
                     secondaryRef.setMediaItem(MediaItem.fromUri(nextTrack.uri))
                     secondaryRef.volume = 0f
                     secondaryRef.prepare()
-                    Log.d(TAG, "[CROSSFADE] ①  Secondary: fresh prepare from position 0")
                 } else {
                     prebufferedTrackId = null
-                    Log.d(TAG, "[CROSSFADE] ①  Secondary: reusing prebuffered track at position 0")
                 }
                 secondaryRef.playbackParameters = PlaybackParameters.DEFAULT
             }
 
-            // ── ② Wait for secondary to reach STATE_READY ─────────────────────
             var waitMs = 0L
-            var ready  = false
+            var ready = false
             while (waitMs < 5_000L) {
                 ready = withContext(Dispatchers.Main) {
                     secondaryRef.playbackState == Player.STATE_READY &&
@@ -599,8 +520,6 @@ class CrossfadeEngine @Inject constructor(
                 delay(50L)
                 waitMs += 50L
             }
-            Log.i(TAG, "[CROSSFADE] ②  Ready in ${waitMs}ms (ready=$ready " +
-                    "prebuffered=$alreadyPrebuffered)")
 
             if (!ready) {
                 Log.e(TAG, "[CROSSFADE] ✗ Secondary never reached STATE_READY — aborting")
@@ -608,17 +527,14 @@ class CrossfadeEngine @Inject constructor(
                 return
             }
 
-            // ── ③ Phase-aligned seek and begin muted playback ─────────────────
-            // Snapshot outgoing position NOW (after prepare wait) for accurate phase.
-            val outgoingPositionMs = withContext(Dispatchers.Main) {
-                primaryRef.currentPosition
-            }
+            val outgoingPositionMs = withContext(Dispatchers.Main) { primaryRef.currentPosition }
             val phaseAlignedSeekMs = calculatePhaseAlignedSeekMs(
-                outgoingPositionMs  = outgoingPositionMs,
+                outgoingPositionMs = outgoingPositionMs,
                 outgoingFirstBeatMs = currentTrackFirstBeatMs,
-                outgoingBpm         = currentTrackBpm,
+                outgoingBpm = currentTrackBpm,
                 incomingFirstBeatMs = nextFirstBeatMs
             )
+
             withContext(Dispatchers.Main) {
                 secondaryRef.seekTo(phaseAlignedSeekMs)
                 secondaryRef.volume = 0f
@@ -626,16 +542,14 @@ class CrossfadeEngine @Inject constructor(
                 catch (e: Exception) { Log.e(TAG, "[CROSSFADE] Secondary play() failed", e) }
             }
 
-            var playWaitMs       = 0L
+            var playWaitMs = 0L
             var secondaryPlaying = false
             while (!secondaryPlaying && playWaitMs < 1_500L) {
                 delay(50L)
-                playWaitMs      += 50L
+                playWaitMs += 50L
                 secondaryPlaying = withContext(Dispatchers.Main) { secondaryRef.isPlaying }
             }
-            Log.i(TAG, "[CROSSFADE] ③  Secondary playing=${secondaryPlaying} after ${playWaitMs}ms")
 
-            // ── ④ Tempo sync on incoming player ───────────────────────────────
             val tempoSyncRatio = if (!isLargeBpmGap && currentTrackBpm > 0f && nextBpm > 0f) {
                 tempoRatio.coerceIn(TEMPO_SYNC_MIN_RATIO, TEMPO_SYNC_MAX_RATIO)
             } else {
@@ -646,15 +560,8 @@ class CrossfadeEngine @Inject constructor(
                 withContext(Dispatchers.Main) {
                     secondaryRef.playbackParameters = PlaybackParameters(tempoSyncRatio)
                 }
-                Log.i(TAG, "[CROSSFADE] ④  Tempo sync: ${nextBpm}bpm → " +
-                        "${"%.1f".format(targetIncomingBpm)}bpm  " +
-                        "speed=${"%.4f".format(tempoSyncRatio)}")
-            } else {
-                Log.d(TAG, "[CROSSFADE] ④  Tempo sync skipped " +
-                        "(largeBpmGap=$isLargeBpmGap ratio=${"%.4f".format(tempoSyncRatio)})")
             }
 
-            // ── ④b Bass Kill on outgoing track ────────────────────────────────
             val bassKillGains = originalGains.clone()
             if (bassKillGains.size >= 3) {
                 bassKillGains[0] = -12.0
@@ -662,16 +569,9 @@ class CrossfadeEngine @Inject constructor(
                 bassKillGains[2] = -12.0
             }
             withContext(Dispatchers.Main) { outgoingEq?.setGains(bassKillGains) }
-            Log.i(TAG, "[CROSSFADE] ④b Bass Kill: outgoing sub-bass dropped to -12 dB")
 
-            // ── ⑤ Equal-power volume fade ─────────────────────────────────────
-            val primaryStartVolume = withContext(Dispatchers.Main) { primaryRef.volume }
-                .coerceIn(0f, 1f)
+            val primaryStartVolume = withContext(Dispatchers.Main) { primaryRef.volume }.coerceIn(0f, 1f)
             val stepDelayMs = (effectiveDurationMs / FADE_STEPS).coerceAtLeast(16L)
-
-            Log.i(TAG, "[CROSSFADE] ⑤  Fade: out ${"%.3f".format(primaryStartVolume)}→0  " +
-                    "in 0→${"%.3f".format(secondaryBaseVolume)}  " +
-                    "${FADE_STEPS} steps × ${stepDelayMs}ms")
 
             for (step in 1..FADE_STEPS) {
                 if (!engineScope.isActive || abortCrossfade) break
@@ -681,36 +581,21 @@ class CrossfadeEngine @Inject constructor(
                 }
                 if (abortCrossfade) break
 
-                val theta  = step.toFloat() / FADE_STEPS
-                val angle  = theta * (PI.toFloat() / 2f)
+                val theta = step.toFloat() / FADE_STEPS
+                val angle = theta * (PI.toFloat() / 2f)
                 val outVol = (cos(angle) * primaryStartVolume).coerceIn(0f, 1f)
-                val inVol  = (sin(angle) * secondaryBaseVolume).coerceIn(0f, 1f)
+                val inVol = (sin(angle) * secondaryBaseVolume).coerceIn(0f, 1f)
 
                 withContext(Dispatchers.Main) {
-                    primaryRef.volume   = outVol
+                    primaryRef.volume = outVol
                     secondaryRef.volume = inVol
                 }
                 _state.update { it.copy(crossfadeProgressFraction = sin(angle)) }
 
-                if (step == FADE_STEPS / 4 || step == FADE_STEPS / 2 ||
-                    step == (FADE_STEPS * 3) / 4) {
-                    val outPower  = outVol * outVol
-                    val inPower   = inVol  * inVol
-                    val maxPower  = (primaryStartVolume * primaryStartVolume) +
-                            (secondaryBaseVolume * secondaryBaseVolume)
-                    val normPower = if (maxPower > 0f) (outPower + inPower) / maxPower else 0f
-                    Log.i(TAG, "[CROSSFADE] ${(theta * 100).toInt()}% │ " +
-                            "out=${"%.3f".format(outVol)} " +
-                            "in=${"%.3f".format(inVol)} │ " +
-                            "power=${"%.3f".format(normPower)} (1.000=perfect equal-power)")
-                }
-
                 delay(stepDelayMs)
             }
 
-            // ── Abort path ────────────────────────────────────────────────────
             if (abortCrossfade) {
-                Log.w(TAG, "[CROSSFADE] ✗ Aborted — restoring primary volume")
                 withContext(Dispatchers.Main) {
                     primaryRef.volume = primaryStartVolume
                     primaryRef.playbackParameters = PlaybackParameters.DEFAULT
@@ -726,8 +611,6 @@ class CrossfadeEngine @Inject constructor(
                 return
             }
 
-            // ── ⑥ Swap primary/secondary roles ────────────────────────────────
-            Log.i(TAG, "[CROSSFADE] ↔  Swap: '${nextTrack.title}' becomes primary")
             withContext(Dispatchers.Main) {
                 if (_state.value.isPlaying) {
                     secondaryRef.volume = secondaryBaseVolume.coerceIn(0f, 1f)
@@ -746,40 +629,28 @@ class CrossfadeEngine @Inject constructor(
                 if (_state.value.isPlaying) primaryPlayer()?.play()
             }
 
-            val actualPlaying = withContext(Dispatchers.Main) {
-                primaryPlayer()?.isPlaying ?: false
-            }
+            val actualPlaying = withContext(Dispatchers.Main) { primaryPlayer()?.isPlaying ?: false }
 
-            lastRequestedTrackId      = null
-            prebufferedTrackId        = null
-            lastPrebufferRequestedId  = null
+            lastRequestedTrackId = null
+            prebufferedTrackId = null
+            lastPrebufferRequestedId = null
             postCrossfadeGuardUntilMs = System.currentTimeMillis() + POST_CROSSFADE_GUARD_MS
 
             _state.update {
                 it.copy(
-                    currentTrack              = nextTrack,
-                    isPlaying                 = actualPlaying,
-                    isCrossfading             = false,
+                    currentTrack = nextTrack,
+                    isPlaying = actualPlaying,
+                    isCrossfading = false,
                     crossfadeProgressFraction = 0f
                 )
             }
 
-            Log.i(TAG, "")
             Log.i(TAG, "╔══════════════════════════════════════════════════════════╗")
-            Log.i(TAG, "║  DJ CROSSFADE COMPLETE ✓                                 ║")
-            Log.i(TAG, "╠══════════════════════════════════════════════════════════╣")
-            Log.i(TAG, "║  Now playing : '${nextTrack.title}'")
-            Log.i(TAG, "║  Playing     : $actualPlaying")
-            Log.i(TAG, "║  Mode        : ${if (isRealMixMode) "REAL MIX" else "NEAR-END"}")
-            Log.i(TAG, "║  Tempo sync  : $tempoSyncApplied" +
-                    "  (ratio=${"%.4f".format(tempoSyncRatio)})")
-            Log.i(TAG, "║  Guard until : +${POST_CROSSFADE_GUARD_MS}ms")
+            Log.i(TAG, "║ DJ CROSSFADE COMPLETE ✓ ║")
             Log.i(TAG, "╚══════════════════════════════════════════════════════════╝")
-            Log.i(TAG, "")
 
             pendingNextTrack?.let { pending ->
                 pendingNextTrack = null
-                Log.d(TAG, "[CROSSFADE] Executing pending → '${pending.audioFile.title}'")
                 executeCrossfade(pending.audioFile, pending.bpm, pending.firstBeatMs, pending.amplitude)
             }
 
@@ -790,99 +661,50 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  PHASE ALIGNMENT
-    // ══════════════════════════════════════════════════════════════════════════
-    /**
-     * Calculates the seek position in the incoming track so its beat phase
-     * matches the outgoing track's current beat phase.
-     *
-     * This is the core of what Serato/Rekordbox call "SYNC" — tempo matching
-     * alone is not sufficient. We also need the beats to land at the same
-     * wall-clock moment (phase alignment).
-     *
-     * Formula:
-     * outgoing_phase = (outgoingPosition - outgoingFirstBeatMs) % beatInterval
-     * incoming_seek  = incomingFirstBeatMs + outgoing_phase
-     *
-     * After tempo sync both tracks share the same effective beat interval, so
-     * placing the incoming track at this offset guarantees simultaneous beats.
-     */
     private fun calculatePhaseAlignedSeekMs(
         outgoingPositionMs: Long,
         outgoingFirstBeatMs: Long,
         outgoingBpm: Float,
         incomingFirstBeatMs: Long
     ): Long {
-        // No BPM data → start from incoming's first detected beat (safest fallback)
-        if (outgoingBpm <= 0f) {
-            Log.d(TAG, "[PHASE SYNC] No outgoing BPM — falling back to incomingFirstBeat=${incomingFirstBeatMs}ms")
-            return incomingFirstBeatMs.coerceAtLeast(0L)
-        }
+        if (outgoingBpm <= 0f) return incomingFirstBeatMs.coerceAtLeast(0L)
         val beatIntervalMs = 60_000.0 / outgoingBpm
-        // How far into the current beat is the outgoing track right now?
         val outgoingPhaseMs = if (outgoingPositionMs >= outgoingFirstBeatMs) {
             (outgoingPositionMs - outgoingFirstBeatMs).toDouble().mod(beatIntervalMs)
         } else {
-            // Haven't reached first beat yet (very short into track)
             outgoingPositionMs.toDouble().mod(beatIntervalMs)
         }
-        // Place incoming at the same phase within its own beat grid
-        val seekMs = (incomingFirstBeatMs + outgoingPhaseMs).toLong().coerceAtLeast(0L)
-        Log.i(TAG, "[PHASE SYNC] outPos=${outgoingPositionMs}ms " +
-                "outFirstBeat=${outgoingFirstBeatMs}ms " +
-                "beatInterval=${"%.1f".format(beatIntervalMs)}ms " +
-                "outPhase=${"%.1f".format(outgoingPhaseMs)}ms " +
-                "inFirstBeat=${incomingFirstBeatMs}ms " +
-                "→ seekTo=${seekMs}ms")
-        return seekMs
+        return (incomingFirstBeatMs + outgoingPhaseMs).toLong().coerceAtLeast(0L)
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  POSITION MONITORING
-    // ══════════════════════════════════════════════════════════════════════════
+    private fun isNearPhraseBoundary(posMs: Long, firstBeatMs: Long, bpm: Float): Boolean {
+        if (bpm <= 0f || posMs < firstBeatMs) return false
+        val beatInterval = 60000.0 / bpm
+        val phraseInterval = beatInterval * 16
+        val phase = (posMs - firstBeatMs).toDouble().mod(phraseInterval)
+        val window = beatInterval * 1.5
+        return phase < window || phase > (phraseInterval - window)
+    }
 
     private fun startPositionMonitoring() {
         positionMonitorJob?.cancel()
         positionMonitorJob = engineScope.launch {
-
             while (isActive) {
                 val (position, duration, playing) = withContext(Dispatchers.Main) {
-                    val p   = primaryPlayer()
+                    val p = primaryPlayer()
                     val dur = p?.duration?.takeIf { it != C.TIME_UNSET } ?: 0L
                     Triple(p?.currentPosition ?: 0L, dur, p?.isPlaying ?: false)
                 }
 
                 val remaining = duration - position
 
-                // ── Trigger threshold (when to fire the crossfade request) ─────
-                // Real Mix ON  → 60 s before end (full DJ intro overlap)
-                // Real Mix OFF → crossfadeDurationMs + 2 s before end (~10 s)
-                val triggerThresholdMs: Long = if (isRealMixMode) {
-                    REAL_MIX_TRIGGER_MS
-                } else {
-                    crossfadeDurationMs + TRIGGER_SETUP_BUFFER_MS
-                }
-
-                // ── Prebuffer threshold (when to silently prepare next track) ──
-                // Real Mix ON  → 90 s before end (30 s before the trigger)
-                // Real Mix OFF → crossfadeDurationMs × 4 before end (~32 s)
-                val prebufferThresholdMs: Long = if (isRealMixMode) {
-                    REAL_MIX_PREBUFFER_MS
-                } else {
-                    crossfadeDurationMs * PREBUFFER_MULTIPLIER
-                }
-
-                val inTriggerZone   = duration > 0L &&
-                        remaining in CROSSFADE_GUARD_MS..triggerThresholdMs
-                val inPrebufferZone = duration > 0L &&
-                        remaining in triggerThresholdMs..prebufferThresholdMs
+                val baseThreshold = if (isRealMixMode) REAL_MIX_TRIGGER_MS else crossfadeDurationMs + TRIGGER_SETUP_BUFFER_MS
+                val prebufferThresholdMs = if (isRealMixMode) REAL_MIX_PREBUFFER_MS else crossfadeDurationMs * PREBUFFER_MULTIPLIER
                 val postGuardActive = System.currentTimeMillis() < postCrossfadeGuardUntilMs
 
-                // ── Prebuffer request ─────────────────────────────────────────
-                if (inPrebufferZone && !_state.value.isCrossfading
-                    && prebufferedTrackId == null && !isPrebufferingInProgress
-                ) {
+                // Prebuffer
+                if (duration > 0L && remaining in baseThreshold..prebufferThresholdMs &&
+                    !_state.value.isCrossfading && prebufferedTrackId == null && !isPrebufferingInProgress) {
                     val id = _state.value.currentTrack?.id
                     if (id != null && id != lastPrebufferRequestedId) {
                         lastPrebufferRequestedId = id
@@ -890,35 +712,39 @@ class CrossfadeEngine @Inject constructor(
                     }
                 }
 
-                // ── Mix trigger ───────────────────────────────────────────────
-                // Guard: track must have played for at least MIN_PLAY_TIME_MS
-                // so we don't immediately re-trigger on very short tracks.
-                val shouldTrigger = playing
-                        && !_state.value.isCrossfading
-                        && !postGuardActive
-                        && duration > 0L
-                        && inTriggerZone
-                        && position >= MIN_PLAY_TIME_MS
+                // SMART Trigger
+                val features = _state.value.audioFeatures
+                val isMusicallyGood = features.isDropping ||
+                        features.isLowEnergy ||
+                        isNearPhraseBoundary(position, currentTrackFirstBeatMs, currentTrackBpm)
+
+                val effectiveThreshold = if (isMusicallyGood) {
+                    (baseThreshold * 0.78).toLong()
+                } else baseThreshold
+
+                val inTriggerZone = remaining in CROSSFADE_GUARD_MS..baseThreshold
+
+                val shouldTrigger = playing &&
+                        !_state.value.isCrossfading &&
+                        !postGuardActive &&
+                        position >= MIN_PLAY_TIME_MS &&
+                        inTriggerZone &&
+                        remaining <= effectiveThreshold
 
                 if (shouldTrigger) {
                     val id = _state.value.currentTrack?.id
                     if (id != null && id != lastRequestedTrackId) {
                         lastRequestedTrackId = id
                         _nextTrackRequest.tryEmit(id)
-                        Log.i(TAG, "[MIXER] Auto-mix triggered: " +
-                                "remaining=${remaining}ms " +
-                                "threshold=${triggerThresholdMs}ms " +
-                                "mode=${if (isRealMixMode) "REAL_MIX" else "NEAR_END"}")
+                        Log.i(TAG, "[MIXER] SMART auto-mix fired → remaining=${remaining}ms " +
+                                "rms=${"%.3f".format(features.rms)} trend=${"%.3f".format(features.trend)} " +
+                                "lowEnergy=${features.isLowEnergy} drop=${features.isDropping}")
                     }
                 }
 
-                // ── timeToNextMix for UI countdown ────────────────────────────
                 val timeToNextMixMs: Long? = when {
                     _state.value.isCrossfading || !playing || duration <= 0L -> null
-                    inTriggerZone   -> 0L
-                    inPrebufferZone -> (remaining - triggerThresholdMs).coerceAtLeast(0L)
-                    remaining <= prebufferThresholdMs * 2 ->
-                        (remaining - triggerThresholdMs).coerceAtLeast(0L)
+                    inTriggerZone -> 0L
                     else -> null
                 }
 
@@ -926,61 +752,51 @@ class CrossfadeEngine @Inject constructor(
                     it.copy(
                         currentPositionMs = position,
                         currentDurationMs = duration,
-                        timeToNextMixMs   = timeToNextMixMs
+                        timeToNextMixMs = timeToNextMixMs
                     )
                 }
 
-                delay(if (inTriggerZone || inPrebufferZone) FAST_POLL_MS else POSITION_POLL_MS)
+                delay(if (inTriggerZone) FAST_POLL_MS else POSITION_POLL_MS)
             }
         }
     }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    //  WAVEFORM
-    // ══════════════════════════════════════════════════════════════════════════
 
     private fun startWaveformLoop() {
         waveformJob?.cancel()
         waveformJob = engineScope.launch {
             while (isActive) {
-                if (currentTrackBpm > 0f && _state.value.currentDurationMs > 0L) {
-                    val pos = withContext(Dispatchers.Main) {
-                        primaryPlayer()?.currentPosition ?: 0L
-                    }
-                    _state.update { it.copy(waveform = generateBeatWaveform(pos)) }
+                val processor = primaryWaveformProcessor()
+                val features = processor?.computeCurrentFeatures()
+                    ?: WaveformCaptureAudioProcessor.AudioFeatures(0.5f, 0f, false, false)
+                val bands = processor?.computeCurrentBands() ?: FloatArray(32)
+
+                _state.update {
+                    it.copy(
+                        waveform = generateBeatWaveformFromBands(bands),
+                        audioFeatures = features
+                    )
                 }
                 delay(WAVEFORM_POLL_MS)
             }
         }
     }
 
-    private fun generateBeatWaveform(positionMs: Long): List<Float> {
-        val realBands = primaryWaveformProcessor()?.computeCurrentBands()
-        return if (realBands != null && realBands.any { it > 0.01f }) {
+    private fun generateBeatWaveformFromBands(realBands: FloatArray): List<Float> {
+        return if (realBands.any { it > 0.01f }) {
             List(WAVEFORM_BARS) { i ->
-                val srcIdx  = (i.toFloat() / WAVEFORM_BARS * realBands.size).toInt()
-                    .coerceIn(0, realBands.size - 1)
-                val boosted = (realBands[srcIdx] * (1f + (i.toFloat() / WAVEFORM_BARS) * 2.5f))
-                    .coerceIn(0f, 1f)
+                val srcIdx = (i.toFloat() / WAVEFORM_BARS * realBands.size).toInt().coerceIn(0, realBands.size - 1)
+                val boosted = (realBands[srcIdx] * (1f + (i.toFloat() / WAVEFORM_BARS) * 2.5f)).coerceIn(0f, 1f)
                 waveformSmoothed[i] = waveformSmoothed[i] * 0.15f + boosted * 0.85f
                 waveformSmoothed[i]
             }
         } else {
-            generatePlaceholderWaveform()
+            List(WAVEFORM_BARS) { i ->
+                val target = 0.10f + (sin(i * 1.618 + 0.5) * 0.04f).toFloat()
+                waveformSmoothed[i] = waveformSmoothed[i] * 0.80f + target * 0.20f
+                waveformSmoothed[i]
+            }
         }
     }
-
-    private fun generatePlaceholderWaveform(): List<Float> {
-        return List(WAVEFORM_BARS) { i ->
-            val target = 0.10f + (Math.sin(i * 1.618 + 0.5) * 0.04f).toFloat()
-            waveformSmoothed[i] = waveformSmoothed[i] * 0.80f + target * 0.20f
-            waveformSmoothed[i]
-        }
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    //  PLAYER LISTENER
-    // ══════════════════════════════════════════════════════════════════════════
 
     private fun createPlayerListener(isPlayerA: Boolean) = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -991,8 +807,7 @@ class CrossfadeEngine @Inject constructor(
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_ENDED) {
                 val which = if (isPlayerA) "A" else "B"
-                val role  = if ((isPlayerA && isPrimaryA) || (!isPlayerA && !isPrimaryA))
-                    "PRIMARY" else "secondary"
+                val role = if ((isPlayerA && isPrimaryA) || (!isPlayerA && !isPrimaryA)) "PRIMARY" else "secondary"
                 Log.i(TAG, "[PLAYBACK] Player $which ($role) ended")
             }
         }
@@ -1000,9 +815,8 @@ class CrossfadeEngine @Inject constructor(
         override fun onPlayerError(error: PlaybackException) {
             val isPrimary = (isPlayerA && isPrimaryA) || (!isPlayerA && !isPrimaryA)
             val which = if (isPlayerA) "A" else "B"
-            val role  = if (isPrimary) "PRIMARY" else "secondary"
-            Log.e(TAG, "[PLAYBACK] Player $which ($role) error: ${error.message} " +
-                    "(code=${error.errorCode})", error)
+            val role = if (isPrimary) "PRIMARY" else "secondary"
+            Log.e(TAG, "[PLAYBACK] Player $which ($role) error: ${error.message} (code=${error.errorCode})", error)
             if (isPrimary) {
                 _state.update { it.copy(error = "Player error: ${error.message}") }
             }

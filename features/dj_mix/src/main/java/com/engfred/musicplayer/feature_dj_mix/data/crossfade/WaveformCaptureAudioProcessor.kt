@@ -11,14 +11,8 @@ import kotlin.math.sqrt
 
 /**
  * 🚨 CRITICAL AUDIO PIPELINE COMPONENT 🚨
- * * DO NOT ADD `new` OBJECT ALLOCATIONS IN `queueInput`!
- * * This class runs directly on ExoPlayer's real-time audio render thread.
- * If you allocate memory here (e.g., creating arrays, allocating ByteBuffers),
- * the Garbage Collector will pause this thread. A 5ms GC pause during a Bluetooth
- * codec renegotiation WILL starve the OS AudioTrack and permanently freeze playback.
- * * ARCHITECTURE:
- * - Audio Thread: Quickly copies bytes to `tempWaveform`, updates `latestWaveform`, and passes buffer through.
- * - UI/Background Thread: Calls `computeCurrentBands()` to read the volatile array safely on its own time.
+ * DO NOT ADD `new` OBJECT ALLOCATIONS IN `queueInput`!
+ * This class runs directly on ExoPlayer's real-time audio render thread.
  */
 @OptIn(UnstableApi::class)
 class WaveformCaptureAudioProcessor : BaseAudioProcessor() {
@@ -27,10 +21,23 @@ class WaveformCaptureAudioProcessor : BaseAudioProcessor() {
         const val BAND_COUNT = 32
         private const val WINDOW_SAMPLES = 256
         private const val SMOOTHING = 0.40f
+
+        // Better tuned for music / Afrobeats
+        private const val LOW_ENERGY_THRESHOLD = 0.42f
+        private const val DROP_TREND_THRESHOLD = -0.12f
     }
+
+    data class AudioFeatures(
+        val rms: Float,
+        val trend: Float,
+        val isLowEnergy: Boolean,
+        val isDropping: Boolean
+    )
 
     // The "Billboard": The audio thread writes to this, the UI background thread reads it.
     @Volatile private var latestWaveform = FloatArray(WINDOW_SAMPLES)
+    @Volatile private var latestRms = 0.35f
+
     private val tempWaveform = FloatArray(WINDOW_SAMPLES)
     private var captureIndex = 0
 
@@ -39,12 +46,18 @@ class WaveformCaptureAudioProcessor : BaseAudioProcessor() {
     private var bandBoundaries = IntArray(0)
     private var currentSampleRate = 44100
 
+    // Feature Extraction State
+    private var shortTermRms = 0.35f
+    private var longTermRms = 0.35f
+
     override fun onConfigure(inputAudioFormat: AudioFormat): AudioFormat {
         currentSampleRate = inputAudioFormat.sampleRate
         captureIndex = 0
         smoothed.fill(0f)
+        shortTermRms = 0.35f
+        longTermRms = 0.35f
         buildBandBoundaries()
-        return inputAudioFormat // Pass-through directly
+        return inputAudioFormat
     }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
@@ -54,12 +67,12 @@ class WaveformCaptureAudioProcessor : BaseAudioProcessor() {
         val startPosition = inputBuffer.position()
         val limit = inputBuffer.limit()
         val channels = inputAudioFormat.channelCount
-        val step = 2 * channels // 16-bit PCM
+        val step = 2 * channels
 
         var p = startPosition
         inputBuffer.order(ByteOrder.LITTLE_ENDIAN)
 
-        // 1. FAST COPY: Snatch a quick copy of the audio without blocking or allocating
+        // FAST COPY
         while (p < limit && captureIndex < WINDOW_SAMPLES) {
             var mono = 0f
             for (c in 0 until channels) {
@@ -70,12 +83,19 @@ class WaveformCaptureAudioProcessor : BaseAudioProcessor() {
         }
 
         if (captureIndex >= WINDOW_SAMPLES) {
-            // Commit to the volatile array so the UI can read it
+            // Cheaply calculate RMS directly on the audio thread
+            var sumSq = 0.0
+            for (i in 0 until WINDOW_SAMPLES) {
+                val s = tempWaveform[i]
+                sumSq += s * s
+            }
+            latestRms = sqrt(sumSq / WINDOW_SAMPLES).toFloat().coerceIn(0f, 1f)
+
             System.arraycopy(tempWaveform, 0, latestWaveform, 0, WINDOW_SAMPLES)
             captureIndex = 0
         }
 
-        // 2. SAFE PASS-THROUGH: Uses BaseAudioProcessor's internal memory management
+        // SAFE PASS-THROUGH
         val buffer = replaceOutputBuffer(remaining)
         inputBuffer.position(startPosition)
         buffer.put(inputBuffer)
@@ -89,14 +109,35 @@ class WaveformCaptureAudioProcessor : BaseAudioProcessor() {
     override fun onReset() {
         captureIndex = 0
         smoothed.fill(0f)
+        shortTermRms = 0.35f
+        longTermRms = 0.35f
     }
 
     /**
+     * Calculates real-time energy trends for the auto-DJ trigger logic.
      * EXECUTED ON THE BACKGROUND DISPATCHER.
-     * Keeps heavy Goertzel math off the audio render thread.
      */
+    fun computeCurrentFeatures(): AudioFeatures {
+        val currentRms = latestRms   // use the pre-computed value from audio thread
+
+        // EWMA smoothing
+        shortTermRms = shortTermRms * 0.75f + currentRms * 0.25f   // faster reaction
+        longTermRms = longTermRms * 0.96f + currentRms * 0.04f     // slower baseline
+
+        val trend = if (longTermRms > 0.001f) {
+            (shortTermRms - longTermRms) / longTermRms
+        } else 0f
+
+        return AudioFeatures(
+            rms = currentRms,
+            trend = trend.coerceIn(-1f, 1f),
+            isLowEnergy = shortTermRms < LOW_ENERGY_THRESHOLD,
+            isDropping = trend < DROP_TREND_THRESHOLD && shortTermRms < 0.68f
+        )
+    }
+
     fun computeCurrentBands(): FloatArray {
-        val window = latestWaveform // Read volatile array state
+        val window = latestWaveform
         val result = FloatArray(BAND_COUNT)
 
         if (bandBoundaries.isEmpty()) return result
