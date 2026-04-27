@@ -74,6 +74,7 @@ class MixStudioViewModel @Inject constructor(
         observeCrossfadeEngineState()
         observeCanSkipBack()
         observePlayedTracks()
+        observeSmartQueue()
         loadPlaylist()
     }
 
@@ -225,6 +226,12 @@ class MixStudioViewModel @Inject constructor(
     private fun observePlayedTracks() {
         djSessionManager.playedTrackIds
             .onEach { ids -> _uiState.update { it.copy(playedTrackIds = ids) } }
+            .launchIn(viewModelScope)
+    }
+
+    private fun observeSmartQueue() {
+        djSessionManager.smartQueue
+            .onEach { queue -> _uiState.update { it.copy(smartQueue = queue) } }
             .launchIn(viewModelScope)
     }
 
@@ -411,7 +418,6 @@ class MixStudioViewModel @Inject constructor(
             }
         }
 
-        _uiState.update { it.copy(smartQueue = result) }
         djSessionManager.updateSmartQueue(result)
 
         if (pendingAutoStart && result.isNotEmpty()) {

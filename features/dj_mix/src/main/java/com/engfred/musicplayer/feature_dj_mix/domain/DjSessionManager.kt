@@ -103,9 +103,13 @@ class DjSessionManager @Inject constructor(
 
         if (remaining.isEmpty() && queue.size > 1) {
             if (cfg.loopQueue) {
-                Log.d(TAG, "Queue exhausted — looping: resetting history")
+                Log.d(TAG, "Queue exhausted — looping: reversing queue (ping-pong) and resetting history")
+                // Reverse the queue to mix back exactly the way we came
+                val reversedQueue = queue.reversed()
+                _smartQueue.value = reversedQueue
+
                 resetPlayHistory(keepCurrentId = currentTrackId)
-                remaining = queue.filter { it.id != currentTrackId }
+                remaining = reversedQueue.filter { it.id != currentTrackId }
             } else {
                 Log.d(TAG, "Queue exhausted — looping disabled")
                 return null
