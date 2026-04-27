@@ -1,6 +1,9 @@
 package com.engfred.musicplayer.feature_dj_mix.data.crossfade
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -58,7 +61,7 @@ class CrossfadeEngine @Inject constructor(
         // ── Polling intervals ─────────────────────────────────────────────────
         private const val POSITION_POLL_MS       = 300L
         private const val FAST_POLL_MS           = 50L
-        private const val WAVEFORM_POLL_MS       = 16L
+        private const val WAVEFORM_POLL_MS       = 32L   // FIX: was 16L — halves Goertzel CPU cost, UI still smooth
         private const val FOCUS_RESUME_POLL_MS   = 50L
 
         // ── Crossfade parameters ──────────────────────────────────────────────
@@ -79,39 +82,35 @@ class CrossfadeEngine @Inject constructor(
         private const val CROSSFADE_GUARD_MS     = 200L
 
         // ── Smart trigger pull-forward ────────────────────────────────────────
-        //    When a phrase boundary or energy drop is detected, the trigger fires
-        //    up to MUSICAL_PULLFORWARD_MS earlier than the base threshold.
-        private const val MUSICAL_PULLFORWARD_MS = 24_000L
+        private const val MUSICAL_PULLFORWARD_MS     = 24_000L
         private const val MUSICAL_PULLFORWARD_CAP_MS = 32_000L
 
         // ── Phrase-boundary snap ──────────────────────────────────────────────
-        //    Snap incoming seekTo position to the nearest 8- or 16-bar phrase
-        //    boundary. Only applies if the snap moves the seek by less than
-        //    PHRASE_SNAP_MAX_DELTA_MS (prevents jumping entire sections).
-        private const val PHRASE_SNAP_MAX_DELTA_MS = 5_000L  // ~2 bars @100 BPM
-
-        // ── Phrase boundary trigger window ────────────────────────────────────
-        //    How many beats on either side of a phrase boundary count as "near".
-        //    Previous value was 1.5 (too tight). 2 beats catches more boundaries.
-        private const val PHRASE_BOUNDARY_WINDOW_BEATS = 2.0
-
-        // ── Equal-power crossfade ─────────────────────────────────────────────
-        //    Both fade curves must use the SAME reference amplitude for
-        //    cos²θ + sin²θ = 1 to hold. We use the max of both normalized
-        //    volumes as the common reference, then snap to actual target after swap.
-        //    See FIX NOTE #2 in executeCrossfade().
+        private const val PHRASE_SNAP_MAX_DELTA_MS       = 5_000L
+        private const val PHRASE_BOUNDARY_WINDOW_BEATS   = 2.0
 
         // ── Bass kill ─────────────────────────────────────────────────────────
-        //    Step at which incoming bass is restored (0=start, FADE_STEPS=end).
-        //    Restoring at 50% means bass clash only overlaps for the first half.
         private const val BASS_RESTORE_STEP      = FADE_STEPS / 2
 
         // ── Half-time guard ───────────────────────────────────────────────────
-        //    Smart trigger is not calculated until song is past 50% played.
         private const val MIN_HALF_TIME_FOR_SMART_SEARCH = 0.5f
+
+        // ── Timing drift tolerance ────────────────────────────────────────────
+        //    If a fade step fires more than this many ms late, log a warning.
+        //    Used to detect severe system load without flooding logcat.
+        private const val DRIFT_WARN_THRESHOLD_MS = 30L
     }
 
     private var engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    // ── FIX: Single shared Handler for all main-thread volume posts ───────────
+    //    Handler.post / postAtTime are fire-and-forget — they never block the
+    //    calling (Default dispatcher) coroutine the way withContext(Main) does.
+    //    postAtTime uses absolute SystemClock.uptimeMillis() timestamps, so
+    //    even if the message queue is momentarily busy, the post is delivered
+    //    as close to the target time as the OS allows — and the coroutine side
+    //    compensates with clock-corrected delays (see executeCrossfade).
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val audioFocusCoordinator: AudioFocusCoordinator by lazy {
         AudioFocusCoordinator(
@@ -135,11 +134,11 @@ class CrossfadeEngine @Inject constructor(
 
     @Volatile private var isPrimaryA = true
 
-    private fun primaryPlayer()         = if (isPrimaryA) playerA else playerB
-    private fun secondaryPlayer()       = if (isPrimaryA) playerB else playerA
+    private fun primaryPlayer()            = if (isPrimaryA) playerA else playerB
+    private fun secondaryPlayer()          = if (isPrimaryA) playerB else playerA
     private fun primaryWaveformProcessor() = if (isPrimaryA) waveformProcessorA else waveformProcessorB
-    private fun outgoingEqProcessor()   = if (isPrimaryA) eqProcessorA else eqProcessorB
-    private fun incomingEqProcessor()   = if (isPrimaryA) eqProcessorB else eqProcessorA
+    private fun outgoingEqProcessor()      = if (isPrimaryA) eqProcessorA else eqProcessorB
+    private fun incomingEqProcessor()      = if (isPrimaryA) eqProcessorB else eqProcessorA
 
     private val _state = MutableStateFlow(CrossfadeEngineState())
     val state: StateFlow<CrossfadeEngineState> = _state.asStateFlow()
@@ -334,6 +333,7 @@ class CrossfadeEngine @Inject constructor(
         crossfadeJob?.cancel()
         waveformJob?.cancel()
         prebufferJob?.cancel()
+        mainHandler.removeCallbacksAndMessages(null) // FIX: cancel any pending volume posts
         audioFocusCoordinator.abandon()
 
         CoroutineScope(Dispatchers.Main.immediate).launch {
@@ -364,6 +364,7 @@ class CrossfadeEngine @Inject constructor(
 
         crossfadeJob?.cancel(); crossfadeJob = null
         prebufferJob?.cancel()
+        mainHandler.removeCallbacksAndMessages(null) // FIX: clear any in-flight volume posts
         prebufferedTrackId         = null
         lastPrebufferRequestedId   = null
         isPrebufferingInProgress   = false
@@ -403,8 +404,8 @@ class CrossfadeEngine @Inject constructor(
         if (isReleased) return
         engineScope.launch {
             withContext(Dispatchers.Main) {
-                val primary      = primaryPlayer()   ?: return@withContext
-                val secondary    = secondaryPlayer()
+                val primary       = primaryPlayer()   ?: return@withContext
+                val secondary     = secondaryPlayer()
                 val isCrossfading = _state.value.isCrossfading
                 if (primary.isPlaying) {
                     resumeAfterFocusGain = false
@@ -425,14 +426,11 @@ class CrossfadeEngine @Inject constructor(
         amplitude: Float = 0f,
         waveformEnvelope: FloatArray = FloatArray(0)
     ) {
-        currentTrackBpm           = bpm
-        currentTrackFirstBeatMs   = firstBeatMs
-        currentTrackAmplitude     = amplitude
-        currentWaveformEnvelope   = waveformEnvelope
-
-        // FIX: When BPM info arrives for a new track, reset smart trigger so it
-        //      recalculates for this track (not inherited from previous one).
-        currentSmartTriggerMs = -1L
+        currentTrackBpm         = bpm
+        currentTrackFirstBeatMs = firstBeatMs
+        currentTrackAmplitude   = amplitude
+        currentWaveformEnvelope = waveformEnvelope
+        currentSmartTriggerMs   = -1L
 
         val normalisedVolume = if (amplitude > 0f) (0.15f / amplitude).coerceIn(0.2f, 1.0f) else 1.0f
         currentTrackBaseVolume = normalisedVolume
@@ -457,6 +455,7 @@ class CrossfadeEngine @Inject constructor(
         if (!_state.value.isCrossfading) return
         abortCrossfade = true
         crossfadeJob?.cancel()
+        mainHandler.removeCallbacksAndMessages(null) // FIX: cancel pending volume posts immediately
         Log.w(TAG, "[MIXER] Crossfade aborted by caller")
     }
 
@@ -501,7 +500,7 @@ class CrossfadeEngine @Inject constructor(
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // CROSSFADE EXECUTION  — all 5 fixes applied here
+    // CROSSFADE EXECUTION
     // ═══════════════════════════════════════════════════════════════════════
 
     private suspend fun executeCrossfade(
@@ -515,7 +514,7 @@ class CrossfadeEngine @Inject constructor(
 
         abortCrossfade = false
 
-        // ── Tempo ratio calculation ───────────────────────────────────────────
+        // ── Tempo ratio ───────────────────────────────────────────────────────
         val (tempoRatio, targetIncomingBpm) = if (currentTrackBpm > 0f && nextBpm > 0f) {
             val bestHarmonic = DjConstants.HARMONIC_RATIOS.minByOrNull { ratio ->
                 abs((currentTrackBpm * ratio) - nextBpm)
@@ -527,8 +526,8 @@ class CrossfadeEngine @Inject constructor(
             Pair(1.0f, nextBpm)
         }
 
-        val isLargeBpmGap        = tempoRatio < TEMPO_SYNC_MIN_RATIO || tempoRatio > TEMPO_SYNC_MAX_RATIO
-        val effectiveDurationMs  = crossfadeDurationMs.coerceIn(2_000L, 16_000L)
+        val isLargeBpmGap       = tempoRatio < TEMPO_SYNC_MIN_RATIO || tempoRatio > TEMPO_SYNC_MAX_RATIO
+        val effectiveDurationMs = crossfadeDurationMs.coerceIn(2_000L, 16_000L)
 
         Log.i(TAG, "")
         Log.i(TAG, "╔══════════════════════════════════════════════════════════╗")
@@ -552,12 +551,8 @@ class CrossfadeEngine @Inject constructor(
         val originalInGains  = incomingEq?.getGains() ?: DoubleArray(10) { 0.0 }
 
         try {
-            // ── FIX #2 SETUP: Normalize primary to its correct amplitude BEFORE fade
-            //    This prevents primaryStartVolume from being stale (e.g., 1.0 when it
-            //    should be 0.57). Without this snap, the equal-power math breaks because
-            //    the outgoing track starts the fade at the wrong level.
-            val normalizedPrimaryVol  = currentTrackBaseVolume.coerceIn(0.2f, 1.0f)
-            val secondaryBaseVolume   = (if (nextAmplitude > 0f)
+            val normalizedPrimaryVol = currentTrackBaseVolume.coerceIn(0.2f, 1.0f)
+            val secondaryBaseVolume  = (if (nextAmplitude > 0f)
                 (0.15f / nextAmplitude).coerceIn(0.2f, 1.0f) else 1.0f).coerceIn(0f, 1f)
 
             withContext(Dispatchers.Main) {
@@ -602,29 +597,14 @@ class CrossfadeEngine @Inject constructor(
                 return
             }
 
-            // ── FIX #1: Phase alignment with latency compensation ─────────────
-            //
-            //    PROBLEM (original code):
-            //    outgoingPositionMs was read BEFORE seekTo+play, so by the time
-            //    secondary audio actually reaches the ears (~50-150ms later), the
-            //    outgoing track has moved forward and the phase is already stale.
-            //
-            //    FIX — two-stage approach:
-            //    Stage A: Initial seek based on best estimate of current position.
-            //    Stage B: After secondary confirms playing, do a corrective seek
-            //             using a fresh outgoing position read. Secondary is at
-            //             volume 0 so the corrective seek is completely inaudible.
-
-            // Stage A: compute initial seek from current outgoing position
+            // ── FIX #1: Phase alignment — Stage A ────────────────────────────
             val initialOutgoingPositionMs = withContext(Dispatchers.Main) { primaryRef.currentPosition }
             val rawPhaseAlignedMs = calculatePhaseAlignedSeekMs(
-                outgoingPositionMs   = initialOutgoingPositionMs,
-                outgoingFirstBeatMs  = currentTrackFirstBeatMs,
-                outgoingBpm          = currentTrackBpm,
-                incomingFirstBeatMs  = nextFirstBeatMs
+                outgoingPositionMs  = initialOutgoingPositionMs,
+                outgoingFirstBeatMs = currentTrackFirstBeatMs,
+                outgoingBpm         = currentTrackBpm,
+                incomingFirstBeatMs = nextFirstBeatMs
             )
-
-            // FIX #3: Snap initial seek to nearest phrase boundary on incoming track
             val initialSeekMs = snapToPhraseBoundaryMs(
                 seekMs              = rawPhaseAlignedMs,
                 incomingFirstBeatMs = nextFirstBeatMs,
@@ -649,16 +629,15 @@ class CrossfadeEngine @Inject constructor(
             }
             Log.i(TAG, "[CROSSFADE] ③ Secondary playing=${secondaryPlaying} after ${playWaitMs}ms")
 
-            // Stage B: corrective phase seek now that we know actual outgoing position
-            // Secondary is at volume 0 — this seek is completely inaudible.
+            // ── FIX #1: Phase alignment — Stage B (corrective seek) ──────────
             val correctedOutgoingPositionMs = withContext(Dispatchers.Main) { primaryRef.currentPosition }
             val correctedRawPhaseMs = calculatePhaseAlignedSeekMs(
-                outgoingPositionMs   = correctedOutgoingPositionMs,
-                outgoingFirstBeatMs  = currentTrackFirstBeatMs,
-                outgoingBpm          = currentTrackBpm,
-                incomingFirstBeatMs  = nextFirstBeatMs
+                outgoingPositionMs  = correctedOutgoingPositionMs,
+                outgoingFirstBeatMs = currentTrackFirstBeatMs,
+                outgoingBpm         = currentTrackBpm,
+                incomingFirstBeatMs = nextFirstBeatMs
             )
-            val correctedSeekMs = snapToPhraseBoundaryMs(
+            val correctedSeekMs     = snapToPhraseBoundaryMs(
                 seekMs              = correctedRawPhaseMs,
                 incomingFirstBeatMs = nextFirstBeatMs,
                 incomingBpm         = nextBpm
@@ -691,18 +670,7 @@ class CrossfadeEngine @Inject constructor(
                         "ratio=${"%.4f".format(tempoSyncRatio)})")
             }
 
-            // ── FIX #5: Bass kill on BOTH outgoing AND incoming ───────────────
-            //
-            //    ORIGINAL: only outgoing bass was killed.
-            //    PROBLEM:  Afrobeats / Dancehall are bass-heavy. Two simultaneous
-            //              kick drums + bass lines clash audibly during the 8s overlap.
-            //
-            //    FIX: Kill incoming sub-bass at crossfade start.
-            //         Restore incoming bass at BASS_RESTORE_STEP (50% = step 40 of 80).
-            //         Outgoing bass is restored when EQ gains are reset at swap.
-            //
-            //    Result: first half of crossfade = clean high-frequency blend
-            //            second half = incoming bass comes in as outgoing fades out
+            // ── ④b Bass kill ──────────────────────────────────────────────────
             val outBassKillGains = originalOutGains.clone()
             val inBassKillGains  = originalInGains.clone()
             if (outBassKillGains.size >= 3) {
@@ -717,74 +685,146 @@ class CrossfadeEngine @Inject constructor(
             }
             Log.i(TAG, "[CROSSFADE] ④b Bass Kill: outgoing -12dB sub-bass | incoming -12dB sub-bass")
 
-            // ── FIX #2: Equal-power crossfade with common reference ───────────
+            // ── ⑤ Equal-power fade — CLOCK-COMPENSATED, NON-BLOCKING ─────────
             //
-            //    ORIGINAL: outVol = cos(θ) * primaryStartVolume
-            //              inVol  = sin(θ) * secondaryBaseVolume
-            //    PROBLEM:  cos²θ + sin²θ = 1 ONLY holds when both use the SAME
-            //              reference amplitude. With different values the power
-            //              curve is not constant — listener hears a volume sag.
+            // ORIGINAL PROBLEM (proven by log timestamps):
+            //   withContext(Dispatchers.Main) blocks the Default-dispatcher coroutine
+            //   while waiting for the main thread. Over 80 steps, this compounds:
+            //     Crossfade 1: configured 8000ms → actual 11,231ms (+40% drift)
+            //     Crossfade 2: configured 8000ms → actual 10,806ms (+35% drift)
+            //     Crossfade 3: configured 8000ms → actual 10,083ms (+26% drift)
             //
-            //    FIX: Use commonFadeRef = max(normalizedPrimary, secondaryBase)
-            //         for BOTH curves. After swap, snap secondary to its actual
-            //         target volume. The snap is instantaneous and inaudible
-            //         because it happens after the crossfade is complete.
+            // FIX — two changes working together:
             //
-            //    PROOF: outVol² + inVol² = (cos²θ + sin²θ) * commonFadeRef²
-            //                            = 1.0 * commonFadeRef² = CONSTANT ✓
-            val commonFadeRef = maxOf(normalizedPrimaryVol, secondaryBaseVolume).coerceIn(0f, 1f)
+            //   A) Handler.postAtTime instead of withContext(Main):
+            //      mainHandler.postAtTime(runnable, uptimeMs) posts the volume
+            //      update with an ABSOLUTE timestamp. The main thread delivers
+            //      it as close to that time as possible, but the calling coroutine
+            //      is NOT blocked waiting for it — it moves on immediately.
+            //
+            //   B) Clock-compensated delay instead of fixed delay(stepDelayMs):
+            //      Each iteration calculates the ACTUAL wall-clock time remaining
+            //      until the next step's target time. If a previous step ran late,
+            //      this naturally shortens the next wait — catching up without
+            //      accumulating drift. If a step somehow runs early, the wait
+            //      increases to hold timing.
+            //
+            //   Together these guarantee the fade completes in effectiveDurationMs
+            //   regardless of main-thread load. On the device that showed +40% drift,
+            //   this should bring actual duration within ~1-2% of configured.
+            //
+            // PAUSE HANDLING:
+            //   Pause is tracked via a pauseStartedAt timestamp. When playback
+            //   resumes, the fade clock is shifted forward by the pause duration
+            //   so the remaining steps still play out at the correct speed.
+            //
+            // ABORT:
+            //   mainHandler.removeCallbacksAndMessages(null) cancels all pending
+            //   postAtTime volume updates atomically before restoring volumes.
 
-            val stepDelayMs = (effectiveDurationMs / FADE_STEPS).coerceAtLeast(16L)
+            val commonFadeRef   = maxOf(normalizedPrimaryVol, secondaryBaseVolume).coerceIn(0f, 1f)
+            val stepDelayMs     = (effectiveDurationMs / FADE_STEPS).coerceAtLeast(16L)
+            val bassRestoreStep = BASS_RESTORE_STEP
 
             Log.i(TAG, "[CROSSFADE] ⑤ Fade: out ${"%.3f".format(normalizedPrimaryVol)}→0 " +
                     "in 0→${"%.3f".format(secondaryBaseVolume)} " +
                     "commonRef=${"%.3f".format(commonFadeRef)} " +
-                    "$FADE_STEPS steps × ${stepDelayMs}ms")
+                    "$FADE_STEPS steps × ${stepDelayMs}ms (clock-compensated)")
+
+            // Pre-compute all volume values — no math inside the timed loop
+            val outVols = FloatArray(FADE_STEPS + 1)
+            val inVols  = FloatArray(FADE_STEPS + 1)
+            for (step in 1..FADE_STEPS) {
+                val angle = (step.toFloat() / FADE_STEPS) * (PI.toFloat() / 2f)
+                outVols[step] = (cos(angle) * commonFadeRef).coerceIn(0f, 1f)
+                inVols[step]  = (sin(angle) * commonFadeRef).coerceIn(0f, 1f)
+            }
 
             var incomingBassRestored = false
+
+            // Fade clock anchored to uptimeMillis (monotonic, unaffected by wall-clock changes)
+            val fadeStartUptimeMs = SystemClock.uptimeMillis()
+            // Track accumulated pause time so the clock is paused when audio is paused
+            var pauseStartUptimeMs = 0L
+            var totalPausedMs      = 0L
+            var wasPaused          = false
+
+            var maxDriftWarnedMs   = 0L // suppress duplicate drift warnings
 
             for (step in 1..FADE_STEPS) {
                 if (!engineScope.isActive || abortCrossfade) break
 
-                // Pause-aware: wait while paused (audio focus or user)
+                // ── Pause-aware clock ─────────────────────────────────────────
+                // If playback is paused, spin here and accumulate pause duration.
+                // The fade clock is shifted forward by totalPausedMs so the
+                // remaining steps still play at the configured speed after resume.
                 while (!_state.value.isPlaying && engineScope.isActive && !abortCrossfade) {
+                    if (!wasPaused) {
+                        pauseStartUptimeMs = SystemClock.uptimeMillis()
+                        wasPaused = true
+                    }
                     delay(FOCUS_RESUME_POLL_MS)
+                }
+                if (wasPaused) {
+                    totalPausedMs += SystemClock.uptimeMillis() - pauseStartUptimeMs
+                    wasPaused = false
                 }
                 if (abortCrossfade) break
 
-                val theta = step.toFloat() / FADE_STEPS
-                val angle = theta * (PI.toFloat() / 2f)
-
-                // Equal-power volumes — both use commonFadeRef so power is constant
-                val outVol = (cos(angle) * commonFadeRef).coerceIn(0f, 1f)
-                val inVol  = (sin(angle) * commonFadeRef).coerceIn(0f, 1f)
-
-                // FIX #5 continued: restore incoming bass at 50% crossfade
-                if (!incomingBassRestored && step >= BASS_RESTORE_STEP) {
+                // ── Bass restore at midpoint (EQ call, still needs Main) ───────
+                // This is a rare call (once per crossfade) so withContext is fine.
+                if (!incomingBassRestored && step >= bassRestoreStep) {
                     incomingBassRestored = true
                     withContext(Dispatchers.Main) { incomingEq?.setGains(originalInGains) }
-                    Log.i(TAG, "[CROSSFADE] ⑥ Bass restore: incoming sub-bass restored at ${(theta * 100).toInt()}%")
+                    val pct = (step.toFloat() / FADE_STEPS * 100).toInt()
+                    Log.i(TAG, "[CROSSFADE] ⑥ Bass restore: incoming sub-bass restored at $pct%")
                 }
 
-                withContext(Dispatchers.Main) {
-                    primaryRef.volume   = outVol
-                    secondaryRef.volume = inVol
-                }
-                _state.update { it.copy(crossfadeProgressFraction = sin(angle)) }
+                // ── FIX A: Fire-and-forget volume update via postAtTime ────────
+                val outV = outVols[step]
+                val inV  = inVols[step]
+                val targetUptimeMs = fadeStartUptimeMs + totalPausedMs + step * stepDelayMs
+                mainHandler.postAtTime({
+                    primaryRef.volume   = outV
+                    secondaryRef.volume = inV
+                }, targetUptimeMs)
 
+                // Progress update — cheap state copy, no blocking
+                val sinAngle = inV / commonFadeRef.coerceAtLeast(0.001f)
+                _state.update { it.copy(crossfadeProgressFraction = sinAngle.coerceIn(0f, 1f)) }
+
+                // Milestone logging (3 points per crossfade — minimal overhead)
                 if (step == FADE_STEPS / 4 || step == FADE_STEPS / 2 || step == (FADE_STEPS * 3) / 4) {
-                    val outPower  = outVol * outVol
-                    val inPower   = inVol  * inVol
+                    val outPower  = outV * outV
+                    val inPower   = inV  * inV
                     val totalRef  = commonFadeRef * commonFadeRef
                     val normPower = if (totalRef > 0f) (outPower + inPower) / totalRef else 0f
-                    Log.i(TAG, "[CROSSFADE] ${(theta * 100).toInt()}% │ " +
-                            "out=${"%.3f".format(outVol)} in=${"%.3f".format(inVol)} │ " +
+                    Log.i(TAG, "[CROSSFADE] ${(step * 100 / FADE_STEPS)}% │ " +
+                            "out=${"%.3f".format(outV)} in=${"%.3f".format(inV)} │ " +
                             "power=${"%.3f".format(normPower)} (1.000=perfect equal-power)")
                 }
-                delay(stepDelayMs)
+
+                // ── FIX B: Clock-compensated delay ────────────────────────────
+                // How many ms until this step's target time?
+                // If negative (we're already late), delay(0) effectively yields
+                // the coroutine for one frame rather than skipping entirely.
+                val now          = SystemClock.uptimeMillis()
+                val waitMs       = (targetUptimeMs - now).coerceAtLeast(0L)
+                val driftMs      = now - targetUptimeMs  // positive = running late
+
+                if (driftMs > DRIFT_WARN_THRESHOLD_MS && driftMs > maxDriftWarnedMs) {
+                    maxDriftWarnedMs = driftMs
+                    Log.w(TAG, "[CROSSFADE] Timing drift: step=$step behind by ${driftMs}ms — compensating")
+                }
+
+                if (waitMs > 0L) delay(waitMs)
+                // If waitMs == 0: we're late. Don't delay at all — the next step's
+                // targetUptimeMs is in the past too, so it will also fire immediately,
+                // catching up until we're back on schedule.
             }
 
             if (abortCrossfade) {
+                mainHandler.removeCallbacksAndMessages(null) // cancel all pending posts
                 Log.w(TAG, "[CROSSFADE] ✗ Aborted — restoring primary volume")
                 withContext(Dispatchers.Main) {
                     primaryRef.volume             = normalizedPrimaryVol
@@ -803,16 +843,19 @@ class CrossfadeEngine @Inject constructor(
             }
 
             // ── ↔ Swap ────────────────────────────────────────────────────────
+            // Small safety wait: let the last postAtTime volume post land before
+            // we swap roles. At this point we're post-loop so the coroutine is
+            // free — a brief yield is fine and prevents a race where swap
+            // completes before the final volume=0 post fires.
+            delay(stepDelayMs.coerceAtMost(32L))
+
             Log.i(TAG, "[CROSSFADE] ↔ Swap: '${nextTrack.title}' becomes primary")
             withContext(Dispatchers.Main) {
-                // FIX #2 continued: snap secondary to its actual target volume
-                // (during the fade it was at commonFadeRef which may be slightly higher)
                 if (_state.value.isPlaying) {
                     secondaryRef.volume = secondaryBaseVolume.coerceIn(0f, 1f)
                 }
                 secondaryRef.playbackParameters = PlaybackParameters.DEFAULT
 
-                // Restore outgoing EQ (including incoming EQ if bass wasn't restored yet)
                 outgoingEq?.setGains(originalOutGains)
                 if (!incomingBassRestored) incomingEq?.setGains(originalInGains)
 
@@ -863,16 +906,6 @@ class CrossfadeEngine @Inject constructor(
     // PHASE ALIGNMENT
     // ═══════════════════════════════════════════════════════════════════════
 
-    /**
-     * Computes the seek position on the incoming track that phase-aligns it
-     * with the outgoing track at the moment crossfade begins.
-     *
-     * We take the outgoing track's current phase within its beat interval
-     * (how far past the last beat it is) and seek the incoming track to
-     * the same phase offset from its first detected beat.
-     *
-     * Result: both tracks are on the same beat grid when audio overlaps.
-     */
     private fun calculatePhaseAlignedSeekMs(
         outgoingPositionMs: Long,
         outgoingFirstBeatMs: Long,
@@ -883,7 +916,7 @@ class CrossfadeEngine @Inject constructor(
             Log.d(TAG, "[PHASE SYNC] No outgoing BPM — falling back to incomingFirstBeat=${incomingFirstBeatMs}ms")
             return incomingFirstBeatMs.coerceAtLeast(0L)
         }
-        val beatIntervalMs = 60_000.0 / outgoingBpm
+        val beatIntervalMs  = 60_000.0 / outgoingBpm
         val outgoingPhaseMs = if (outgoingPositionMs >= outgoingFirstBeatMs) {
             (outgoingPositionMs - outgoingFirstBeatMs).toDouble().mod(beatIntervalMs)
         } else {
@@ -900,23 +933,6 @@ class CrossfadeEngine @Inject constructor(
         return seekMs
     }
 
-    /**
-     * FIX #3 — Phrase-boundary snap on incoming track.
-     *
-     * PROBLEM (original code): phase alignment lands on the correct BEAT but
-     * ignores which BAR within the phrase. For Afrobeats and Dancehall (which
-     * are phrase-critical — groove, call-response, and hooks repeat on strict
-     * 4/8/16-bar cycles), starting mid-phrase sounds "off" even when the beat
-     * is on time.
-     *
-     * FIX: After computing the phase-aligned seek position, find the nearest
-     * 8-bar or 16-bar phrase boundary on the incoming track. Snap to it if it
-     * is within PHRASE_SNAP_MAX_DELTA_MS (prevents jumping entire sections).
-     *
-     * Why check both 8 and 16 bars: Afrobeats typically uses 8-bar phrases;
-     * Dancehall and reggae often use 16. Checking both and picking the closest
-     * maximizes musical accuracy across both genres.
-     */
     private fun snapToPhraseBoundaryMs(
         seekMs: Long,
         incomingFirstBeatMs: Long,
@@ -926,21 +942,22 @@ class CrossfadeEngine @Inject constructor(
         if (seekMs < incomingFirstBeatMs) return seekMs
 
         val beatIntervalMs = 60_000.0 / incomingBpm
-        val barIntervalMs  = beatIntervalMs * 4.0  // 4/4 time
+        val barIntervalMs  = beatIntervalMs * 4.0
 
         val bestMs = listOf(8, 16).map { bars ->
-            val phraseMs        = barIntervalMs * bars
-            val posRelative     = (seekMs - incomingFirstBeatMs).toDouble()
-            val phraseCount     = (posRelative / phraseMs).toLong()
-            val currentStart    = incomingFirstBeatMs + (phraseCount * phraseMs).toLong()
-            val nextStart       = currentStart + phraseMs.toLong()
+            val phraseMs     = barIntervalMs * bars
+            val posRelative  = (seekMs - incomingFirstBeatMs).toDouble()
+            val phraseCount  = (posRelative / phraseMs).toLong()
+            val currentStart = incomingFirstBeatMs + (phraseCount * phraseMs).toLong()
+            val nextStart    = currentStart + phraseMs.toLong()
             if (abs(seekMs - currentStart) <= abs(nextStart - seekMs)) currentStart else nextStart
         }.minByOrNull { abs(it - seekMs) } ?: seekMs
 
         val delta = abs(bestMs - seekMs)
         return if (delta <= PHRASE_SNAP_MAX_DELTA_MS) {
             if (delta > 50L) {
-                Log.i(TAG, "[PHASE SYNC] Phrase snap: ${seekMs}ms → ${bestMs}ms (Δ=${delta}ms, moved ${if (bestMs > seekMs) "forward" else "back"})")
+                Log.i(TAG, "[PHASE SYNC] Phrase snap: ${seekMs}ms → ${bestMs}ms " +
+                        "(Δ=${delta}ms, moved ${if (bestMs > seekMs) "forward" else "back"})")
             }
             bestMs.coerceAtLeast(incomingFirstBeatMs)
         } else {
@@ -965,20 +982,13 @@ class CrossfadeEngine @Inject constructor(
 
                 val remaining = duration - position
 
-                // FIX: Smart trigger recalculates correctly.
-                // ORIGINAL BUG: currentSmartTriggerMs was set once on the first poll
-                // (position ≈ 0ms), but calculateSmartTriggerThresholdMs returns the
-                // default if position < halfDuration — so it ALWAYS returned the default
-                // and never actually found the smart trigger point.
-                // FIX: Recalculate whenever currentSmartTriggerMs is -1L AND position
-                // has crossed the half-time mark. Only calculate once per track.
                 if (currentSmartTriggerMs == -1L &&
                     duration > 120_000L && isRealMixMode &&
                     position >= (duration * MIN_HALF_TIME_FOR_SMART_SEARCH).toLong()) {
 
                     currentSmartTriggerMs = calculateSmartTriggerThresholdMs(
-                        durationMs  = duration,
-                        envelope    = currentWaveformEnvelope,
+                        durationMs    = duration,
+                        envelope      = currentWaveformEnvelope,
                         isRealMixMode = true
                     )
                     Log.i(TAG, "[TRIGGER] Smart trigger set: ${currentSmartTriggerMs}ms remaining " +
@@ -995,7 +1005,6 @@ class CrossfadeEngine @Inject constructor(
                     REAL_MIX_PREBUFFER_MS else crossfadeDurationMs * PREBUFFER_MULTIPLIER
                 val postGuardActive = System.currentTimeMillis() < postCrossfadeGuardUntilMs
 
-                // ── Prebuffer request ─────────────────────────────────────────
                 if (duration > 0L && remaining in baseThreshold..prebufferThresholdMs &&
                     !_state.value.isCrossfading && prebufferedTrackId == null &&
                     !isPrebufferingInProgress) {
@@ -1006,21 +1015,14 @@ class CrossfadeEngine @Inject constructor(
                     }
                 }
 
-                // ── FIX #4: Phrase-boundary aware trigger ─────────────────────
-                //    ORIGINAL: isNearPhraseBoundary used 16-bar phrases only with
-                //    a 1.5-beat window — too tight to catch reliably.
-                //    FIX: Check both 8-bar and 16-bar phrases with a 2-beat window.
-                val features         = _state.value.audioFeatures
+                val features           = _state.value.audioFeatures
                 val nearPhraseBoundary = isNearPhraseBoundary(
                     posMs       = position,
                     firstBeatMs = currentTrackFirstBeatMs,
                     bpm         = currentTrackBpm
                 )
-                val isMusicallyGood  = features.isDropping || features.isLowEnergy || nearPhraseBoundary
+                val isMusicallyGood = features.isDropping || features.isLowEnergy || nearPhraseBoundary
 
-                // FIX #4 continued: more aggressive pull-forward than original (+12s).
-                // Afrobeats/Dancehall outros often sustain energy without dropping, so
-                // phrase boundary detection is the PRIMARY trigger signal for these genres.
                 val effectiveThreshold = if (isMusicallyGood && isRealMixMode) {
                     (baseThreshold + MUSICAL_PULLFORWARD_MS)
                         .coerceAtMost(REAL_MIX_TRIGGER_MS + MUSICAL_PULLFORWARD_CAP_MS)
@@ -1069,37 +1071,19 @@ class CrossfadeEngine @Inject constructor(
         }
     }
 
-    /**
-     * FIX #4 — Phrase-boundary detection for trigger logic.
-     *
-     * Checks both 8-bar and 16-bar phrase lengths (covers Afrobeats and Dancehall).
-     * Window is ±PHRASE_BOUNDARY_WINDOW_BEATS (2 beats) — wider than original 1.5.
-     *
-     * A 2-beat window at 100 BPM = ±1200ms, meaning any position within 1.2 seconds
-     * of a phrase boundary qualifies. This catches boundaries reliably even when
-     * BPM estimation has minor inaccuracies.
-     */
     private fun isNearPhraseBoundary(posMs: Long, firstBeatMs: Long, bpm: Float): Boolean {
         if (bpm <= 0f || posMs < firstBeatMs) return false
         val beatInterval = 60_000.0 / bpm
         val window       = beatInterval * PHRASE_BOUNDARY_WINDOW_BEATS
 
-        // Check both 8-bar (Afrobeats) and 16-bar (Dancehall/Reggae) phrases
         for (phraseBars in listOf(8, 16)) {
-            val phraseInterval = beatInterval * phraseBars * 4  // 4 beats per bar
+            val phraseInterval = beatInterval * phraseBars * 4
             val phase          = (posMs - firstBeatMs).toDouble().mod(phraseInterval)
             if (phase < window || phase > (phraseInterval - window)) return true
         }
         return false
     }
 
-    /**
-     * Analyses the track's waveform envelope to find the optimal crossfade
-     * trigger point — the moment of maximum energy drop in the outro region.
-     *
-     * Position check (half-time guard) is now done in the CALLER (startPositionMonitoring)
-     * so this function no longer needs a currentPositionMs parameter.
-     */
     private fun calculateSmartTriggerThresholdMs(
         durationMs: Long,
         envelope: FloatArray,
@@ -1109,7 +1093,6 @@ class CrossfadeEngine @Inject constructor(
             return REAL_MIX_TRIGGER_MS
         }
 
-        // Search the late-outro region for the biggest single-bucket RMS drop
         val searchStartRemainingMs = 85_000L
         val searchEndRemainingMs   = 55_000L
 
