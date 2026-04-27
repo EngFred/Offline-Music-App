@@ -462,7 +462,10 @@ class CrossfadeEngine @Inject constructor(
         currentWaveformEnvelope = waveformEnvelope
         currentSmartTriggerMs   = -1L
 
-        val normalisedVolume = if (amplitude > 0f) (0.15f / amplitude).coerceIn(0.2f, 1.0f) else 1.0f
+        // --- VOLUME MATCHING DISABLED FOR NOW ---
+        // val normalisedVolume = if (amplitude > 0f) (0.15f / amplitude).coerceIn(0.2f, 1.0f) else 1.0f
+        val normalisedVolume = 1.0f
+
         currentTrackBaseVolume = normalisedVolume
 
         engineScope.launch {
@@ -561,23 +564,27 @@ class CrossfadeEngine @Inject constructor(
 
         // ── ★ DJ CUE POINT — where the incoming track will start ──────────────
         //
-        // Think like a DJ: "Where should I start this incoming track?
-        // Not from bar 1 — that's the intro. I want bar 17 onwards,
-        // where the groove is fully established."
-        //
-        // We calculate bars from the true beat-0 of the incoming track.
-        // The result is a phrase boundary well into the track's musical content.
-        val djCuePointMs = calculateDjCuePointMs(
-            firstBeatMs = nextFirstBeatMs,
-            bpm         = nextBpm
-        )
+        // Only apply real DJ cueing if isRealMixMode is true. Otherwise, start
+        // strictly from 0ms.
+        val djCuePointMs = if (isRealMixMode) {
+            calculateDjCuePointMs(
+                firstBeatMs = nextFirstBeatMs,
+                bpm         = nextBpm
+            )
+        } else {
+            0L
+        }
 
         // How many bars from beat-0 is the DJ cue point?
-        val djCueBarsStr = if (nextBpm > 0f) {
+        val djCueBarsStr = if (isRealMixMode && nextBpm > 0f) {
             val barIntervalMs = 60_000.0 / nextBpm * 4.0
             val bars = if (barIntervalMs > 0) ((djCuePointMs - nextFirstBeatMs) / barIntervalMs).toInt() else 0
             "≈${bars}bars"
-        } else "unknown"
+        } else if (!isRealMixMode) {
+            "Bypassed (0ms)"
+        } else {
+            "unknown"
+        }
 
         Log.i(TAG, "")
         Log.i(TAG, "╔══════════════════════════════════════════════════════════╗")
@@ -585,7 +592,7 @@ class CrossfadeEngine @Inject constructor(
         Log.i(TAG, "╠══════════════════════════════════════════════════════════╣")
         Log.i(TAG, "║ Outgoing : '${_state.value.currentTrack?.title}'")
         Log.i(TAG, "║ Incoming : '${nextTrack.title}' (starts from 0)")
-        Log.i(TAG, "║ Mode     : ${if (isRealMixMode) "REAL MIX" else "NEAR-END"}")
+        Log.i(TAG, "║ Mode     : ${if (isRealMixMode) "REAL MIX" else "STANDARD MIX"}")
         Log.i(TAG, "║ Duration : ${effectiveDurationMs}ms  Steps: $FADE_STEPS")
         Log.i(TAG, "║ Out BPM  : $currentTrackBpm  In BPM: $nextBpm")
         Log.i(TAG, "║ BPM ratio: ${"%.3f".format(tempoRatio)}" +
@@ -602,9 +609,13 @@ class CrossfadeEngine @Inject constructor(
         val originalInGains  = incomingEq?.getGains() ?: DoubleArray(10) { 0.0 }
 
         try {
-            val normalizedPrimaryVol = currentTrackBaseVolume.coerceIn(0.2f, 1.0f)
-            val secondaryBaseVolume  = (if (nextAmplitude > 0f)
-                (0.15f / nextAmplitude).coerceIn(0.2f, 1.0f) else 1.0f).coerceIn(0f, 1f)
+            // --- VOLUME MATCHING DISABLED FOR NOW ---
+            // val normalizedPrimaryVol = currentTrackBaseVolume.coerceIn(0.2f, 1.0f)
+            // val secondaryBaseVolume  = (if (nextAmplitude > 0f)
+            //    (0.15f / nextAmplitude).coerceIn(0.2f, 1.0f) else 1.0f).coerceIn(0f, 1f)
+
+            val normalizedPrimaryVol = 1.0f
+            val secondaryBaseVolume  = 1.0f
 
             withContext(Dispatchers.Main) {
                 primaryRef.volume = normalizedPrimaryVol
@@ -651,24 +662,14 @@ class CrossfadeEngine @Inject constructor(
             // ─────────────────────────────────────────────────────────────────
             // ── ② b PHRASE-ALIGNED MIX-OUT — wait for outgoing boundary ──────
             //
-            // Think like a DJ: "Should I start the crossfade right now, or
-            // should I wait? Let me count bars. The next clean 8-bar exit
-            // point on the outgoing track is 16,729ms away — I'll wait."
-            //
-            // We calculate the next 8-bar (fallback 4-bar) phrase boundary on
-            // the outgoing track and delay until we reach it, so the transition
-            // always fires at a musically natural exit point — never mid-bar.
-            //
-            // Safety cap: never wait so long that the crossfade can't complete
-            // before the outgoing track ends.
+            // If isRealMixMode is true, we wait for a natural 8-bar/4-bar exit.
+            // Otherwise, we fire immediately at the time threshold.
             // ─────────────────────────────────────────────────────────────────
             val outPosBeforeWait = withContext(Dispatchers.Main) { primaryRef.currentPosition }
             val outDuration      = withContext(Dispatchers.Main) {
                 primaryRef.duration.takeIf { it != C.TIME_UNSET } ?: 0L
             }
 
-            // Hard cap: always leave at least PHRASE_WAIT_SAFETY_PAD_MS between
-            // "phrase boundary" and end of outgoing track, so the fade has room.
             val safeMaxWait = if (outDuration > 0L) {
                 (outDuration - outPosBeforeWait - crossfadeDurationMs - PHRASE_WAIT_SAFETY_PAD_MS)
                     .coerceIn(0L, PHRASE_WAIT_MAX_MS)
@@ -676,18 +677,22 @@ class CrossfadeEngine @Inject constructor(
                 PHRASE_WAIT_MAX_MS
             }
 
-            val phraseWaitTargetMs = calculateNextOutgoingPhraseBoundaryMs(
-                currentPositionMs = outPosBeforeWait,
-                firstBeatMs       = currentTrackFirstBeatMs,
-                bpm               = currentTrackBpm,
-                safeMaxWaitMs     = safeMaxWait
-            )
+            val phraseWaitTargetMs = if (isRealMixMode) {
+                calculateNextOutgoingPhraseBoundaryMs(
+                    currentPositionMs = outPosBeforeWait,
+                    firstBeatMs       = currentTrackFirstBeatMs,
+                    bpm               = currentTrackBpm,
+                    safeMaxWaitMs     = safeMaxWait
+                )
+            } else {
+                outPosBeforeWait // Fire immediately in standard mix mode
+            }
 
             val phraseWaitMs = (phraseWaitTargetMs - outPosBeforeWait).coerceAtLeast(0L)
 
             if (phraseWaitMs >= PHRASE_WAIT_MIN_MS) {
                 Log.i(TAG, "[DJ THINK] ⟳ Outgoing '${_state.value.currentTrack?.title}': " +
-                        "waiting ${phraseWaitMs}ms for 8-bar exit at ${phraseWaitTargetMs}ms " +
+                        "waiting ${phraseWaitMs}ms for exit at ${phraseWaitTargetMs}ms " +
                         "(currently at ${outPosBeforeWait}ms)")
                 delay(phraseWaitMs)
 
@@ -703,26 +708,28 @@ class CrossfadeEngine @Inject constructor(
 
             // ── ③ Phase alignment — Stage A ───────────────────────────────────
             //
-            // Read the outgoing track's position NOW (at/after the phrase
-            // boundary) and phase-align the incoming track's DJ cue point
-            // to match the outgoing track's beat grid.
-            //
-            // We pass djCuePointMs as the "incoming anchor" so the incoming
-            // track starts from bar 16 (its groove entry point), fine-tuned
-            // by the outgoing track's current beat phase.
+            // Read the outgoing track's position NOW and phase-align the incoming
+            // track. If isRealMixMode is off, we KEEP the micro-phase alignment
+            // but SKIP the phrase boundary snap (so we don't jump 8 bars ahead).
             val initialOutgoingPositionMs = withContext(Dispatchers.Main) { primaryRef.currentPosition }
+
             val rawPhaseAlignedMs = calculatePhaseAlignedSeekMs(
                 outgoingPositionMs  = initialOutgoingPositionMs,
                 outgoingFirstBeatMs = currentTrackFirstBeatMs,
                 outgoingBpm         = currentTrackBpm,
-                incomingAnchorMs    = djCuePointMs   // ★ DJ cue point, not raw firstBeatMs
+                incomingAnchorMs    = djCuePointMs
             )
-            val initialSeekMs = snapToPhraseBoundaryMs(
-                seekMs              = rawPhaseAlignedMs,
-                incomingFirstBeatMs = nextFirstBeatMs, // true beat-0 for phrase math
-                incomingBpm         = nextBpm,
-                minimumMs           = djCuePointMs    // never snap before the DJ cue point
-            )
+
+            val initialSeekMs = if (isRealMixMode) {
+                snapToPhraseBoundaryMs(
+                    seekMs              = rawPhaseAlignedMs,
+                    incomingFirstBeatMs = nextFirstBeatMs,
+                    incomingBpm         = nextBpm,
+                    minimumMs           = djCuePointMs
+                )
+            } else {
+                rawPhaseAlignedMs // Apply phase lock but skip phrase/bar jumping
+            }
 
             withContext(Dispatchers.Main) {
                 secondaryRef.seekTo(initialSeekMs)
@@ -743,23 +750,27 @@ class CrossfadeEngine @Inject constructor(
             Log.i(TAG, "[CROSSFADE] ③ Secondary playing=${secondaryPlaying} after ${playWaitMs}ms")
 
             // ── ③ Phase alignment — Stage B (corrective seek) ─────────────────
-            //
-            // The outgoing track advanced during secondary setup. Re-run
-            // phase alignment against the current position and correct if
-            // the drift is meaningful. Same DJ cue point anchor.
+            // Same logic applies here: bypass phrase snap if real mix is off.
             val correctedOutgoingPositionMs = withContext(Dispatchers.Main) { primaryRef.currentPosition }
+
             val correctedRawPhaseMs = calculatePhaseAlignedSeekMs(
                 outgoingPositionMs  = correctedOutgoingPositionMs,
                 outgoingFirstBeatMs = currentTrackFirstBeatMs,
                 outgoingBpm         = currentTrackBpm,
-                incomingAnchorMs    = djCuePointMs   // ★ same DJ cue point anchor
+                incomingAnchorMs    = djCuePointMs
             )
-            val correctedSeekMs     = snapToPhraseBoundaryMs(
-                seekMs              = correctedRawPhaseMs,
-                incomingFirstBeatMs = nextFirstBeatMs,
-                incomingBpm         = nextBpm,
-                minimumMs           = djCuePointMs
-            )
+
+            val correctedSeekMs = if (isRealMixMode) {
+                snapToPhraseBoundaryMs(
+                    seekMs              = correctedRawPhaseMs,
+                    incomingFirstBeatMs = nextFirstBeatMs,
+                    incomingBpm         = nextBpm,
+                    minimumMs           = djCuePointMs
+                )
+            } else {
+                correctedRawPhaseMs
+            }
+
             val secondaryCurrentPos = withContext(Dispatchers.Main) { secondaryRef.currentPosition }
             val correctionDeltaMs   = abs(correctedSeekMs - secondaryCurrentPos)
 
@@ -1035,9 +1046,9 @@ class CrossfadeEngine @Inject constructor(
      * the transition feel intentional rather than arbitrary.
      *
      * Logic:
-     *  1. Try the next 8-bar phrase boundary after [currentPositionMs].
-     *  2. If that is too far away (> [safeMaxWaitMs]), try the next 4-bar boundary.
-     *  3. If even 4-bar is too far, return [currentPositionMs] (fire immediately).
+     * 1. Try the next 8-bar phrase boundary after [currentPositionMs].
+     * 2. If that is too far away (> [safeMaxWaitMs]), try the next 4-bar boundary.
+     * 3. If even 4-bar is too far, return [currentPositionMs] (fire immediately).
      *
      * This means the caller always gets a valid mix point: either a musically
      * clean boundary, or "now" as a safe fallback.
