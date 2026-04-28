@@ -166,6 +166,7 @@ class CrossfadeEngine @Inject constructor(
     private var crossfadeJob: Job? = null
     private var waveformJob: Job? = null
     private var prebufferJob: Job? = null
+    @Volatile private var tempoRestoreJob: Job? = null
 
     @Volatile private var currentTrackBpm: Float = 0f
     @Volatile private var nextTrackBpm: Float = 0f
@@ -256,6 +257,7 @@ class CrossfadeEngine @Inject constructor(
             currentWaveformEnvelope    = FloatArray(0)
             postCrossfadeGuardUntilMs  = 0L
             currentSmartTriggerMs      = -1L
+            tempoRestoreJob            = null
         }
 
         waveformProcessorA = WaveformCaptureAudioProcessor()
@@ -334,6 +336,7 @@ class CrossfadeEngine @Inject constructor(
         crossfadeJob?.cancel()
         waveformJob?.cancel()
         prebufferJob?.cancel()
+        tempoRestoreJob?.cancel()
         audioFocusCoordinator.abandon()
 
         CoroutineScope(Dispatchers.Main.immediate).launch {
@@ -360,6 +363,7 @@ class CrossfadeEngine @Inject constructor(
 
         crossfadeJob?.cancel(); crossfadeJob = null
         prebufferJob?.cancel()
+        tempoRestoreJob?.cancel(); tempoRestoreJob = null
         prebufferedTrackId         = null
         lastPrebufferRequestedId   = null
         isPrebufferingInProgress   = false
@@ -515,6 +519,7 @@ class CrossfadeEngine @Inject constructor(
         val secondaryRef = secondaryPlayer() ?: return
 
         abortCrossfade = false
+        tempoRestoreJob?.cancel()
 
         val (tempoRatio, targetIncomingBpm) = if (currentTrackBpm > 0f && nextBpm > 0f) {
             val bestHarmonic = DjConstants.HARMONIC_RATIOS.minByOrNull { ratio ->
@@ -814,7 +819,6 @@ class CrossfadeEngine @Inject constructor(
                 if (_state.value.isPlaying) {
                     secondaryRef.volume = 1.0f
                 }
-                secondaryRef.playbackParameters = PlaybackParameters.DEFAULT
 
                 // Restore both EQs to their original user-preset state
                 outgoingEq?.setGains(originalOutGains)
@@ -847,6 +851,36 @@ class CrossfadeEngine @Inject constructor(
                     crossfadeProgressFraction = 0f
                 )
             }
+
+            // ── Tempo Pitch Glide ──────────────────────────────────────────────────────
+            if (tempoSyncApplied) {
+                tempoRestoreJob = engineScope.launch {
+                    val slideDurationMs = 12_000L // 12 seconds to gently return pitch to zero
+                    val slideSteps = 60
+                    val delayMs = slideDurationMs / slideSteps
+
+                    Log.i(TAG, "[TEMPO] ↘ Sliding tempo from ${"%.3f".format(tempoSyncRatio)}x back to 1.0x over ${slideDurationMs}ms")
+
+                    for (i in 1..slideSteps) {
+                        if (!isActive) break
+                        val progress = i.toFloat() / slideSteps
+                        val currentRatio = tempoSyncRatio + (1.0f - tempoSyncRatio) * progress
+                        withContext(Dispatchers.Main) {
+                            primaryPlayer()?.playbackParameters = PlaybackParameters(currentRatio)
+                        }
+                        delay(delayMs)
+                    }
+                    withContext(Dispatchers.Main) {
+                        primaryPlayer()?.playbackParameters = PlaybackParameters.DEFAULT
+                    }
+                    Log.i(TAG, "[TEMPO] ✓ Tempo restore complete (1.0x)")
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    primaryPlayer()?.playbackParameters = PlaybackParameters.DEFAULT
+                }
+            }
+            // ───────────────────────────────────────────────────────────────────────────
 
             Log.i(TAG, "╔══════════════════════════════════════════════════════════╗")
             Log.i(TAG, "║ DJ CROSSFADE COMPLETE ✓                                  ║")
