@@ -855,11 +855,14 @@ class CrossfadeEngine @Inject constructor(
             // ── Tempo Pitch Glide ──────────────────────────────────────────────────────
             if (tempoSyncApplied) {
                 tempoRestoreJob = engineScope.launch {
-                    val slideDurationMs = 12_000L // 12 seconds to gently return pitch to zero
-                    val slideSteps = 60
+                    // ExoPlayer's time-stretching algorithm causes audio buffer flushes
+                    // when PlaybackParameters change. Updating too fast (e.g. every 200ms)
+                    // causes severe audio distortion. We throttle this to 1 update per second.
+                    val slideDurationMs = 12_000L
+                    val slideSteps = 12 // Reduced from 60 to prevent buffer thrashing
                     val delayMs = slideDurationMs / slideSteps
 
-                    Log.i(TAG, "[TEMPO] ↘ Sliding tempo from ${"%.3f".format(tempoSyncRatio)}x back to 1.0x over ${slideDurationMs}ms")
+                    Log.i(TAG, "[TEMPO] ↘ Sliding tempo from ${"%.3f".format(tempoSyncRatio)}x back to 1.0x over ${slideDurationMs}ms ($slideSteps steps)")
 
                     for (i in 1..slideSteps) {
                         if (!isActive) break
