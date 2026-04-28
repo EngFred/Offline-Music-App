@@ -50,6 +50,7 @@ class AutoMixService : Service() {
     @Volatile private var lastNotifiedTrackId: Long?      = null
     @Volatile private var lastNotifiedIsPlaying: Boolean? = null
     @Volatile private var lastProgressNotifyMs: Long      = 0L
+    @Volatile private var lastSyncedTrackId: Long?        = null
 
     private val PROGRESS_NOTIFY_INTERVAL_MS = 5_000L
 
@@ -139,6 +140,22 @@ class AutoMixService : Service() {
     private fun observeEngineState() {
         serviceScope.launch {
             crossfadeEngine.state.collectLatest { state ->
+                // ── BPM sync (keeps engine updated when ViewModel is dead) ──
+                val newTrackId = state.currentTrack?.id
+                if (newTrackId != null && newTrackId != lastSyncedTrackId) {
+                    lastSyncedTrackId = newTrackId
+                    val info = djSessionManager.getBpmCacheSnapshot()[newTrackId]
+                    if (info != null && !info.analysisFailed) {
+                        crossfadeEngine.updateCurrentBpmInfo(
+                            bpm              = info.bpm,
+                            firstBeatMs      = info.firstBeatMs,
+                            amplitude        = info.amplitude,
+                            waveformEnvelope = info.waveformEnvelope,
+                        )
+                    }
+                }
+                // ─────────────────────────────────────────────────────────────
+
                 updateMediaSession(
                     track     = state.currentTrack,
                     isPlaying = state.isPlaying,

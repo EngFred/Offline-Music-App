@@ -133,8 +133,24 @@ class MixStudioViewModel @Inject constructor(
                 val track = _uiState.value.trackToJumpTo ?: return
                 Log.i(TAG, "[PLAYBACK] User confirmed jump to track: '${track.title}'")
 
-                // Clear history and start fresh from this track
+                // 1. Clear existing history and mark the new track as the current root
                 djSessionManager.resetPlayHistory(keepCurrentId = track.id)
+
+                // 2. Find where this track lives in the smart queue
+                val currentQueue = _uiState.value.smartQueue
+                val targetIndex = currentQueue.indexOfFirst { it.id == track.id }
+
+                // 3. Mark everything BEFORE this track as "already played"
+                // so they are skipped in future Auto-Mix selections
+                if (targetIndex > 0) {
+                    val tracksToSkip = currentQueue.subList(0, targetIndex)
+                    tracksToSkip.forEach { previousTrack ->
+                        djSessionManager.markTrackPlayed(previousTrack.id)
+                    }
+                    Log.i(TAG, "[QUEUE] Marked ${tracksToSkip.size} preceding tracks as already played.")
+                }
+
+                // 4. Start playback
                 syncBeatGridForTrack(track.id)
                 crossfadeEngine.startPlayback(track)
 

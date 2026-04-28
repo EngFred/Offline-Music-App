@@ -50,6 +50,9 @@ class DjSessionManager @Inject constructor(
 
     fun updateSmartQueue(queue: List<AudioFile>) { _smartQueue.value = queue }
     fun updateBpmCache(cache: Map<Long, BpmInfo>) { _bpmCache.value = cache }
+
+    fun getBpmCacheSnapshot(): Map<Long, BpmInfo> = _bpmCache.value
+
     fun updateSettings(settings: MixStudioSettings)  { _settings.value = settings }
 
     /** Allows user to manually remove a track from the upcoming mix */
