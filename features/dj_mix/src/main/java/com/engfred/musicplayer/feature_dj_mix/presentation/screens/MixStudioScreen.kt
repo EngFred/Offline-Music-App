@@ -240,7 +240,6 @@ fun MixStudioScreen(
                                 }
                             }
 
-                            // MixNowRow — both modes support prev + mix now
                             if (uiState.currentTrack != null) {
                                 item(key = "mix_now_row") {
                                     MixNowRow(
@@ -366,6 +365,8 @@ fun MixStudioScreen(
                                     isCurrent      = song.id == uiState.currentTrack?.id,
                                     isPlayed       = song.id in uiState.playedTrackIds &&
                                             song.id != uiState.currentTrack?.id,
+                                    onItemClick    = { viewModel.onEvent(MixStudioEvent.RequestJumpToTrack(song)) },
+                                    onRemoveClick  = { viewModel.onEvent(MixStudioEvent.RemoveFromQueue(song)) }
                                 )
                             }
                         }
@@ -542,7 +543,6 @@ fun MixStudioScreen(
                         }
                     }
 
-                    // MixNowRow — both modes support prev + mix now
                     if (uiState.currentTrack != null) {
                         item(key = "mix_now_row") {
                             MixNowRow(
@@ -592,6 +592,8 @@ fun MixStudioScreen(
                             isCurrent      = song.id == uiState.currentTrack?.id,
                             isPlayed       = song.id in uiState.playedTrackIds &&
                                     song.id != uiState.currentTrack?.id,
+                            onItemClick    = { viewModel.onEvent(MixStudioEvent.RequestJumpToTrack(song)) },
+                            onRemoveClick  = { viewModel.onEvent(MixStudioEvent.RemoveFromQueue(song)) }
                         )
                     }
                 }
@@ -599,7 +601,39 @@ fun MixStudioScreen(
         }
     }
 
-    // ── Analysis-in-progress dialog ───────────────────────────────────────────
+    // ── Dialogs & Bottom Sheets ──
+
+    if (uiState.trackToJumpTo != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.onEvent(MixStudioEvent.DismissJumpDialog) },
+            title = {
+                Text(
+                    text = "Start New Mix?",
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            },
+            text = {
+                Text(
+                    text = "Jumping to '${uiState.trackToJumpTo!!.title}' will clear your current mix history and start a fresh mix sequence from this track. Do you want to continue?",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.onEvent(MixStudioEvent.ConfirmJumpToTrack) }) {
+                    Text("Start Mix", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.onEvent(MixStudioEvent.DismissJumpDialog) }) {
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
     if (uiState.showAnalysisDialog) {
         AnalysisInProgressDialog(
             analysedCount = analysedCount,
@@ -611,7 +645,6 @@ fun MixStudioScreen(
         )
     }
 
-    // ── Settings bottom sheet ─────────────────────────────────────────────────
     if (showSettingsSheet) {
         ModalBottomSheet(
             onDismissRequest = { showSettingsSheet = false },

@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -38,7 +37,9 @@ fun SmartQueueItem(
     isCurrent: Boolean,
     modifier: Modifier = Modifier,
     isPlayed: Boolean = false,
-    analysisFailed: Boolean = false
+    analysisFailed: Boolean = false,
+    onItemClick: () -> Unit = {},
+    onRemoveClick: () -> Unit = {}
 ) {
     val bgColor = if (isCurrent)
         MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent
@@ -48,6 +49,8 @@ fun SmartQueueItem(
             .fillMaxWidth()
             .alpha(if (isPlayed && !isCurrent) 0.45f else 1f)
             .background(bgColor)
+            // NEW: Added Clickable to jump to track
+            .clickable(enabled = !isCurrent) { onItemClick() }
     ) {
         if (isCurrent) {
             Box(
@@ -62,7 +65,7 @@ fun SmartQueueItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 16.dp),
+                .padding(start = 24.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -129,6 +132,17 @@ fun SmartQueueItem(
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.20f)
                 )
+            }
+
+            // Remove from queue button
+            if (!isCurrent) {
+                IconButton(onClick = onRemoveClick) {
+                    Icon(
+                        imageVector        = Icons.Rounded.Close,
+                        contentDescription = "Remove from Mix",
+                        tint               = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.40f)
+                    )
+                }
             }
         }
     }

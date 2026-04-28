@@ -52,9 +52,15 @@ class DjSessionManager @Inject constructor(
     fun updateBpmCache(cache: Map<Long, BpmInfo>) { _bpmCache.value = cache }
     fun updateSettings(settings: MixStudioSettings)  { _settings.value = settings }
 
+    /** Allows user to manually remove a track from the upcoming mix */
+    fun removeFromQueue(trackId: Long) {
+        val updatedQueue = _smartQueue.value.filterNot { it.id == trackId }
+        _smartQueue.value = updatedQueue
+        Log.d(TAG, "Removed trackId $trackId from Smart Queue. New size: ${updatedQueue.size}")
+    }
+
     @Synchronized
     fun markTrackPlayed(trackId: Long) {
-        // Avoid duplicate consecutive entries (e.g., fast double-tap on JumpToTrack)
         if (playHistory.lastOrNull() != trackId) {
             playHistory.addLast(trackId)
         }
@@ -104,7 +110,6 @@ class DjSessionManager @Inject constructor(
         if (remaining.isEmpty() && queue.size > 1) {
             if (cfg.loopQueue) {
                 Log.d(TAG, "Queue exhausted — looping: reversing queue (ping-pong) and resetting history")
-                // Reverse the queue to mix back exactly the way we came
                 val reversedQueue = queue.reversed()
                 _smartQueue.value = reversedQueue
 
@@ -128,17 +133,8 @@ class DjSessionManager @Inject constructor(
 
     // ── Previous-track selection ──────────────────────────────────────────────
 
-    /**
-     * Returns the track that was playing immediately before [currentTrackId]
-     * in the play history, or null if there is no previous track.
-     *
-     * Does NOT modify the history — the crossfade engine will call
-     * [markTrackPlayed] for the returned track once it starts playing,
-     * naturally appending it back to the history as the new current entry.
-     */
     fun skipBack(currentTrackId: Long): AudioFile? {
         val history = synchronized(this) { playHistory.toList() }
-        // Find the last occurrence of the current track in history
         val currentIndex = history.lastIndexOf(currentTrackId)
         if (currentIndex <= 0) {
             Log.d(TAG, "skipBack: no previous track in history (currentIndex=$currentIndex)")

@@ -27,31 +27,14 @@ data class MixStudioUiState(
     val playedTrackIds: Set<Long> = emptySet(),
     val nextTrack: AudioFile? = null,
 
-    // ── Analysis-in-progress dialog ───────────────────────────────────────────
+    // ── Dialog states ───────────────────────────────────────────
 
-    /**
-     * True while the "BPM analysis still in progress" confirmation dialog is visible.
-     * Set to true when the user taps START MIX during an active analysis pass.
-     */
     val showAnalysisDialog: Boolean = false,
-
-    /**
-     * True when the user chose "Auto-Start When Ready" from the analysis dialog.
-     * The mix will start automatically the moment [analysisProgress] reaches 1.0.
-     * Cleared as soon as the auto-start fires (or if the user presses START MIX again).
-     */
     val pendingAutoStartAfterAnalysis: Boolean = false,
 
-    // ── Deck layout preference ────────────────────────────────────────────────
+    /** Holds the track the user wants to jump to. If not null, show the confirmation dialog. */
+    val trackToJumpTo: AudioFile? = null,
 
-    /**
-     * When false (default) the screen shows the classic single-vinyl [NowPlayingSection].
-     * When true it renders [DualDeckSection] — Deck 1 for the current track and
-     * Deck 2 for the upcoming next track — connected by an animated crossfader strip.
-     *
-     * The preference is stored in this ViewModel's state for the lifetime of the
-     * current session (it resets to false when the screen is first opened).
-     * Toggled by dispatching [MixStudioEvent.ToggleDeckLayout].
-     */
+    // ── Deck layout preference ────────────────────────────────────────────────
     val isDualDeckMode: Boolean = false,
 )

@@ -121,6 +121,33 @@ class MixStudioViewModel @Inject constructor(
                 Log.i(TAG, "[SKIP_BACK] Crossfading back to '${prevTrack.title}'")
             }
 
+            is MixStudioEvent.RequestJumpToTrack -> {
+                _uiState.update { it.copy(trackToJumpTo = event.track) }
+            }
+
+            MixStudioEvent.DismissJumpDialog -> {
+                _uiState.update { it.copy(trackToJumpTo = null) }
+            }
+
+            MixStudioEvent.ConfirmJumpToTrack -> {
+                val track = _uiState.value.trackToJumpTo ?: return
+                Log.i(TAG, "[PLAYBACK] User confirmed jump to track: '${track.title}'")
+
+                // Clear history and start fresh from this track
+                djSessionManager.resetPlayHistory(keepCurrentId = track.id)
+                syncBeatGridForTrack(track.id)
+                crossfadeEngine.startPlayback(track)
+
+                _uiState.update { it.copy(currentTrack = track, trackToJumpTo = null) }
+                updateNextTrackPreview()
+            }
+
+            is MixStudioEvent.RemoveFromQueue -> {
+                Log.i(TAG, "[QUEUE] User removed track: '${event.track.title}'")
+                djSessionManager.removeFromQueue(event.track.id)
+                updateNextTrackPreview()
+            }
+
             MixStudioEvent.DismissAnalysisDialog -> {
                 Log.d(TAG, "[ANALYSIS] Dialog dismissed — no action taken")
                 _uiState.update { it.copy(showAnalysisDialog = false) }
