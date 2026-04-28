@@ -304,6 +304,11 @@ class MixStudioViewModel @Inject constructor(
                     crossfadeEngine.initialize()
                     pendingAutoStart = true
                 }
+
+                if (!djSessionManager.isSessionActive.value) {
+                    pendingAutoStart = true
+                }
+
                 val songs = playlist.songs
                 rawPlaylistSongs = songs
                 val sessionAlreadyActive = djSessionManager.isSessionActive.value &&
