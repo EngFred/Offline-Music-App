@@ -168,6 +168,7 @@ class CrossfadeEngine @Inject constructor(
     private var prebufferJob: Job? = null
 
     @Volatile private var currentTrackBpm: Float = 0f
+    @Volatile private var nextTrackBpm: Float = 0f
     @Volatile private var currentTrackAmplitude: Float = 0f
     @Volatile private var currentTrackFirstBeatMs: Long = 0L
     @Volatile private var currentWaveformEnvelope: FloatArray = FloatArray(0)
@@ -369,6 +370,7 @@ class CrossfadeEngine @Inject constructor(
         waveformSmoothed.fill(0f)
         currentWaveformEnvelope    = FloatArray(0)
         currentSmartTriggerMs      = -1L
+        nextTrackBpm               = 0f
         resumeAfterFocusGain       = false
 
         engineScope.launch {
@@ -451,6 +453,7 @@ class CrossfadeEngine @Inject constructor(
     fun prebufferTrack(audioFile: AudioFile, bpm: Float, amplitude: Float) {
         if (isReleased || _state.value.isCrossfading) return
         if (isPrebufferingInProgress || prebufferedTrackId == audioFile.id) return
+        nextTrackBpm = bpm // store so position monitor can decide trigger threshold
 
         isPrebufferingInProgress = true
         prebufferJob?.cancel()
@@ -730,6 +733,7 @@ class CrossfadeEngine @Inject constructor(
             val fadeStartMs   = System.currentTimeMillis()
             var totalPausedMs = 0L
             var pauseStartMs  = 0L
+            var lastEqUpdateMs = -80L // ensure first frame triggers an EQ update immediately
             while (engineScope.isActive && !abortCrossfade) {
                 // Pause-aware: clock stops while paused so fade position is preserved
                 if (!_state.value.isPlaying) {
@@ -745,23 +749,29 @@ class CrossfadeEngine @Inject constructor(
                 val angle   = theta * (PI.toFloat() / 2f)
                 val outVol  = cos(angle).coerceIn(0f, 1f)
                 val inVol   = sin(angle).coerceIn(0f, 1f)
-                // Dynamic mid EQ sweep — always computed from real elapsed position
-                val sweepReduction  = -12.0 * theta
-                val dynamicOutGains = outBassKillGains.clone()
-                if (dynamicOutGains.size >= 7) {
-                    dynamicOutGains[3] = (originalOutGains[3] + sweepReduction).coerceIn(-12.0, 12.0)
-                    dynamicOutGains[4] = (originalOutGains[4] + sweepReduction).coerceIn(-12.0, 12.0)
-                    dynamicOutGains[5] = (originalOutGains[5] + sweepReduction).coerceIn(-12.0, 12.0)
-                    dynamicOutGains[6] = (originalOutGains[6] + sweepReduction * 0.5).coerceIn(-12.0, 12.0)
-                }
-                // Bass restore at 50% of real elapsed time
+
+                // Bass restore at 50% of real elapsed time — one-shot, always checked
                 if (!incomingBassRestored && theta >= 0.5f) {
                     incomingBassRestored = true
                     withContext(Dispatchers.Main) { incomingEq?.setGains(originalInGains) }
                     Log.i(TAG, "[CROSSFADE] ⑥ Bass restore: incoming sub-bass restored at 50%")
                 }
+                // Dynamic mid EQ sweep — throttled to 80ms to prevent BandEqAudioProcessor
+                // coefficient thrashing, which causes audible distortion at 16ms update rates.
+                // Volume stays at 16ms for perceptually smooth fading. These are decoupled intentionally.
+                if (elapsed - lastEqUpdateMs >= 80L) {
+                    lastEqUpdateMs = elapsed
+                    val sweepReduction  = -12.0 * theta
+                    val dynamicOutGains = outBassKillGains.clone()
+                    if (dynamicOutGains.size >= 7) {
+                        dynamicOutGains[3] = (originalOutGains[3] + sweepReduction).coerceIn(-12.0, 12.0)
+                        dynamicOutGains[4] = (originalOutGains[4] + sweepReduction).coerceIn(-12.0, 12.0)
+                        dynamicOutGains[5] = (originalOutGains[5] + sweepReduction).coerceIn(-12.0, 12.0)
+                        dynamicOutGains[6] = (originalOutGains[6] + sweepReduction * 0.5).coerceIn(-12.0, 12.0)
+                    }
+                    withContext(Dispatchers.Main) { outgoingEq?.setGains(dynamicOutGains) }
+                }
                 withContext(Dispatchers.Main) {
-                    outgoingEq?.setGains(dynamicOutGains)
                     primaryRef.volume   = outVol
                     secondaryRef.volume = inVol
                 }
@@ -826,6 +836,7 @@ class CrossfadeEngine @Inject constructor(
             lastRequestedTrackId      = null
             prebufferedTrackId        = null
             lastPrebufferRequestedId  = null
+            nextTrackBpm              = 0f
             postCrossfadeGuardUntilMs = System.currentTimeMillis() + POST_CROSSFADE_GUARD_MS
 
             _state.update {
@@ -955,9 +966,25 @@ class CrossfadeEngine @Inject constructor(
                             "(position=${position}ms, duration=${duration}ms)")
                 }
 
-                val baseThreshold = if (isRealMixMode) {
+                // If the BPM gap between current and next track is too large for tempo sync,
+                // treat it as near-end mode regardless of isRealMixMode. A hard-cut mix fired
+                // 60s early with no tempo alignment sounds terrible. Play to near-end instead.
+                val isBpmGapTooLarge = run {
+                    val cur  = currentTrackBpm
+                    val next = nextTrackBpm
+                    if (cur <= 0f || next <= 0f) false
+                    else {
+                        val bestHarmonic = DjConstants.HARMONIC_RATIOS.minByOrNull { ratio ->
+                            abs((cur * ratio) - next)
+                        } ?: 1.0f
+                        val ratio = (cur * bestHarmonic) / next
+                        ratio < TEMPO_SYNC_MIN_RATIO || ratio > TEMPO_SYNC_MAX_RATIO
+                    }
+                }
+                val baseThreshold = if (isRealMixMode && !isBpmGapTooLarge) {
                     currentSmartTriggerMs.takeIf { it > 0 } ?: REAL_MIX_TRIGGER_MS
                 } else {
+                    if (isBpmGapTooLarge) Log.d(TAG, "[TRIGGER] BPM gap too large — forcing near-end trigger")
                     crossfadeDurationMs + TRIGGER_SETUP_BUFFER_MS
                 }
 
