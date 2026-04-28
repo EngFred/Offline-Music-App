@@ -493,14 +493,14 @@ class CrossfadeEngine @Inject constructor(
 
     /**
      * Executes the complete crossfade sequence:
-     *   ① Secondary prepare / prebuffer reuse
-     *   ② Wait for STATE_READY
-     *   ③ Phase alignment (initial + corrective seek)
-     *   ④ Tempo sync
-     *   ④b Bass kill (outgoing + incoming sub-bass to -12 dB)
-     *   ⑤ Execution loop — equal-power volume fade + dynamic mid EQ sweep
-     *   ⑥ Bass restore on incoming at 50% progress
-     *   ↔ Player swap
+     * ① Secondary prepare / prebuffer reuse
+     * ② Wait for STATE_READY
+     * ③ Phase alignment (initial + corrective seek)
+     * ④ Tempo sync
+     * ④b Bass kill (outgoing + incoming sub-bass to -12 dB)
+     * ⑤ Execution loop — equal-power volume fade + dynamic mid EQ sweep
+     * ⑥ Bass restore on incoming at 50% progress
+     * ↔ Player swap
      */
     private suspend fun executeCrossfade(
         nextTrack: AudioFile,
@@ -705,84 +705,76 @@ class CrossfadeEngine @Inject constructor(
              * Volume: outgoing cos(θ·π/2) → 0, incoming 0 → sin(θ·π/2)
              *
              * EQ sweep (every 5 steps):
-             *   The outgoing track's mid bands [3..6] are swept from their original
-             *   user-preset values down to -12 dB as theta goes 0 → 1.
+             * The outgoing track's mid bands [3..6] are swept from their original
+             * user-preset values down to -12 dB as theta goes 0 → 1.
              *
-             *   CRITICAL: We always compute relative to `originalOutGains[i]`, not
-             *   `outBassKillGains[i]`. This guarantees the sweep is perceptible from
-             *   the very first step regardless of whether the user has a mid-boost
-             *   EQ preset active. The target at full fade (theta=1.0) is -12 dB for
-             *   bands 3–5 and -6 dB for band 6 (shakers/hi-hats get a lighter cut).
+             * CRITICAL: We always compute relative to `originalOutGains[i]`, not
+             * `outBassKillGains[i]`. This guarantees the sweep is perceptible from
+             * the very first step regardless of whether the user has a mid-boost
+             * EQ preset active. The target at full fade (theta=1.0) is -12 dB for
+             * bands 3–5 and -6 dB for band 6 (shakers/hi-hats get a lighter cut).
              *
-             *   Band index reference (10-band EQ):
-             *     0=31Hz  1=62Hz  2=125Hz  3=250Hz  4=500Hz
-             *     5=1kHz  6=2kHz  7=4kHz   8=8kHz   9=16kHz
+             * Band index reference (10-band EQ):
+             * 0=31Hz  1=62Hz  2=125Hz  3=250Hz  4=500Hz
+             * 5=1kHz  6=2kHz  7=4kHz   8=8kHz   9=16kHz
              */
-            val stepDelayMs = (effectiveDurationMs / FADE_STEPS).coerceAtLeast(16L)
-            Log.i(TAG, "[CROSSFADE] ⑤ Fade: out 1.000→0 in 0→1.000 $FADE_STEPS steps × ${stepDelayMs}ms")
 
+            /**
+             * Time-based fade loop.
+             * By tracking real elapsed time instead of counting steps, the fade is guaranteed
+             * to complete in exactly [effectiveDurationMs] regardless of thread starvation or delays.
+             */
+            Log.i(TAG, "[CROSSFADE] ⑤ Fade: out 1.000→0 in 0→1.000 ${effectiveDurationMs}ms (time-based)")
             var incomingBassRestored = false
-
-            for (step in 1..FADE_STEPS) {
-                if (!engineScope.isActive || abortCrossfade) break
-
-                // Pause-aware: hold until playback resumes (e.g. audio focus lost mid-fade)
-                while (!_state.value.isPlaying && engineScope.isActive && !abortCrossfade) {
+            var logged25 = false; var logged50 = false; var logged75 = false
+            val fadeStartMs   = System.currentTimeMillis()
+            var totalPausedMs = 0L
+            var pauseStartMs  = 0L
+            while (engineScope.isActive && !abortCrossfade) {
+                // Pause-aware: clock stops while paused so fade position is preserved
+                if (!_state.value.isPlaying) {
+                    if (pauseStartMs == 0L) pauseStartMs = System.currentTimeMillis()
                     delay(FOCUS_RESUME_POLL_MS)
+                    continue
+                } else if (pauseStartMs != 0L) {
+                    totalPausedMs += System.currentTimeMillis() - pauseStartMs
+                    pauseStartMs   = 0L
                 }
-                if (abortCrossfade) break
-
-                val theta = step.toFloat() / FADE_STEPS
-                val angle = theta * (PI.toFloat() / 2f)
-
-                val outVol = cos(angle).coerceIn(0f, 1f)
-                val inVol  = sin(angle).coerceIn(0f, 1f)
-
-                // ── Dynamic Mid EQ Sweep ──────────────────────────────────────────────
-                // Carves out the outgoing track's snares, claps and shakers to make
-                // room for the incoming Afrobeats/Dancehall percussions.
-                //
-                // Formula:  targetGain[i] = originalOutGains[i] + (−12.0 × theta)
-                // clamped to [−12.0, +12.0].
-                //
-                // This is computed from `originalOutGains` so that the sweep starts
-                // from the actual user-preset value (which may be positive) and
-                // always reaches −12 dB by the end of the fade, regardless of preset.
-                if (step % 5 == 0) {
-                    val sweepReduction = -12.0 * theta
-                    val dynamicOutGains = outBassKillGains.clone()   // bass already killed
-
-                    if (dynamicOutGains.size >= 7) {
-                        // Sweep mids from original user values, not from the bass-kill snapshot
-                        dynamicOutGains[3] = (originalOutGains[3] + sweepReduction).coerceIn(-12.0, 12.0)  // 250 Hz  – Low-Mids / Toms
-                        dynamicOutGains[4] = (originalOutGains[4] + sweepReduction).coerceIn(-12.0, 12.0)  // 500 Hz  – Mids / Snares
-                        dynamicOutGains[5] = (originalOutGains[5] + sweepReduction).coerceIn(-12.0, 12.0)  // 1 kHz   – High-Mids / Claps
-                        dynamicOutGains[6] = (originalOutGains[6] + sweepReduction * 0.5).coerceIn(-12.0, 12.0) // 2 kHz – Shakers / Hi-hats (lighter cut)
-                    }
-                    withContext(Dispatchers.Main) {
-                        outgoingEq?.setGains(dynamicOutGains)
-                    }
+                val elapsed = (System.currentTimeMillis() - fadeStartMs - totalPausedMs).coerceAtLeast(0L)
+                val theta   = (elapsed.toFloat() / effectiveDurationMs).coerceIn(0f, 1f)
+                val angle   = theta * (PI.toFloat() / 2f)
+                val outVol  = cos(angle).coerceIn(0f, 1f)
+                val inVol   = sin(angle).coerceIn(0f, 1f)
+                // Dynamic mid EQ sweep — always computed from real elapsed position
+                val sweepReduction  = -12.0 * theta
+                val dynamicOutGains = outBassKillGains.clone()
+                if (dynamicOutGains.size >= 7) {
+                    dynamicOutGains[3] = (originalOutGains[3] + sweepReduction).coerceIn(-12.0, 12.0)
+                    dynamicOutGains[4] = (originalOutGains[4] + sweepReduction).coerceIn(-12.0, 12.0)
+                    dynamicOutGains[5] = (originalOutGains[5] + sweepReduction).coerceIn(-12.0, 12.0)
+                    dynamicOutGains[6] = (originalOutGains[6] + sweepReduction * 0.5).coerceIn(-12.0, 12.0)
                 }
-
-                // ── Incoming bass restore at 50% ──────────────────────────────────────
-                if (!incomingBassRestored && step >= BASS_RESTORE_STEP) {
+                // Bass restore at 50% of real elapsed time
+                if (!incomingBassRestored && theta >= 0.5f) {
                     incomingBassRestored = true
                     withContext(Dispatchers.Main) { incomingEq?.setGains(originalInGains) }
-                    Log.i(TAG, "[CROSSFADE] ⑥ Bass restore: incoming sub-bass restored at ${(theta * 100).toInt()}%")
+                    Log.i(TAG, "[CROSSFADE] ⑥ Bass restore: incoming sub-bass restored at 50%")
                 }
-
                 withContext(Dispatchers.Main) {
+                    outgoingEq?.setGains(dynamicOutGains)
                     primaryRef.volume   = outVol
                     secondaryRef.volume = inVol
                 }
-                _state.update { it.copy(crossfadeProgressFraction = sin(angle)) }
-
-                if (step == FADE_STEPS / 4 || step == FADE_STEPS / 2 || step == (FADE_STEPS * 3) / 4) {
-                    Log.i(TAG, "[CROSSFADE] ${(theta * 100).toInt()}% │ " +
-                            "out=${"%.3f".format(outVol)} in=${"%.3f".format(inVol)} " +
-                            "midSweep=${"%.1f".format(-12.0 * theta)}dB")
-                }
-                delay(stepDelayMs)
+                _state.update { it.copy(crossfadeProgressFraction = inVol) }
+                val pct = (theta * 100).toInt()
+                if (!logged25 && pct >= 25) { logged25 = true
+                    Log.i(TAG, "[CROSSFADE] 25% │ out=${"%.3f".format(outVol)} in=${"%.3f".format(inVol)} midSweep=${"%.1f".format(-12.0*theta)}dB") }
+                if (!logged50 && pct >= 50) { logged50 = true
+                    Log.i(TAG, "[CROSSFADE] 50% │ out=${"%.3f".format(outVol)} in=${"%.3f".format(inVol)} midSweep=${"%.1f".format(-12.0*theta)}dB") }
+                if (!logged75 && pct >= 75) { logged75 = true
+                    Log.i(TAG, "[CROSSFADE] 75% │ out=${"%.3f".format(outVol)} in=${"%.3f".format(inVol)} midSweep=${"%.1f".format(-12.0*theta)}dB") }
+                if (theta >= 1f) break
+                delay(16L)
             }
 
             // ── Abort path ────────────────────────────────────────────────────────────
@@ -983,37 +975,19 @@ class CrossfadeEngine @Inject constructor(
                     }
                 }
 
-                val features           = _state.value.audioFeatures
-                val nearPhraseBoundary = isNearPhraseBoundary(
-                    posMs       = position,
-                    firstBeatMs = currentTrackFirstBeatMs,
-                    bpm         = currentTrackBpm
-                )
-                val isMusicallyGood = features.isDropping || features.isLowEnergy || nearPhraseBoundary
-
-                val effectiveThreshold = if (isMusicallyGood && isRealMixMode) {
-                    (baseThreshold + MUSICAL_PULLFORWARD_MS)
-                        .coerceAtMost(REAL_MIX_TRIGGER_MS + MUSICAL_PULLFORWARD_CAP_MS)
-                } else {
-                    baseThreshold
-                }
-
-                val inTriggerZone = remaining in CROSSFADE_GUARD_MS..effectiveThreshold
-
+                /** * Base threshold trigger evaluation.
+                 * Real-time checks have been removed to ensure the trigger relies solely on
+                 * pre-calculated, musically-safe smart waveform analysis (baseThreshold).
+                 */
+                val inTriggerZone = remaining in CROSSFADE_GUARD_MS..baseThreshold
                 val shouldTrigger = playing && !_state.value.isCrossfading && !postGuardActive &&
-                        position >= MIN_PLAY_TIME_MS && inTriggerZone &&
-                        remaining <= (if (isMusicallyGood) effectiveThreshold else baseThreshold)
-
+                        position >= MIN_PLAY_TIME_MS && inTriggerZone
                 if (shouldTrigger) {
                     val id = _state.value.currentTrack?.id
                     if (id != null && id != lastRequestedTrackId) {
                         lastRequestedTrackId = id
                         _nextTrackRequest.tryEmit(id)
-                        Log.i(TAG, "[MIXER] SMART auto-mix fired → remaining=${remaining}ms " +
-                                "base=${baseThreshold}ms effective=${effectiveThreshold}ms " +
-                                "isGood=$isMusicallyGood nearPhrase=$nearPhraseBoundary " +
-                                "rms=${"%.3f".format(features.rms)} " +
-                                "trend=${"%.3f".format(features.trend)}")
+                        Log.i(TAG, "[MIXER] SMART auto-mix fired → remaining=${remaining}ms base=${baseThreshold}ms")
                     }
                 }
 
