@@ -3,6 +3,8 @@ package com.engfred.musicplayer.feature_player.data.cast
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import android.net.wifi.WifiManager
+import android.os.PowerManager
 import com.engfred.musicplayer.core.data.server.LocalMediaHttpServer
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.model.CastState
@@ -145,12 +147,46 @@ class CastSessionManager @Inject constructor(
         }
     }
 
+    private var wifiLock: WifiManager.WifiLock? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private fun acquireLocks() {
+        try {
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            wifiLock = wifiManager?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "MusicPlayer:CastWifiLock")?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+            val powerManager = context.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MusicPlayer:CastWakeLock")?.apply {
+                setReferenceCounted(false)
+                acquire(12 * 60 * 60 * 1000L)
+            }
+            Log.d(TAG, "Acquired WifiLock and WakeLock for active Cast session")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to acquire locks: ${e.message}")
+        }
+    }
+
+    private fun releaseLocks() {
+        try {
+            wifiLock?.let { if (it.isHeld) it.release() }
+            wifiLock = null
+            wakeLock?.let { if (it.isHeld) it.release() }
+            wakeLock = null
+            Log.d(TAG, "Released WifiLock and WakeLock")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to release locks: ${e.message}")
+        }
+    }
+
     private fun handleSessionConnected(session: CastSession) {
         currentCastSession = session
         remoteMediaClient = session.remoteMediaClient
         remoteMediaClient?.registerCallback(remoteMediaClientCallback)
         remoteMediaClient?.addProgressListener(progressListener, 500L)
 
+        acquireLocks()
         localMediaServer.startServer()
         _castState.value = CastState.CONNECTED
 
@@ -165,6 +201,7 @@ class CastSessionManager @Inject constructor(
         remoteMediaClient = null
         currentCastSession = null
 
+        releaseLocks()
         localMediaServer.stopServer()
         _castState.value = CastState.DISCONNECTED
 

@@ -49,12 +49,18 @@ class CastPlaybackBridge @Inject constructor(
         }
     }
 
+    var onCastStateUpdated: (() -> Unit)? = null
+
     /**
      * Attaches the app's central [playbackState] StateFlow to be updated during cast sessions.
      */
     fun attachPlaybackState(playbackState: MutableStateFlow<PlaybackState>) {
         targetPlaybackState = playbackState
         playbackState.update { it.copy(castState = castSessionManager.castState.value) }
+    }
+
+    fun getLatestPlaybackState(): PlaybackState {
+        return targetPlaybackState?.value ?: PlaybackState()
     }
 
     private fun startProgressTracker() {
@@ -123,5 +129,6 @@ class CastPlaybackBridge @Inject constructor(
                 castState = CastState.CONNECTED
             )
         }
+        onCastStateUpdated?.invoke()
     }
 }

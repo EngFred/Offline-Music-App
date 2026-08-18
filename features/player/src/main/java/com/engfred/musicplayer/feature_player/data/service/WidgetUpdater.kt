@@ -51,7 +51,9 @@ object WidgetUpdater {
         val idleDisplayInfo: WidgetDisplayInfo?,
         val idleRepeatMode: Int,
         val useThemeAware: Boolean,
-        val isInitial: Boolean = false  // For full vs partial
+        val isInitial: Boolean = false,  // For full vs partial
+        val overrideIsPlaying: Boolean? = null,
+        val overrideShuffle: Boolean? = null
     )
 
     private val lastReqRef = AtomicReference<Req?>(null)
@@ -70,7 +72,9 @@ object WidgetUpdater {
         idleDisplayInfo: WidgetDisplayInfo? = null,
         idleRepeatMode: Int = Player.REPEAT_MODE_OFF,
         useThemeAware: Boolean = false, // whether to adapt to system theme
-        isInitial: Boolean = false
+        isInitial: Boolean = false,
+        overrideIsPlaying: Boolean? = null,
+        overrideShuffle: Boolean? = null
     ) {
         try {
             // Build a compact request and store as last.
@@ -81,7 +85,9 @@ object WidgetUpdater {
                 idleDisplayInfo = idleDisplayInfo,
                 idleRepeatMode = idleRepeatMode,
                 useThemeAware = useThemeAware,
-                isInitial = isInitial
+                isInitial = isInitial,
+                overrideIsPlaying = overrideIsPlaying,
+                overrideShuffle = overrideShuffle
             )
 
             // store latest request (kept for debugging / fallback)
@@ -230,7 +236,7 @@ object WidgetUpdater {
                             partialViews.setTextColor(idDuration, textColorSecondary)
                         }
 
-                        val isPlaying = req.exoPlayer?.isPlaying ?: false
+                        val isPlaying = req.overrideIsPlaying ?: (req.exoPlayer?.isPlaying ?: false)
                         val playDrawableResName = if (isPlaying) "ic_pause_24" else "ic_play_arrow_24"
                         val playDrawableId = resources.getIdentifier(playDrawableResName, "drawable", context.packageName)
                         if (idPlayPauseFull != 0 && playDrawableId != 0) {
@@ -280,7 +286,7 @@ object WidgetUpdater {
                             partialViews.setInt(idRepeat, "setColorFilter", tintColor)
                         }
 
-                        val shuffleEnabled = if (!isIdle) req.exoPlayer?.shuffleModeEnabled ?: false else false
+                        val shuffleEnabled = req.overrideShuffle ?: if (!isIdle) req.exoPlayer?.shuffleModeEnabled ?: false else false
                         val shuffleDrawableId = resources.getIdentifier("ic_shuffle_24", "drawable", context.packageName)
                         if (idShuffle != 0 && shuffleDrawableId != 0) {
                             partialViews.setImageViewResource(idShuffle, shuffleDrawableId)

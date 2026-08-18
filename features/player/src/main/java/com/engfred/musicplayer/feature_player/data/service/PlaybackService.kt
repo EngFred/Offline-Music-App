@@ -33,6 +33,7 @@ import com.engfred.musicplayer.core.domain.repository.SettingsRepository
 import com.engfred.musicplayer.core.mapper.AudioFileMapper
 import com.engfred.musicplayer.core.util.sortAudioFiles
 import com.engfred.musicplayer.core.data.audio.eq.BandEqAudioProcessor
+import com.engfred.musicplayer.core.domain.repository.ShuffleMode
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import dagger.hilt.android.AndroidEntryPoint
@@ -82,6 +83,9 @@ class PlaybackService : MediaSessionService() {
 
     @Inject
     lateinit var castSessionManager: com.engfred.musicplayer.feature_player.data.cast.CastSessionManager
+
+    @Inject
+    lateinit var castPlaybackBridge: com.engfred.musicplayer.feature_player.data.cast.CastPlaybackBridge
 
     private lateinit var exoPlayer: ExoPlayer
     private var mediaSession: MediaSession? = null
@@ -232,13 +236,15 @@ class PlaybackService : MediaSessionService() {
                 }
             })
 
+            castPlaybackBridge.onCastStateUpdated = {
+                updateWidgetWithInfo()
+            }
+
             serviceScope.launch {
                 while (true) {
                     delay(1000)
-                    if (exoPlayer.isPlaying) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            WidgetUpdater.updateWidget(this@PlaybackService, exoPlayer, lastIdleDisplayInfo, getIdleRepeatMode(), widgetThemeAware)
-                        }
+                    if (exoPlayer.isPlaying || (castSessionManager.isConnected() && castSessionManager.isRemotePlaying())) {
+                        updateWidgetWithInfo()
                     }
                 }
             }
@@ -410,6 +416,35 @@ class PlaybackService : MediaSessionService() {
 
     private fun updateWidgetWithInfo() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            if (castSessionManager.isConnected()) {
+                val castState = castPlaybackBridge.getLatestPlaybackState()
+                val currentAudio = castState.currentAudioFile
+                if (currentAudio != null) {
+                    val info = WidgetDisplayInfo(
+                        title = currentAudio.title,
+                        artist = currentAudio.artist ?: "Unknown Artist",
+                        durationMs = castState.totalDurationMs,
+                        positionMs = castState.playbackPositionMs,
+                        artworkUri = currentAudio.albumArtUri
+                    )
+                    val repeatModeInt = when (preferredRepeatMode) {
+                        RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+                        RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+                        else -> Player.REPEAT_MODE_OFF
+                    }
+                    val shuffleOn = (castState.shuffleMode == ShuffleMode.ON) || exoPlayer.shuffleModeEnabled
+                    WidgetUpdater.updateWidget(
+                        this,
+                        exoPlayer = null,
+                        idleDisplayInfo = info,
+                        idleRepeatMode = repeatModeInt,
+                        useThemeAware = widgetThemeAware,
+                        overrideIsPlaying = castState.isPlaying,
+                        overrideShuffle = shuffleOn
+                    )
+                    return
+                }
+            }
             WidgetUpdater.updateWidget(this, exoPlayer, lastIdleDisplayInfo, getIdleRepeatMode(), widgetThemeAware)
         }
     }
@@ -437,6 +472,7 @@ class PlaybackService : MediaSessionService() {
             ACTION_WIDGET_SHUFFLE -> serviceScope.launch {
                 val nextShuffle = !exoPlayer.shuffleModeEnabled
                 exoPlayer.shuffleModeEnabled = nextShuffle
+                playbackController.setShuffleMode(if (nextShuffle) ShuffleMode.ON else ShuffleMode.OFF)
                 updateWidgetWithInfo()
             }
         }
