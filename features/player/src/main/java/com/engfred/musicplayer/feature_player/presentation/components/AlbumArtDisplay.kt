@@ -23,6 +23,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
@@ -39,64 +42,45 @@ fun AlbumArtDisplay(
     isSeeking: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val screenHeightDp = configuration.screenHeightDp
 
-    // Sizes
-    val compactBaseSize = 340.dp
-    val compactPausedSize = compactBaseSize * 0.7f
-    val expandedBaseSize = 460.dp
-    val fixedContainerSize = if (isLandscape) expandedBaseSize else compactBaseSize
+    val compactBaseSize: Dp = if (screenHeightDp < 680) 240.dp else 280.dp
+    val compactPausedSize: Dp = compactBaseSize * 0.82f
+    val fixedContainerSize = if (isLandscape) 220.dp else compactBaseSize
 
-    // We want to control the expansion state manually based on logic, not just raw 'isPlaying'
     var isExpanded by remember { mutableStateOf(isPlaying) }
-
-    // We track the last song ID that was actually PLAYING
     var lastPlayingSongId by remember { mutableStateOf(currentSongId) }
 
-    // Added isSeeking to the key to react to seek start/stop
     LaunchedEffect(isPlaying, currentSongId, isSeeking) {
-        // If the user is seeking, we LOCK the current state.
-        // We do not allow the art to shrink if the player momentarily pauses/buffers during seek.
         if (isSeeking) return@LaunchedEffect
 
         if (isPlaying) {
-            // Case 1: Music is playing. Always expand.
             isExpanded = true
             lastPlayingSongId = currentSongId
         } else {
-            // Case 2: Music paused/stopped.
-            // Check: Did we change songs?
             if (currentSongId != lastPlayingSongId && currentSongId != null) {
-                // If the ID changed, it's a SKIP (Buffering).
-                // Keep it expanded to avoid the "shrink-bounce" glitch.
                 isExpanded = true
-                // Update the ID so if they pause *now*, it will shrink correctly
                 lastPlayingSongId = currentSongId
             } else {
-                // The ID is the same. This is a genuine USER PAUSE.
-                // We add a tiny micro-delay just to smooth out frame-drops during aggressive skipping
                 delay(50)
                 isExpanded = false
             }
         }
     }
 
-    // Determine target size based on our calculated 'isExpanded' state
-    val targetSize: Dp = if (isLandscape.not()) {
+    val targetSize: Dp = if (!isLandscape) {
         if (isExpanded) compactBaseSize else compactPausedSize
     } else compactPausedSize
-
-    val defaultArtSize = if (isExpanded) 200.dp else 100.dp
 
     val animatedAlbumArtSize by animateDpAsState(
         targetValue = targetSize,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
+            dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
         ),
-        label = "etherealFlowAlbumArtSize"
+        label = "albumArtSize"
     )
 
     Box(
@@ -106,41 +90,51 @@ fun AlbumArtDisplay(
         Box(
             modifier = Modifier
                 .size(animatedAlbumArtSize)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)),
+                .shadow(
+                    elevation = if (isExpanded) 16.dp else 6.dp,
+                    shape = RoundedCornerShape(24.dp),
+                    clip = false
+                )
+                .clip(RoundedCornerShape(24.dp))
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = listOf(Color(0xFF2C283E), Color(0xFF161426))
+                    )
+                ),
             contentAlignment = Alignment.Center
         ) {
-            CoilImage(
-                imageModel = { albumArtUri },
-                imageOptions = ImageOptions(
-                    contentDescription = "Album Art",
-                    contentScale = ContentScale.FillBounds
-                ),
-                modifier = Modifier.fillMaxSize(),
-                failure = {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
+            if (albumArtUri != null && albumArtUri.toString().isNotEmpty()) {
+                CoilImage(
+                    imageModel = { albumArtUri },
+                    imageOptions = ImageOptions(
+                        contentDescription = "Album Art",
+                        contentScale = ContentScale.Crop
+                    ),
+                    modifier = Modifier.fillMaxSize(),
+                    failure = {
                         Icon(
                             imageVector = Icons.Rounded.MusicNote,
                             contentDescription = "No Album Art",
-                            modifier = Modifier.size(defaultArtSize),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            modifier = Modifier.size(animatedAlbumArtSize * 0.4f),
+                            tint = Color.White.copy(alpha = 0.7f)
                         )
-                    }
-                },
-                loading = {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    },
+                    loading = {
                         CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(32.dp)
                         )
                     }
-                }
-            )
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.MusicNote,
+                    contentDescription = "No Album Art",
+                    modifier = Modifier.size(animatedAlbumArtSize * 0.4f),
+                    tint = Color.White.copy(alpha = 0.7f)
+                )
+            }
         }
     }
 }

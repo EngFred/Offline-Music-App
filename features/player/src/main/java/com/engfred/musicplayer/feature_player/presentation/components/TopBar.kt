@@ -1,28 +1,30 @@
 package com.engfred.musicplayer.feature_player.presentation.components
 
-import android.app.Activity
-import android.content.pm.ActivityInfo
-import android.widget.Toast
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import android.view.HapticFeedbackConstants
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,20 +38,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.PopupProperties
 import com.engfred.musicplayer.core.domain.model.PlayerLayout
-import android.view.HapticFeedbackConstants
-import androidx.compose.ui.semantics.customActions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Share
 
 @Composable
 fun TopBar(
@@ -62,20 +58,20 @@ fun TopBar(
     onLayoutSelected: (PlayerLayout) -> Unit,
     isFavorite: Boolean = false,
     onToggleFavorite: () -> Unit = {},
-    dynamicContentColor: Color? = null, // Optional dynamic content color for IMMERSIVE_CANVAS
+    dynamicContentColor: Color? = null,
     onShareAudio: (() -> Unit)? = null
 ) {
     var showLayoutMenu by remember { mutableStateOf(false) }
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val view = LocalView.current
 
     val currentSongI = currentSongIndex + 1
-    val currentSongNumText = if(currentSongI > totalQueueSize) "" else currentSongI.toString()
+    val currentSongNumText = if (currentSongI > totalQueueSize) "" else currentSongI.toString()
 
-    // Use dynamicContentColor only for IMMERSIVE_CANVAS; otherwise, use LocalContentColor
     val contentColor = when (selectedLayout) {
         PlayerLayout.IMMERSIVE_CANVAS -> dynamicContentColor ?: MaterialTheme.colorScheme.onBackground
-        else -> LocalContentColor.current // Use LocalContentColor for ETHEREAL_FLOW and MINIMALIST_GROOVE
+        else -> LocalContentColor.current
     }
 
     when (selectedLayout) {
@@ -99,7 +95,7 @@ fun TopBar(
                 Text(
                     text = "Now Playing",
                     style = MaterialTheme.typography.titleLarge,
-                    color = contentColor.copy(alpha = 0.8f),
+                    color = contentColor.copy(alpha = 0.9f),
                     fontWeight = FontWeight.SemiBold
                 )
                 Spacer(modifier = Modifier.weight(1f))
@@ -115,20 +111,22 @@ fun TopBar(
                             modifier = Modifier.size(24.dp)
                         )
                     }
-                    IconButton(onClick = { showLayoutMenu = true }) {
-                        Icon(
-                            Icons.Rounded.MoreVert,
-                            contentDescription = "Change Player Layout",
-                            tint = contentColor
+                    Box {
+                        IconButton(onClick = { showLayoutMenu = true }) {
+                            Icon(
+                                Icons.Rounded.MoreVert,
+                                contentDescription = "Change Player Layout",
+                                tint = contentColor
+                            )
+                        }
+                        LayoutDropdownMenu(
+                            expanded = showLayoutMenu,
+                            onDismissRequest = { showLayoutMenu = false },
+                            selectedLayout = selectedLayout,
+                            onLayoutSelected = onLayoutSelected,
+                            onShareAudio = onShareAudio
                         )
                     }
-                    LayoutDropdownMenu(
-                        expanded = showLayoutMenu,
-                        onDismissRequest = { showLayoutMenu = false },
-                        selectedLayout = selectedLayout,
-                        onLayoutSelected = onLayoutSelected,
-                        onShareAudio = onShareAudio
-                    )
                 }
             }
         }
@@ -139,10 +137,7 @@ fun TopBar(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(
-                    onClick = onNavigateUp,
-                    modifier = Modifier.align(Alignment.CenterVertically)
-                ) {
+                IconButton(onClick = onNavigateUp) {
                     Icon(
                         Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = "Navigate up",
@@ -155,7 +150,7 @@ fun TopBar(
                     Text(
                         text = "${currentSongNumText}/$totalQueueSize",
                         style = MaterialTheme.typography.titleMedium,
-                        color = contentColor.copy(alpha = 0.8f),
+                        color = contentColor.copy(alpha = 0.9f),
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -164,19 +159,22 @@ fun TopBar(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { showLayoutMenu = true }) {
-                        Icon(
-                            Icons.Rounded.MoreVert,
-                            contentDescription = "Change Player Layout",
-                            tint = contentColor
+                    Box {
+                        IconButton(onClick = { showLayoutMenu = true }) {
+                            Icon(
+                                Icons.Rounded.MoreVert,
+                                contentDescription = "Change Player Layout",
+                                tint = contentColor
+                            )
+                        }
+                        LayoutDropdownMenu(
+                            expanded = showLayoutMenu,
+                            onDismissRequest = { showLayoutMenu = false },
+                            selectedLayout = selectedLayout,
+                            onLayoutSelected = onLayoutSelected,
+                            onShareAudio = onShareAudio
                         )
                     }
-                    LayoutDropdownMenu(
-                        expanded = showLayoutMenu,
-                        onDismissRequest = { showLayoutMenu = false },
-                        selectedLayout = selectedLayout,
-                        onLayoutSelected = onLayoutSelected
-                    )
                 }
             }
         }
@@ -201,7 +199,7 @@ fun TopBar(
                 Text(
                     text = "${currentSongNumText}/$totalQueueSize",
                     style = MaterialTheme.typography.titleMedium,
-                    color = contentColor.copy(alpha = 0.8f),
+                    color = contentColor.copy(alpha = 0.9f),
                     fontWeight = FontWeight.SemiBold
                 )
 
@@ -211,7 +209,7 @@ fun TopBar(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (isLandscape.not()) {
+                    if (!isLandscape) {
                         IconButton(onClick = onOpenQueue) {
                             Icon(
                                 Icons.AutoMirrored.Rounded.QueueMusic,
@@ -221,20 +219,22 @@ fun TopBar(
                         }
                     }
 
-                    IconButton(onClick = { showLayoutMenu = true }) {
-                        Icon(
-                            Icons.Rounded.MoreVert,
-                            contentDescription = "Change Player Layout",
-                            tint = contentColor
+                    Box {
+                        IconButton(onClick = { showLayoutMenu = true }) {
+                            Icon(
+                                Icons.Rounded.MoreVert,
+                                contentDescription = "Change Player Layout",
+                                tint = contentColor
+                            )
+                        }
+                        LayoutDropdownMenu(
+                            expanded = showLayoutMenu,
+                            onDismissRequest = { showLayoutMenu = false },
+                            selectedLayout = selectedLayout,
+                            onLayoutSelected = onLayoutSelected,
+                            onShareAudio = onShareAudio
                         )
                     }
-                    LayoutDropdownMenu(
-                        expanded = showLayoutMenu,
-                        onDismissRequest = { showLayoutMenu = false },
-                        selectedLayout = selectedLayout,
-                        onLayoutSelected = onLayoutSelected,
-                        onShareAudio
-                    )
                 }
             }
         }
@@ -252,96 +252,114 @@ private fun LayoutDropdownMenu(
     DropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
+        properties = PopupProperties(focusable = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp),
         modifier = Modifier
-            .background(
-                MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(12.dp)
+            .width(200.dp)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(20.dp)
             )
-            .animateContentSize(animationSpec = tween(durationMillis = 200))
-            .alpha(
-                animateFloatAsState(
-                    targetValue = if (expanded) 1f else 0f,
-                    animationSpec = tween(durationMillis = 200),
-                    label = "dropdownFade"
-                ).value
-            ),
-        offset = DpOffset(x = (-8).dp, y = 8.dp)
     ) {
-        PlayerLayout.entries.forEachIndexed { index, layout ->
-            Box(
-                modifier = Modifier
-                    .background(
-                        if (selectedLayout == layout)
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                        else
-                            Color.Transparent
-                    )
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        onLayoutSelected(layout)
-                        onDismissRequest()
-                    }
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .fillMaxWidth()
-            ) {
-                Text(
-                    text = when (layout) {
-                        PlayerLayout.ETHEREAL_FLOW -> "Ethereal"
-                        PlayerLayout.IMMERSIVE_CANVAS -> "Immersive"
-                        PlayerLayout.MINIMALIST_GROOVE -> "Minimalist"
-                    },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = if (selectedLayout == layout) FontWeight.Medium else FontWeight.Normal
-                )
-            }
-
-            if (index < PlayerLayout.entries.size - 1) {
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    thickness = 0.5.dp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                )
-            }
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+            Text(
+                text = "Player Style",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    letterSpacing = 0.5.sp
+                ),
+                color = MaterialTheme.colorScheme.primary
+            )
         }
 
-        // --- Add Share Audio Menu Item for specific layouts ---
-        if (selectedLayout == PlayerLayout.MINIMALIST_GROOVE || selectedLayout == PlayerLayout.ETHEREAL_FLOW) {
-            HorizontalDivider(
-                modifier = Modifier.padding(horizontal = 16.dp),
-                thickness = 0.5.dp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-            )
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
+            thickness = 1.dp
+        )
 
-            Row(
-                modifier = Modifier
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        onShareAudio?.invoke()
-                        onDismissRequest()
-                    }
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Share,
-                    contentDescription = "Share Audio",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.size(12.dp))
-                Text(
-                    text = "Share Audio",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Medium
-                )
+        PlayerLayout.entries.forEach { layout ->
+            val isSelected = selectedLayout == layout
+            val icon = when (layout) {
+                PlayerLayout.ETHEREAL_FLOW -> Icons.Rounded.AutoAwesome
+                PlayerLayout.IMMERSIVE_CANVAS -> Icons.Rounded.Wallpaper
+                PlayerLayout.MINIMALIST_GROOVE -> Icons.Rounded.Album
             }
+            val label = when (layout) {
+                PlayerLayout.ETHEREAL_FLOW -> "Ethereal"
+                PlayerLayout.IMMERSIVE_CANVAS -> "Immersive"
+                PlayerLayout.MINIMALIST_GROOVE -> "Minimalist"
+            }
+
+            DropdownMenuItem(
+                text = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            fontSize = 13.5.sp
+                        )
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                onClick = {
+                    onLayoutSelected(layout)
+                    onDismissRequest()
+                }
+            )
+        }
+
+        if (onShareAudio != null) {
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f),
+                thickness = 1.dp,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = "Share Audio",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 13.5.sp
+                        )
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Share,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                onClick = {
+                    onShareAudio()
+                    onDismissRequest()
+                }
+            )
         }
     }
 }
