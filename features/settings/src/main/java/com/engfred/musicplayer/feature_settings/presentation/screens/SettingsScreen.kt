@@ -1,170 +1,113 @@
 package com.engfred.musicplayer.feature_settings.presentation.screens
 
-import android.annotation.SuppressLint
 import android.content.Intent
-import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material.icons.rounded.Brush
-import androidx.compose.material.icons.rounded.Call
-import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.Equalizer
-import androidx.compose.material.icons.rounded.HourglassTop
-import androidx.compose.material.icons.rounded.Message
-import androidx.compose.material.icons.rounded.OpenInNew
-import androidx.compose.material.icons.rounded.SupportAgent
-import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Widgets
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.core.net.toUri
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.engfred.musicplayer.core.domain.model.AudioFileTypeFilter
-import com.engfred.musicplayer.core.domain.model.AudioPreset
-import com.engfred.musicplayer.core.domain.model.UpdateInfo
 import com.engfred.musicplayer.core.domain.model.WidgetBackgroundMode
-import com.engfred.musicplayer.core.ui.theme.AppThemeType
 import com.engfred.musicplayer.feature_settings.presentation.components.AppVersionSection
 import com.engfred.musicplayer.feature_settings.presentation.components.ContactDeveloperSection
 import com.engfred.musicplayer.feature_settings.presentation.components.FlatToggleRow
+import com.engfred.musicplayer.feature_settings.presentation.components.PresetSelectionBottomSheet
 import com.engfred.musicplayer.feature_settings.presentation.components.SettingsActionRow
-import com.engfred.musicplayer.feature_settings.presentation.components.SettingsSection
+import com.engfred.musicplayer.feature_settings.presentation.components.SettingsSectionGroup
+import com.engfred.musicplayer.feature_settings.presentation.components.ThemeSelectionBottomSheet
 import com.engfred.musicplayer.feature_settings.presentation.components.UpdateAvailableBanner
 import com.engfred.musicplayer.feature_settings.presentation.viewmodel.SettingsEvent
 import com.engfred.musicplayer.feature_settings.presentation.viewmodel.SettingsViewModel
 
-// ── Developer App catalogue ───────────────────────────────────────────────────
-// Replace the placeholder entries below with your real app names, descriptions,
-// and GitHub repo paths (everything after "https://github.com/EngFred/").
-// Users are taken to the GitHub releases page for each app so they can download
-// the latest APK directly — the same flow your in-app update checker uses.
-//
-// Format: AppInfo(emoji, "Display Name", "Short tagline", "RepoName")
-// ─────────────────────────────────────────────────────────────────────────────
-//private val DEVELOPER_APPS = listOf(
-//    AppInfo(
-//        emoji       = "🎵",
-//        name        = "Offline Music Player",
-//        description = "The app you are using right now.",
-//        repoSlug    = "Offline-Music-App"
-//    ),
-//    // ── TODO: replace the four entries below with your real repos ─────────────
-//    AppInfo(
-//        emoji       = "📖",
-//        name        = "App Two",
-//        description = "Short description of what this app does.",
-//        repoSlug    = "your-repo-name-here"
-//    ),
-//    AppInfo(
-//        emoji       = "🏋️",
-//        name        = "App Three",
-//        description = "Short description of what this app does.",
-//        repoSlug    = "your-repo-name-here"
-//    ),
-//    AppInfo(
-//        emoji       = "🌍",
-//        name        = "App Four",
-//        description = "Short description of what this app does.",
-//        repoSlug    = "your-repo-name-here"
-//    ),
-//    AppInfo(
-//        emoji       = "🔒",
-//        name        = "App Five",
-//        description = "Short description of what this app does.",
-//        repoSlug    = "your-repo-name-here"
-//    ),
-//)
+const val DEVELOPER_PHONE_LOCAL = "+256754348118"
+const val DEVELOPER_WHATSAPP_NUMBER = "256754348118"
 
-// ── Developer contact details ─────────────────────────────────────────────────
-// International format is required for WhatsApp deep-links (wa.me).
-// The local number 0754348118 maps to +256754348118 (Uganda, +256).
-// ─────────────────────────────────────────────────────────────────────────────
-const val DEVELOPER_PHONE_LOCAL        = "+256754348118"
-const val DEVELOPER_WHATSAPP_NUMBER    = "256754348118"   // no leading +
-
-
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
-    onNavigateToDuplicates: () -> Unit
+    onNavigateToDuplicates: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
-    @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        modifier = Modifier.fillMaxSize()
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(top = innerPadding.calculateTopPadding() + 16.dp, bottom = 48.dp),
-            verticalArrangement = Arrangement.spacedBy(32.dp)
-        ) {
-            if (uiState.error != null) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.errorContainer
-                ) {
-                    Text(
-                        text = "Error: ${uiState.error}",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
-            }
+    var showThemeBottomSheet by remember { mutableStateOf(false) }
+    var showPresetBottomSheet by remember { mutableStateOf(false) }
 
-            AnimatedVisibility(
-                visible = uiState.updateInfo != null,
-                enter = fadeIn() + expandVertically()
+    val themeSheetState = rememberModalBottomSheetState()
+    val presetSheetState = rememberModalBottomSheetState()
+
+    val currentThemeName = remember(uiState.selectedTheme) {
+        uiState.selectedTheme.name.replace("_", " ").lowercase().replaceFirstChar { it.titlecase() }
+    }
+
+    val currentPresetName = remember(uiState.audioPreset) {
+        uiState.audioPreset.name.replace("_", " ").lowercase().replaceFirstChar { it.titlecase() }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(top = 8.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        if (uiState.error != null) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.errorContainer
             ) {
-                uiState.updateInfo?.let { info ->
+                Text(
+                    text = "Error: ${uiState.error}",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = uiState.updateInfo != null,
+            enter = fadeIn() + expandVertically()
+        ) {
+            uiState.updateInfo?.let { info ->
+                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                     UpdateAvailableBanner(
                         updateInfo = info,
                         onClick = {
@@ -174,96 +117,86 @@ fun SettingsScreen(
                     )
                 }
             }
+        }
 
-            // ── Theme Section ─────────────────────────────────────────────────
-            SettingsSection(
+        // ── 1. Appearance Section ─────────────────────────────────────────
+        SettingsSectionGroup(title = "Appearance") {
+            SettingsActionRow(
                 title = "App Theme",
-                subtitle = "Choose a look that suits you",
+                subtitle = "Choose a look that suits you best",
                 icon = Icons.Rounded.Brush,
-                items = AppThemeType.entries,
-                selectedItem = uiState.selectedTheme,
-                displayName = { it.name.replace("_", " ").lowercase().replaceFirstChar { c -> c.titlecase() } },
-                onSelect = { viewModel.onEvent(SettingsEvent.UpdateTheme(it)) }
+                valueText = currentThemeName,
+                onClick = { showThemeBottomSheet = true }
+            )
+        }
+
+        // ── 2. Library & Playback Section ─────────────────────────────────
+        SettingsSectionGroup(title = "Library & Playback") {
+            FlatToggleRow(
+                title = "Audio File Types",
+                subtitle = "Turn off to show only MP3 files in library.",
+                icon = Icons.Rounded.AudioFile,
+                isChecked = uiState.audioFileTypeFilter == AudioFileTypeFilter.ALL,
+                onCheckedChange = { isChecked ->
+                    val newFilter = if (isChecked) AudioFileTypeFilter.ALL else AudioFileTypeFilter.MP3_ONLY
+                    viewModel.onEvent(SettingsEvent.UpdateAudioFileTypeFilter(newFilter))
+                }
             )
 
             HorizontalDivider(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                modifier = Modifier.padding(horizontal = 24.dp)
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f),
+                thickness = 0.5.dp,
+                modifier = Modifier.padding(horizontal = 16.dp)
             )
 
-            // ── Preferences / Toggles Section ─────────────────────────────────
-            Column(modifier = Modifier.fillMaxWidth()) {
-                FlatToggleRow(
-                    title = "Audio File Types",
-                    subtitle = "Turn off to show only MP3 files in your library.",
-                    icon = Icons.Rounded.AudioFile,
-                    isChecked = uiState.audioFileTypeFilter == AudioFileTypeFilter.ALL,
-                    onCheckedChange = { isChecked ->
-                        val newFilter = if (isChecked) AudioFileTypeFilter.ALL else AudioFileTypeFilter.MP3_ONLY
-                        viewModel.onEvent(SettingsEvent.UpdateAudioFileTypeFilter(newFilter))
-                    }
-                )
-
-                FlatToggleRow(
-                    title = "Widget Background",
-                    subtitle = "Let the home screen widget follow system light/dark mode.",
-                    icon = Icons.Rounded.Widgets,
-                    isChecked = uiState.widgetBackgroundMode == WidgetBackgroundMode.THEME_AWARE,
-                    onCheckedChange = { isChecked ->
-                        val newMode = if (isChecked) WidgetBackgroundMode.THEME_AWARE else WidgetBackgroundMode.STATIC
-                        viewModel.onEvent(SettingsEvent.UpdateWidgetBackgroundMode(newMode, context))
-                    }
-                )
-
-                SettingsActionRow(
-                    title = "Find Duplicates",
-                    subtitle = "Free up space by safely removing identical audio files.",
-                    icon = Icons.Rounded.CleaningServices,
-                    onClick = onNavigateToDuplicates
-                )
-            }
+            FlatToggleRow(
+                title = "Widget Background",
+                subtitle = "Follow system light/dark mode for widget.",
+                icon = Icons.Rounded.Widgets,
+                isChecked = uiState.widgetBackgroundMode == WidgetBackgroundMode.THEME_AWARE,
+                onCheckedChange = { isChecked ->
+                    val newMode = if (isChecked) WidgetBackgroundMode.THEME_AWARE else WidgetBackgroundMode.STATIC
+                    viewModel.onEvent(SettingsEvent.UpdateWidgetBackgroundMode(newMode, context))
+                }
+            )
 
             HorizontalDivider(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                modifier = Modifier.padding(horizontal = 24.dp)
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f),
+                thickness = 0.5.dp,
+                modifier = Modifier.padding(horizontal = 16.dp)
             )
 
-            // ── Audio Preset Section ──────────────────────────────────────────
-            SettingsSection(
+            SettingsActionRow(
+                title = "Find Duplicates",
+                subtitle = "Safely remove duplicate audio files.",
+                icon = Icons.Rounded.CleaningServices,
+                onClick = onNavigateToDuplicates
+            )
+        }
+
+        // ── 3. Audio Equalizer Section ────────────────────────────────────
+        SettingsSectionGroup(title = "Equalizer") {
+            SettingsActionRow(
                 title = "Audio Preset",
-                subtitle = "Select an equalizer preset for playback",
+                subtitle = "Tune frequency playback profile",
                 icon = Icons.Rounded.Equalizer,
-                items = AudioPreset.entries,
-                selectedItem = uiState.audioPreset,
-                displayName = { it.name.replace("_", " ").lowercase().replaceFirstChar { c -> c.titlecase() } },
-                onSelect = { viewModel.onEvent(SettingsEvent.UpdateAudioPreset(it)) }
+                valueText = currentPresetName,
+                onClick = { showPresetBottomSheet = true }
             )
+        }
 
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                modifier = Modifier.padding(horizontal = 24.dp)
-            )
-
-//            // ── More Apps from the Developer ──────────────────────────────────
-//            MoreAppsSection(apps = DEVELOPER_APPS)
-
-            // ── Contact the Developer ─────────────────────────────────────────
+        // ── 4. Connect & Support Section ──────────────────────────────────
+        SettingsSectionGroup(title = "Connect & Support") {
             ContactDeveloperSection(
                 onWhatsApp = {
-                    // Opens a direct WhatsApp chat with the developer — no need to
-                    // save the number first. Falls back to the Play Store / browser
-                    // if WhatsApp is not installed.
                     val uri = "https://wa.me/$DEVELOPER_WHATSAPP_NUMBER".toUri()
                     val intent = Intent(Intent.ACTION_VIEW, uri).apply {
                         setPackage("com.whatsapp")
                     }
-                    // If WhatsApp is not installed, fall back to the browser deep-link
                     if (intent.resolveActivity(context.packageManager) != null) {
                         context.startActivity(intent)
                     } else {
-                        context.startActivity(
-                            Intent(Intent.ACTION_VIEW, uri)
-                        )
+                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
                     }
                 },
                 onCall = {
@@ -279,19 +212,40 @@ fun SettingsScreen(
                     context.startActivity(intent)
                 }
             )
-
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                modifier = Modifier.padding(horizontal = 24.dp)
-            )
-
-            Spacer(modifier = Modifier.weight(1f, fill = false).height(32.dp))
-
-            Box(modifier = Modifier.padding(horizontal = 24.dp)) {
-                AppVersionSection(
-                    copyrightText = "© 2026 Engineer Fred",
-                )
-            }
         }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // ── 5. About & Copyright (Cleanly at the very bottom) ──────────────
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 16.dp)
+        ) {
+            AppVersionSection(
+                copyrightText = "© 2026 Engineer Fred"
+            )
+        }
+    }
+
+    // Theme Selection Bottom Sheet
+    if (showThemeBottomSheet) {
+        ThemeSelectionBottomSheet(
+            onDismissRequest = { showThemeBottomSheet = false },
+            sheetState = themeSheetState,
+            selectedTheme = uiState.selectedTheme,
+            onThemeSelected = { viewModel.onEvent(SettingsEvent.UpdateTheme(it)) }
+        )
+    }
+
+    // Audio Preset Selection Bottom Sheet
+    if (showPresetBottomSheet) {
+        PresetSelectionBottomSheet(
+            onDismissRequest = { showPresetBottomSheet = false },
+            sheetState = presetSheetState,
+            selectedPreset = uiState.audioPreset,
+            onPresetSelected = { viewModel.onEvent(SettingsEvent.UpdateAudioPreset(it)) }
+        )
     }
 }
