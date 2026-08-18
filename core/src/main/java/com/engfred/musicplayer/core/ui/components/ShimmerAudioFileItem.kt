@@ -16,9 +16,9 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun shimmerBrush(): Brush {
     val shimmerColors = listOf(
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
     )
 
     val transition = rememberInfiniteTransition(label = "shimmer_transition")
@@ -46,33 +46,32 @@ fun ShimmerAudioFileItem(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            // MATCHES the new AudioFileItem padding perfectly
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // MATCHES: 56.dp and 12.dp rounded corners
+        // MATCHES: 52.dp and 14.dp rounded squircle corners
         Box(
             modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .size(52.dp)
+                .clip(RoundedCornerShape(14.dp))
                 .background(brush)
         )
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(14.dp))
 
         // Text Placeholders
         Column(modifier = Modifier.weight(1f)) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.7f)
-                    .height(20.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .fillMaxWidth(0.65f)
+                    .height(18.dp)
+                    .clip(RoundedCornerShape(6.dp))
                     .background(brush)
             )
             Spacer(modifier = Modifier.height(6.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.4f)
-                    .height(14.dp)
+                    .height(13.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .background(brush)
             )
@@ -82,19 +81,19 @@ fun ShimmerAudioFileItem(modifier: Modifier = Modifier) {
         // Duration Placeholder
         Box(
             modifier = Modifier
-                .width(40.dp)
+                .width(36.dp)
                 .height(14.dp)
                 .clip(RoundedCornerShape(4.dp))
                 .background(brush)
         )
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(8.dp))
 
-        // More Options Icon Placeholder (Matches the 24dp size of the MoreVert icon)
+        // Options Icon Placeholder
         Box(
             modifier = Modifier
                 .size(24.dp)
-                .clip(RoundedCornerShape(4.dp))
+                .clip(RoundedCornerShape(6.dp))
                 .background(brush)
         )
     }

@@ -1,29 +1,30 @@
 package com.engfred.musicplayer.feature_library.presentation.components
 
-import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.SearchOff
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.unit.dp
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.ui.components.AudioFileItem
 import com.engfred.musicplayer.core.ui.components.ErrorIndicator
 import com.engfred.musicplayer.core.ui.components.InfoIndicator
-import com.engfred.musicplayer.core.ui.components.LoadingIndicator
 import com.engfred.musicplayer.core.ui.components.ShimmerAudioFileItem
 import com.engfred.musicplayer.feature_library.presentation.viewmodel.LibraryScreenState
 
@@ -53,21 +54,21 @@ fun LibraryContent(
                 brush = Brush.verticalGradient(
                     colors = listOf(
                         MaterialTheme.colorScheme.background,
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                     )
                 )
             )
     ) {
         when {
             uiState.isLoading -> {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // Generate 10 skeleton items to fill the screen
-                    repeat(10) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = 8.dp)
+                ) {
+                    repeat(8) {
                         ShimmerAudioFileItem()
-                        HorizontalDivider(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        )
+                        Spacer(modifier = Modifier.height(4.dp))
                     }
                 }
             }
@@ -80,15 +81,14 @@ fun LibraryContent(
             }
             uiState.filteredAudioFiles.isEmpty() && uiState.searchQuery.isNotEmpty() -> {
                 InfoIndicator(
-                    message = "No results found for '${uiState.searchQuery}'",
+                    message = "No track results matching '${uiState.searchQuery}'",
                     icon = Icons.Outlined.SearchOff,
                     modifier = Modifier.align(Alignment.Center)
                 )
-
             }
             uiState.audioFiles.isEmpty() -> {
                 InfoIndicator(
-                    message = "Your music library is empty. Add some audio files to your device to get started.",
+                    message = "Your music library is empty. Add audio files to your device to get started.",
                     icon = Icons.Outlined.LibraryMusic,
                     modifier = Modifier.align(Alignment.Center)
                 )
@@ -97,35 +97,28 @@ fun LibraryContent(
                 LazyColumn(
                     state = lazyListState,
                     modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp)
                 ) {
-
                     val audios = uiState.filteredAudioFiles.ifEmpty { uiState.audioFiles }
                     items(audios, key = { it.id }) { audioFile ->
                         val isSelected = selectedAudioFiles.contains(audioFile)
-                        Column {
-                            AudioFileItem(
-                                audioFile = audioFile,
-                                isCurrentPlayingAudio = uiState.currentPlayingId == audioFile.id,
-                                isAudioPlaying = isAudioPlaying,
-                                onPlayNext = onPlayNext,
-                                onAddToPlaylist = onAddToPlaylist,
-                                onRemoveOrDelete = onRemoveOrDelete,
-                                isFromLibrary = true,
-                                onEditInfo = onEditSong,
-                                onTrimAudio = onTrimAudio,
-                                isSelectionMode = isSelectionMode,
-                                isSelected = isSelected,
-                                onToggleSelect = { onToggleSelection(audioFile) },
-                                onItemTap = { onAudioClick(audioFile) },
-                                onItemLongPress = { onLongPress(audioFile) },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            if (audioFile != audios.lastOrNull()) {
-                                HorizontalDivider(
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        }
+                        AudioFileItem(
+                            audioFile = audioFile,
+                            isCurrentPlayingAudio = uiState.currentPlayingId == audioFile.id,
+                            isAudioPlaying = isAudioPlaying,
+                            onPlayNext = onPlayNext,
+                            onAddToPlaylist = onAddToPlaylist,
+                            onRemoveOrDelete = onRemoveOrDelete,
+                            isFromLibrary = true,
+                            onEditInfo = onEditSong,
+                            onTrimAudio = onTrimAudio,
+                            isSelectionMode = isSelectionMode,
+                            isSelected = isSelected,
+                            onToggleSelect = { onToggleSelection(audioFile) },
+                            onItemTap = { onAudioClick(audioFile) },
+                            onItemLongPress = { onLongPress(audioFile) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }

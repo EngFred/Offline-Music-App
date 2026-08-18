@@ -6,12 +6,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -108,24 +110,24 @@ fun MainScreen(
             val isOnPlaylist = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Playlists.baseRoute  } == true
             val isOnSettings = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Settings.baseRoute   } == true
 
-            val mainTitle = when {
-                isOnLibrary  -> AppDestinations.BottomNavItem.Library.label
-                isOnPlaylist -> AppDestinations.BottomNavItem.Playlists.label
-                isOnSettings -> AppDestinations.BottomNavItem.Settings.label
-                else         -> "Music"
-            }
-            val subtitle = if (audioItems.isNotEmpty() && isOnLibrary) {
-                "${formatCount(audioItems.size)} ${pluralize(audioItems.size, "Audio files", "Audio files", showCount = false)}"
-            } else null
+            if (!isOnLibrary) {
+                val mainTitle = when {
+                    isOnPlaylist -> AppDestinations.BottomNavItem.Playlists.label
+                    isOnSettings -> AppDestinations.BottomNavItem.Settings.label
+                    else         -> "Music"
+                }
 
-            Box(modifier = Modifier.statusBarsPadding()) {
-                CustomTopBar(
-                    modifier = Modifier.padding(start = 10.dp),
-                    title = mainTitle,
-                    subtitle = subtitle,
-                    showNavigationIcon = false,
-                    onNavigateBack = null,
-                )
+                Box(modifier = Modifier.statusBarsPadding()) {
+                    CustomTopBar(
+                        modifier = Modifier.padding(start = 10.dp),
+                        title = mainTitle,
+                        subtitle = null,
+                        showNavigationIcon = false,
+                        onNavigateBack = null,
+                    )
+                }
+            } else {
+                Spacer(modifier = Modifier.statusBarsPadding())
             }
         },
         bottomBar = {
@@ -159,11 +161,16 @@ fun MainScreen(
                     }
                 }
 
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
+                    thickness = 1.dp
+                )
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(60.dp)
-                        .padding(start = 8.dp, end = 8.dp),
+                        .height(58.dp)
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {

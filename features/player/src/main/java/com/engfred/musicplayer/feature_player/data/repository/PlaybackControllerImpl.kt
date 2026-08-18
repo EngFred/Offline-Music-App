@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -156,23 +157,66 @@ class PlaybackControllerImpl @Inject constructor(
 
     override suspend fun playPause() {
         withContext(Dispatchers.Main) {
-            mediaController.value?.run {
-                if (isPlaying) pause() else play()
-            } ?: Log.w(TAG, "MediaController not set when trying to play/pause.")
+            val controller = mediaController.value
+            if (controller != null) {
+                if (controller.mediaItemCount == 0) {
+                    val lastState = settingsRepository.getLastPlaybackState().first()
+                    val playingQueue = sharedAudioDataSource.playingQueueAudioFiles.value
+                    val startAudio = lastState.audioId?.let { id -> playingQueue.find { it.id == id } }
+                    val startUri = startAudio?.uri ?: playingQueue.firstOrNull()?.uri
+                    if (startUri != null) {
+                        val resumePosition = if (startAudio != null && lastState.positionMs > 0) lastState.positionMs else C.TIME_UNSET
+                        initiatePlayback(startUri, resumePosition)
+                    }
+                } else {
+                    if (controller.isPlaying) controller.pause() else controller.play()
+                }
+            } else {
+                Log.w(TAG, "MediaController not set when trying to play/pause.")
+            }
         }
     }
 
     override suspend fun skipToNext() {
         withContext(Dispatchers.Main) {
-            mediaController.value?.seekToNextMediaItem()
-                ?: Log.w(TAG, "MediaController not set when trying to skip next.")
+            val controller = mediaController.value
+            if (controller != null) {
+                if (controller.mediaItemCount == 0) {
+                    val lastState = settingsRepository.getLastPlaybackState().first()
+                    val playingQueue = sharedAudioDataSource.playingQueueAudioFiles.value
+                    val currentIndex = lastState.audioId?.let { id -> playingQueue.indexOfFirst { it.id == id } }?.takeIf { it != -1 } ?: 0
+                    val nextAudio = playingQueue.getOrNull(currentIndex + 1) ?: playingQueue.firstOrNull()
+                    if (nextAudio != null) {
+                        initiatePlayback(nextAudio.uri, C.TIME_UNSET)
+                    }
+                } else {
+                    controller.seekToNextMediaItem()
+                }
+            } else {
+                Log.w(TAG, "MediaController not set when trying to skip next.")
+            }
         }
     }
 
     override suspend fun skipToPrevious() {
         withContext(Dispatchers.Main) {
-            mediaController.value?.seekToPreviousMediaItem()
-                ?: Log.w(TAG, "MediaController not set when trying to skip previous.")
+            val controller = mediaController.value
+            if (controller != null) {
+                if (controller.mediaItemCount == 0) {
+                    val lastState = settingsRepository.getLastPlaybackState().first()
+                    val playingQueue = sharedAudioDataSource.playingQueueAudioFiles.value
+                    val currentIndex = lastState.audioId?.let { id -> playingQueue.indexOfFirst { it.id == id } }?.takeIf { it != -1 } ?: 0
+                    val prevIndex = if (currentIndex > 0) currentIndex - 1 else (playingQueue.size - 1).coerceAtLeast(0)
+                    val prevAudio = playingQueue.getOrNull(prevIndex)
+                    if (prevAudio != null) {
+                        initiatePlayback(prevAudio.uri, C.TIME_UNSET)
+                    }
+                } else {
+                    controller.seekToPreviousMediaItem()
+                }
+            } else {
+                Log.w(TAG, "MediaController not set when trying to skip previous.")
+            }
         }
     }
 

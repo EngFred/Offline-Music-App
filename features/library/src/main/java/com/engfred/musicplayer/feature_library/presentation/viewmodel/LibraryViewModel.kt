@@ -458,9 +458,13 @@ class LibraryViewModel @Inject constructor(
         }
 
     private suspend fun startAudioPlayback(audioFile: AudioFile) {
-        val queue = _uiState.value.filteredAudioFiles.ifEmpty { _uiState.value.audioFiles }
-        sharedAudioDataSource.setPlayingQueue(queue)
-        playbackController.initiatePlayback(audioFile.uri)
+        if (audioFile.id == _uiState.value.currentPlayingId) {
+            playbackController.playPause()
+        } else {
+            val queue = _uiState.value.filteredAudioFiles.ifEmpty { _uiState.value.audioFiles }
+            sharedAudioDataSource.setPlayingQueue(queue)
+            playbackController.initiatePlayback(audioFile.uri)
+        }
     }
 
     fun getRequiredPermission(): String = permissionHandlerUseCase.getRequiredReadPermission()

@@ -17,26 +17,62 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.CheckBox
 import androidx.compose.material.icons.rounded.CheckBoxOutlineBlank
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -44,7 +80,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.ui.components.AddSongToPlaylistDialog
 import com.engfred.musicplayer.core.ui.components.ConfirmationDialog
-import com.engfred.musicplayer.core.util.TextUtils.pluralize
 import com.engfred.musicplayer.feature_library.presentation.components.LibraryContent
 import com.engfred.musicplayer.feature_library.presentation.components.PermissionRequestContent
 import com.engfred.musicplayer.feature_library.presentation.components.SearchBar
@@ -53,8 +88,6 @@ import com.engfred.musicplayer.feature_library.presentation.viewmodel.LibraryVie
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
@@ -70,26 +103,20 @@ fun LibraryScreen(
     val lazyListState = rememberLazyListState()
     val owner = LocalLifecycleOwner.current
     val focusManager = LocalFocusManager.current
+    val coroutineScope = rememberCoroutineScope()
 
     val permissionsToRequest = remember {
         buildList {
-            // Add Storage Permission
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.READ_MEDIA_AUDIO)
+                add(Manifest.permission.POST_NOTIFICATIONS)
             } else {
                 add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
-            // Add Notification Permission
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
     }
 
-    // Use rememberMultiplePermissionsState to handle the list of permissions
     val permissionState = rememberMultiplePermissionsState(permissionsToRequest)
-
-    // State tracking for permission flows
     var hasRequestedPermission by rememberSaveable { mutableStateOf(false) }
     var isPermissionDialogShowing by rememberSaveable { mutableStateOf(false) }
 
@@ -119,14 +146,11 @@ fun LibraryScreen(
         }
     }
 
-    // Monitor permission status. The user wants to see prompts only after clicking.
-    // When permissions are granted, we notify the ViewModel to update the UI.
     LaunchedEffect(permissionState.allPermissionsGranted) {
         isPermissionDialogShowing = false
         if (permissionState.allPermissionsGranted) {
             viewModel.onEvent(LibraryEvent.PermissionGranted)
         } else {
-            // Check if at least the storage permission is granted (since notifications are optional for library view)
             val storagePermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 Manifest.permission.READ_MEDIA_AUDIO
             } else {
@@ -145,7 +169,6 @@ fun LibraryScreen(
         }
     }
 
-    // Check permission on RESUME (in case user went to settings)
     DisposableEffect(key1 = Unit) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -168,34 +191,14 @@ fun LibraryScreen(
         }
     }
 
-    val coroutineScope = rememberCoroutineScope()
-    val currentListCount by remember(uiState) { derivedStateOf { (uiState.filteredAudioFiles.ifEmpty { uiState.audioFiles }).size } }
-    val isAtTop by remember(lazyListState) { derivedStateOf { lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0 } }
-    val isAtBottom by remember(lazyListState) {
-        derivedStateOf {
-            val layoutInfo = lazyListState.layoutInfo
-            val total = layoutInfo.totalItemsCount
-            if (total == 0) true else layoutInfo.visibleItemsInfo.lastOrNull()?.index == total - 1
-        }
+    val showScrollToTop by remember(lazyListState) {
+        derivedStateOf { lazyListState.firstVisibleItemIndex > 2 }
     }
 
-    var userIsScrolling by remember { mutableStateOf(false) }
-    LaunchedEffect(lazyListState) {
-        snapshotFlow { lazyListState.isScrollInProgress }
-            .distinctUntilChanged()
-            .collect { inProgress ->
-                if (inProgress) userIsScrolling = true
-                else {
-                    delay(1200L)
-                    userIsScrolling = false
-                }
-            }
+    val currentAudios = remember(uiState.filteredAudioFiles, uiState.audioFiles) {
+        uiState.filteredAudioFiles.ifEmpty { uiState.audioFiles }
     }
 
-    val showScrollToTop by remember(userIsScrolling, isAtTop) { derivedStateOf { userIsScrolling && !isAtTop } }
-    val showScrollToBottom by remember(userIsScrolling, isAtBottom, currentListCount) { derivedStateOf { userIsScrolling && !isAtBottom && currentListCount > 0 } }
-
-    // --- UI ---
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -203,7 +206,7 @@ fun LibraryScreen(
                 brush = Brush.verticalGradient(
                     colors = listOf(
                         MaterialTheme.colorScheme.background,
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                     )
                 )
             )
@@ -215,7 +218,6 @@ fun LibraryScreen(
                     isPermanentlyDenied = (!permissionState.allPermissionsGranted && !permissionState.shouldShowRationale && hasRequestedPermission),
                     isPermissionDialogShowing = isPermissionDialogShowing,
                     onRequestPermission = {
-                        // This triggers the System Dialogs for ALL defined permissions
                         permissionState.launchMultiplePermissionRequest()
                         hasRequestedPermission = true
                         isPermissionDialogShowing = true
@@ -229,29 +231,28 @@ fun LibraryScreen(
                     }
                 )
             } else {
-                // Permission Granted Content
                 val isSelectionMode = uiState.selectedAudioFiles.isNotEmpty()
 
-                // BackHandler for Selection Mode
                 BackHandler(enabled = isSelectionMode) {
                     viewModel.onEvent(LibraryEvent.DeselectAll)
                 }
 
-                // BackHandler for Search Mode
                 BackHandler(enabled = !isSelectionMode && uiState.searchQuery.isNotEmpty()) {
                     viewModel.onEvent(LibraryEvent.SearchQueryChanged(""))
                     focusManager.clearFocus()
                 }
 
+                // ── Selection Header vs Normal Hero Section ───────────────────
                 if (isSelectionMode) {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        tonalElevation = 4.dp
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -262,11 +263,11 @@ fun LibraryScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "${uiState.selectedAudioFiles.size} selected",
-                                    style = MaterialTheme.typography.titleMedium
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
                                 )
                             }
                             Row {
-                                val allSelected = uiState.selectedAudioFiles.size == uiState.filteredAudioFiles.size
+                                val allSelected = uiState.selectedAudioFiles.size == currentAudios.size
 
                                 IconButton(onClick = {
                                     if (allSelected) viewModel.onEvent(LibraryEvent.DeselectAll)
@@ -279,30 +280,134 @@ fun LibraryScreen(
                                 }
 
                                 IconButton(onClick = {
-                                    viewModel.onEvent(LibraryEvent.AddedToPlaylist(uiState.selectedAudioFiles.first()))
+                                    uiState.selectedAudioFiles.firstOrNull()?.let {
+                                        viewModel.onEvent(LibraryEvent.AddedToPlaylist(it))
+                                    }
                                 }) {
-                                    Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = "Add selected to playlist", modifier = Modifier.size(30.dp))
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                                        contentDescription = "Add selected to playlist",
+                                        modifier = Modifier.size(26.dp)
+                                    )
                                 }
 
                                 IconButton(onClick = { viewModel.onEvent(LibraryEvent.ShowBatchDeleteConfirmation) }) {
-                                    Icon(Icons.Rounded.Delete, contentDescription = "Delete selected")
+                                    Icon(
+                                        imageVector = Icons.Rounded.Delete,
+                                        contentDescription = "Delete selected",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
                                 }
                             }
                         }
                     }
                 } else {
-                    SearchBar(
-                        query = uiState.searchQuery,
-                        onQueryChange = { query -> viewModel.onEvent(LibraryEvent.SearchQueryChanged(query)) },
-                        placeholder = "Search songs",
-                        currentFilter = uiState.currentFilterOption,
-                        onFilterSelected = { filterOption -> viewModel.onEvent(LibraryEvent.FilterSelected(filterOption)) }
-                    )
+                    // ── Normal Hero Header Section ───────────────────────────
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Library",
+                                    style = MaterialTheme.typography.headlineMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = (-0.5).sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                                ) {
+                                    Text(
+                                        text = "${currentAudios.size} Tracks",
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+
+                            // Quick Action Buttons (Play All & Shuffle)
+                            if (currentAudios.isNotEmpty()) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            val targetTrack = currentAudios.find { it.id == uiState.currentPlayingId } ?: currentAudios.firstOrNull()
+                                            targetTrack?.let {
+                                                viewModel.onEvent(LibraryEvent.PlayAudio(it))
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(20.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.primary
+                                        )
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.PlayArrow,
+                                            contentDescription = "Play all",
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Play",
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp
+                                            )
+                                        )
+                                    }
+
+                                    FilledTonalButton(
+                                        onClick = {
+                                            val shuffled = currentAudios.shuffled()
+                                            shuffled.firstOrNull()?.let {
+                                                viewModel.onEvent(LibraryEvent.PlayAudio(it))
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(20.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Shuffle,
+                                            contentDescription = "Shuffle",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        SearchBar(
+                            query = uiState.searchQuery,
+                            onQueryChange = { query -> viewModel.onEvent(LibraryEvent.SearchQueryChanged(query)) },
+                            placeholder = "Search track titles, artists...",
+                            currentFilter = uiState.currentFilterOption,
+                            onFilterSelected = { filterOption -> viewModel.onEvent(LibraryEvent.FilterSelected(filterOption)) }
+                        )
+                    }
                 }
 
-                // CHANGED: Added Spacer here so the Mix of the Day card isn't touching the Search Bar!
-                Spacer(modifier = Modifier.height(8.dp))
-
+                // ── Library Content ─────────────────────────────────────────
                 LibraryContent(
                     uiState = uiState,
                     onAudioClick = { audioFile ->
@@ -330,146 +435,104 @@ fun LibraryScreen(
             }
         }
 
-        // Floating Action Buttons (Scroll to Top/Bottom)
-        Column(
+        // Floating Action Button (Scroll to Top)
+        AnimatedVisibility(
+            visible = showScrollToTop,
+            enter = scaleIn(animationSpec = tween(200)) + fadeIn(),
+            exit = scaleOut(animationSpec = tween(150)) + fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalAlignment = Alignment.End
+                .padding(end = 20.dp, bottom = 28.dp)
         ) {
-            AnimatedVisibility(
-                visible = showScrollToTop,
-                enter = scaleIn(animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
-                exit = scaleOut(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
+            SmallFloatingActionButton(
+                onClick = { coroutineScope.launch { lazyListState.animateScrollToItem(index = 0) } },
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shape = CircleShape
             ) {
-                SmallFloatingActionButton(
-                    onClick = { coroutineScope.launch { lazyListState.scrollToItem(index = 0) } },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    shape = CircleShape,
-                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp, pressedElevation = 8.dp)
-                ) {
-                    Icon(imageVector = Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top")
-                }
-            }
-            AnimatedVisibility(
-                visible = showScrollToBottom,
-                enter = scaleIn(animationSpec = tween(220)) + fadeIn(animationSpec = tween(220)),
-                exit = scaleOut(animationSpec = tween(180)) + fadeOut(animationSpec = tween(180))
-            ) {
-                SmallFloatingActionButton(
-                    onClick = { coroutineScope.launch { val lastIndex = (currentListCount - 1).coerceAtLeast(0); lazyListState.scrollToItem(index = lastIndex) } },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    shape = CircleShape,
-                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp, pressedElevation = 8.dp)
-                ) {
-                    Icon(imageVector = Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to bottom")
-                }
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowUp,
+                    contentDescription = "Scroll to top",
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }
 
-    // ============== Dialogs ===============
+    // ── Dialogs ─────────────────────────────────────────────────────────────
     if (uiState.showAddToPlaylistDialog) {
         AddSongToPlaylistDialog(
-            onDismiss = { viewModel.onEvent(LibraryEvent.DismissAddToPlaylistDialog) },
             playlists = uiState.playlists,
+            onDismiss = { viewModel.onEvent(LibraryEvent.DismissAddToPlaylistDialog) },
             onAddSongToPlaylist = { playlist -> viewModel.onEvent(LibraryEvent.AddedSongToPlaylist(playlist)) },
             onCreateNewPlaylist = { viewModel.onEvent(LibraryEvent.ShowCreatePlaylistDialog) }
         )
-    }
-
-    if (uiState.showDeleteConfirmationDialog) {
-        uiState.audioFileToDelete?.let { audioFile ->
-            ConfirmationDialog(
-                title = "Delete '${audioFile.title}'?",
-                message = "Are you sure you want to permanently delete '${audioFile.title}' from your device?",
-                confirmButtonText = "Delete",
-                dismissButtonText = "Cancel",
-                onConfirm = { viewModel.onEvent(LibraryEvent.ConfirmDeleteAudioFile) },
-                onDismiss = { viewModel.onEvent(LibraryEvent.DismissDeleteConfirmationDialog) }
-            )
-        }
-    }
-
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var allowDismiss by remember { mutableStateOf(false) }
-    if (uiState.showBatchDeleteConfirmationDialog) {
-        LaunchedEffect(Unit) { allowDismiss = false }
-        ModalBottomSheet(
-            onDismissRequest = {
-                viewModel.onEvent(LibraryEvent.DeselectAll)
-                viewModel.onEvent(LibraryEvent.DismissDeleteConfirmationDialog)
-            },
-            containerColor = MaterialTheme.colorScheme.surface,
-            sheetState = sheetState
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "Delete ${pluralize(uiState.selectedAudioFiles.size, "song", "songs")}?",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "This action will permanently delete the selected songs from your device.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = {
-                        viewModel.onEvent(LibraryEvent.DeselectAll)
-                        allowDismiss = true
-                        coroutineScope.launch { sheetState.hide() }.invokeOnCompletion {
-                            viewModel.onEvent(LibraryEvent.DismissDeleteConfirmationDialog)
-                        }
-                    }) { Text("Cancel") }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            allowDismiss = true
-                            coroutineScope.launch { sheetState.hide() }.invokeOnCompletion {
-                                viewModel.onEvent(LibraryEvent.ConfirmBatchDelete)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    ) { Text("Confirm") }
-                }
-            }
-        }
     }
 
     if (uiState.showCreatePlaylistDialog) {
         var text by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { viewModel.onEvent(LibraryEvent.DismissCreatePlaylistDialog) },
-            title = { Text("Create Playlist") },
+            title = {
+                Text(
+                    text = "New Playlist",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                )
+            },
             text = {
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
                     label = { Text("Playlist Name") },
-                    singleLine = true
+                    placeholder = { Text("e.g. Favorites") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.onEvent(LibraryEvent.CreatePlaylistAndAddSongs(text)) }) {
+                Button(
+                    onClick = {
+                        if (text.isNotBlank()) {
+                            viewModel.onEvent(LibraryEvent.CreatePlaylistAndAddSongs(text))
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
                     Text("Create & Add")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.onEvent(LibraryEvent.DismissCreatePlaylistDialog) }) {
+                TextButton(
+                    onClick = { viewModel.onEvent(LibraryEvent.DismissCreatePlaylistDialog) }
+                ) {
                     Text("Cancel")
                 }
-            }
+            },
+            shape = RoundedCornerShape(20.dp),
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    }
+
+    if (uiState.showDeleteConfirmationDialog) {
+        ConfirmationDialog(
+            title = "Delete Song",
+            message = "Are you sure you want to delete '${uiState.audioFileToDelete?.title}' from your device? This action cannot be undone.",
+            confirmButtonText = "Delete",
+            dismissButtonText = "Cancel",
+            onConfirm = { viewModel.onEvent(LibraryEvent.ConfirmDeleteAudioFile) },
+            onDismiss = { viewModel.onEvent(LibraryEvent.DismissDeleteConfirmationDialog) }
+        )
+    }
+
+    if (uiState.showBatchDeleteConfirmationDialog) {
+        ConfirmationDialog(
+            title = "Delete ${uiState.selectedAudioFiles.size} Songs",
+            message = "Are you sure you want to delete ${uiState.selectedAudioFiles.size} selected songs from your device? This action cannot be undone.",
+            confirmButtonText = "Delete All",
+            dismissButtonText = "Cancel",
+            onConfirm = { viewModel.onEvent(LibraryEvent.ConfirmBatchDelete) },
+            onDismiss = { viewModel.onEvent(LibraryEvent.DismissDeleteConfirmationDialog) }
         )
     }
 }

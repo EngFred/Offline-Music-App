@@ -30,8 +30,11 @@ import com.engfred.musicplayer.core.domain.repository.LibraryRepository
 import com.engfred.musicplayer.core.domain.repository.PlaybackController
 import com.engfred.musicplayer.core.domain.repository.RepeatMode
 import com.engfred.musicplayer.core.domain.repository.SettingsRepository
+import com.engfred.musicplayer.core.mapper.AudioFileMapper
 import com.engfred.musicplayer.core.util.sortAudioFiles
 import com.engfred.musicplayer.core.data.audio.eq.BandEqAudioProcessor
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,9 +47,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
-const val MUSIC_NOTIFICATION_CHANNEL_ID = "music_playback_channel"
-const val MUSIC_NOTIFICATION_ID = 101
+private const val TAG = "PlaybackService"
+private const val MUSIC_NOTIFICATION_CHANNEL_ID = "music_player_channel"
+private const val MUSIC_NOTIFICATION_ID = 1001
 private const val UNKNOWN_ARTIST = "Unknown Artist"
+private const val PERIODIC_SAVE_INTERVAL_MS = 5000L
 
 @UnstableApi
 @AndroidEntryPoint
@@ -73,6 +78,9 @@ class PlaybackService : MediaSessionService() {
     @Inject
     lateinit var eqProcessor: BandEqAudioProcessor
 
+    @Inject
+    lateinit var audioFileMapper: AudioFileMapper
+
     private lateinit var exoPlayer: ExoPlayer
     private var mediaSession: MediaSession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -82,21 +90,28 @@ class PlaybackService : MediaSessionService() {
     private var isFullShown: Boolean = false
 
     companion object {
+        const val WIDGET_PROVIDER_CLASS = "com.engfred.musicplayer.widget.MusicWidgetProvider"
         const val ACTION_WIDGET_PLAY_PAUSE = "com.engfred.musicplayer.ACTION_WIDGET_PLAY_PAUSE"
         const val ACTION_WIDGET_NEXT = "com.engfred.musicplayer.ACTION_WIDGET_NEXT"
         const val ACTION_WIDGET_PREV = "com.engfred.musicplayer.ACTION_WIDGET_PREV"
         const val ACTION_REFRESH_WIDGET = "com.engfred.musicplayer.ACTION_REFRESH_WIDGET"
         const val ACTION_WIDGET_REPEAT = "com.engfred.musicplayer.ACTION_WIDGET_REPEAT"
         const val ACTION_WIDGET_SHUFFLE = "com.engfred.musicplayer.ACTION_WIDGET_SHUFFLE"
-        const val WIDGET_PROVIDER_CLASS = "com.engfred.musicplayer.widget.PlayerWidgetProvider"
-        private const val TAG = "PlaybackService"
-        private const val PERIODIC_SAVE_INTERVAL_MS = 10000L
     }
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "Service onCreate started!!!")
-        createNotificationChannel()
+        Log.d(TAG, "PlaybackService onCreate called")
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channel = NotificationChannel(
+                MUSIC_NOTIFICATION_CHANNEL_ID,
+                "Playback Service",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            notificationManager.createNotificationChannel(channel)
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notification = NotificationCompat.Builder(this, MUSIC_NOTIFICATION_CHANNEL_ID)
@@ -137,7 +152,6 @@ class PlaybackService : MediaSessionService() {
                 setHandleAudioBecomingNoisy(true)
             }
 
-            // SINGLE_TOP and CLEAR_TOP flags so it resumes the existing activity smoothly
             val intent = Intent().setClassName(this, "${packageName}.MainActivity").apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
@@ -147,6 +161,7 @@ class PlaybackService : MediaSessionService() {
 
             mediaSession = MediaSession.Builder(this, exoPlayer)
                 .setSessionActivity(pendingIntent)
+                .setCallback(MediaSessionCallback())
                 .build()
 
             setMediaNotificationProvider(musicNotificationProvider)
@@ -154,10 +169,20 @@ class PlaybackService : MediaSessionService() {
             runBlocking {
                 loadLastIdleDisplayInfo()
                 if (sharedAudioDataSource.playingQueueAudioFiles.value.isEmpty()) {
-                    Log.d(TAG, "Playing queue was empty loading songs....")
+                    Log.d(TAG, "Playing queue was empty, loading songs...")
                     loadPlayingQueue()
-                } else {
-                    Log.d(TAG, "QUEUE IS SET. READY TO PLAY!!!!!.")
+                }
+
+                val lastState = settingsRepository.getLastPlaybackState().first()
+                val playingQueue = sharedAudioDataSource.playingQueueAudioFiles.value
+                if (playingQueue.isNotEmpty() && exoPlayer.mediaItemCount == 0) {
+                    val mediaItems = playingQueue.map { audioFileMapper.mapAudioFileToMediaItem(it) }
+                    val startIndex = lastState.audioId?.let { id -> playingQueue.indexOfFirst { it.id == id } }?.takeIf { it != -1 } ?: 0
+                    val startPos = if (lastState.positionMs > 0) lastState.positionMs else 0L
+
+                    exoPlayer.setMediaItems(mediaItems, startIndex, startPos)
+                    exoPlayer.prepare()
+                    Log.d(TAG, "Pre-populated ExoPlayer queue: ${mediaItems.size} items, startIndex=$startIndex, startPos=$startPos")
                 }
             }
             isFullShown = lastIdleDisplayInfo != null
@@ -328,130 +353,102 @@ class PlaybackService : MediaSessionService() {
                 if (startAudio != null && lastState.positionMs > 0) lastState.positionMs else C.TIME_UNSET
             Log.d(TAG, "Starting playback with URI: $startUri (resumePos=$resumePosition)")
             playbackController.initiatePlayback(startUri, resumePosition)
-            if (startAudio != null) {
-                Toast.makeText(applicationContext, "Resumed playback", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            Toast.makeText(applicationContext, "No audio files found", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun updateWidgetWithInfo() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WidgetUpdater.updateWidget(this, exoPlayer, lastIdleDisplayInfo, getIdleRepeatMode(), widgetThemeAware)
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val superResult = super.onStartCommand(intent, flags, startId)
+        val action = intent?.action ?: return superResult
+
+        when (action) {
+            ACTION_WIDGET_PLAY_PAUSE -> serviceScope.launch { handleWidgetPlayPause() }
+            ACTION_WIDGET_NEXT -> serviceScope.launch { playbackController.skipToNext() }
+            ACTION_WIDGET_PREV -> serviceScope.launch { playbackController.skipToPrevious() }
+            ACTION_REFRESH_WIDGET -> updateWidgetWithInfo()
+            ACTION_WIDGET_REPEAT -> serviceScope.launch {
+                val nextMode = when (preferredRepeatMode) {
+                    RepeatMode.OFF -> RepeatMode.ALL
+                    RepeatMode.ALL -> RepeatMode.ONE
+                    RepeatMode.ONE -> RepeatMode.OFF
+                }
+                playbackController.setRepeatMode(nextMode)
+            }
+            ACTION_WIDGET_SHUFFLE -> serviceScope.launch {
+                val queue = sharedAudioDataSource.playingQueueAudioFiles.value
+                if (queue.isNotEmpty()) {
+                    playbackController.initiateShufflePlayback(queue)
+                }
+            }
+        }
+
+        return superResult
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession
     }
 
-    @RequiresApi(Build.VERSION_CODES.P)
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        try {
-            if (!::exoPlayer.isInitialized) {
-                Log.w(TAG, "exoPlayer not initialized yet in onStartCommand; skipping action")
-                return START_STICKY
-            }
-            when (intent?.action) {
-                ACTION_WIDGET_PLAY_PAUSE -> {
-                    serviceScope.launch {
-                        handleWidgetPlayPause()
-                    }
-                }
-                ACTION_WIDGET_NEXT -> {
-                    try {
-                        exoPlayer.seekToNextMediaItem()
-                    } catch (_: Exception) {}
-                }
-                ACTION_WIDGET_PREV -> {
-                    try {
-                        exoPlayer.seekToPreviousMediaItem()
-                    } catch (_: Exception) {}
-                }
-                ACTION_REFRESH_WIDGET -> {
-                    if (lastIdleDisplayInfo == null && isFullShown) {
-                        serviceScope.launch {
-                            delay(200)
-                            WidgetUpdater.updateWidget(this@PlaybackService, exoPlayer, lastIdleDisplayInfo, getIdleRepeatMode(), widgetThemeAware, isInitial = true)
-                        }
-                    } else {
-                        WidgetUpdater.updateWidget(this, exoPlayer, lastIdleDisplayInfo, getIdleRepeatMode(), widgetThemeAware, isInitial = true)
-                    }
-                }
-                ACTION_WIDGET_REPEAT -> {
-                    PlaybackActions.handleRepeatToggle(exoPlayer, settingsRepository, serviceScope)
-                }
-                ACTION_WIDGET_SHUFFLE -> {
-                    exoPlayer.shuffleModeEnabled = !exoPlayer.shuffleModeEnabled
-                    updateWidgetWithInfo()
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "onStartCommand action handling error: ${e.message}")
-        }
-        super.onStartCommand(intent, flags, startId)
-        return START_STICKY
-    }
-
     override fun onDestroy() {
-        try {
-            saveLastPlaybackStateBlocking(settingsRepository, exoPlayer)
-            serviceScope.cancel()
-            mediaSession?.run {
-                exoPlayer.release()
-                release()
-                mediaSession = null
-            }
-        } catch (_: Exception) {
+        serviceScope.cancel()
+        mediaSession?.run {
+            player.release()
+            release()
+            mediaSession = null
         }
         super.onDestroy()
     }
 
-    // ── FIX: Delete old channel and recreate at IMPORTANCE_MIN so existing
-    //         users also lose the badge after updating the app. ────────────────
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val notificationManager =
-                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-            // Delete the old channel so its cached importance setting is wiped
-            // for users who already installed a previous version of the app.
-            notificationManager.deleteNotificationChannel(MUSIC_NOTIFICATION_CHANNEL_ID)
-
-            val channel = NotificationChannel(
-                MUSIC_NOTIFICATION_CHANNEL_ID,
-                "Music Playback",
-                // IMPORTANCE_MIN: no sound, no vibration, no badge, no heads-up.
-                // The media controls still appear in the notification shade when
-                // music is actually playing because Media3 elevates the priority
-                // of its media-style notification automatically.
-                NotificationManager.IMPORTANCE_MIN
-            ).apply {
-                description = "Notifications for music playback controls"
-                setSound(null, null)
-                enableLights(false)
-                enableVibration(false)
-                setShowBadge(false) // Explicitly suppress the icon badge count
-            }
-            notificationManager.createNotificationChannel(channel)
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val player = mediaSession?.player
+        if (player != null && (player.playWhenReady || player.isPlaying)) {
+            Log.d(TAG, "Task removed while playing — service remains in foreground for audio")
+            return
         }
+        Log.d(TAG, "Task removed while paused — stopping service")
+        stopSelf()
     }
 
-    fun updateWidgetWithInfo() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            if (lastIdleDisplayInfo == null && exoPlayer.currentMediaItem == null && isFullShown) return
-            WidgetUpdater.updateWidget(this, exoPlayer, lastIdleDisplayInfo, getIdleRepeatMode(), widgetThemeAware)
-            isFullShown = (lastIdleDisplayInfo != null || exoPlayer.currentMediaItem != null)
-        }
-    }
+    private inner class MediaSessionCallback : MediaSession.Callback {
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val settableFuture = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            serviceScope.launch {
+                try {
+                    if (exoPlayer.mediaItemCount == 0) {
+                        loadPlayingQueue()
+                    }
+                    val lastState = settingsRepository.getLastPlaybackState().first()
+                    val playingQueue = sharedAudioDataSource.playingQueueAudioFiles.value
+                    if (playingQueue.isNotEmpty()) {
+                        val startIndex = lastState.audioId?.let { id ->
+                            playingQueue.indexOfFirst { it.id == id }
+                        }?.takeIf { it != -1 } ?: 0
 
-    override fun onUpdateNotification(session: MediaSession, startInForeground: Boolean) {
-        when {
-            // Nothing is loaded and nothing is playing — demote the service out
-            // of the foreground so the "Starting music service..." placeholder
-            // is removed from the notification shade and the badge disappears.
-            exoPlayer.mediaItemCount == 0 && !exoPlayer.isPlaying -> {
-                @Suppress("DEPRECATION")
-                stopForeground(true)
+                        val mediaItems = playingQueue.map { audioFileMapper.mapAudioFileToMediaItem(it) }
+                        val startPos = if (lastState.positionMs > 0) lastState.positionMs else 0L
+
+                        val result = MediaSession.MediaItemsWithStartPosition(
+                            mediaItems,
+                            startIndex,
+                            startPos
+                        )
+                        settableFuture.set(result)
+                        return@launch
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "onPlaybackResumption error: ${e.message}", e)
+                }
+                settableFuture.setException(UnsupportedOperationException("No media items available to resume"))
             }
-
-            // Normal case — let Media3 handle the media-style notification.
-            else -> super.onUpdateNotification(session, startInForeground)
+            return settableFuture
         }
     }
 }

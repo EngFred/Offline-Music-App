@@ -4,12 +4,18 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring // Ensure this is imported
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -21,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.engfred.musicplayer.navigation.AppDestinations
 
 @Composable
@@ -31,31 +38,30 @@ fun CustomBottomNavItem(
 ) {
     val animatedBackgroundColor by animateColorAsState(
         targetValue = if (isSelected)
-            MaterialTheme.colorScheme.secondaryContainer
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
         else Color.Transparent,
-        animationSpec = tween(durationMillis = 400, easing = LinearOutSlowInEasing),
-        label = "bg"
+        animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing),
+        label = "bottom_nav_bg"
     )
 
     val animatedContentColor by animateColorAsState(
         targetValue = if (isSelected)
-            MaterialTheme.colorScheme.onSecondaryContainer
-        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-        label = "content"
+            MaterialTheme.colorScheme.onPrimaryContainer
+        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+        label = "bottom_nav_content"
     )
 
     Box(
         modifier = Modifier
-            .clip(CircleShape)
+            .clip(RoundedCornerShape(20.dp))
             .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier
                 .background(animatedBackgroundColor)
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = 16.dp, vertical = 9.dp)
                 .animateContentSize(
                     animationSpec = spring(
-                        // Fixed the typo: 'DampingRatioLowBouncy'
                         dampingRatio = Spring.DampingRatioLowBouncy,
                         stiffness = Spring.StiffnessLow
                     )
@@ -67,16 +73,19 @@ fun CustomBottomNavItem(
                 imageVector = item.icon,
                 contentDescription = item.label,
                 tint = animatedContentColor,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier.size(20.dp)
             )
 
             if (isSelected) {
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = item.label,
                     color = animatedContentColor,
                     fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 13.sp,
+                        letterSpacing = 0.2.sp
+                    ),
                     maxLines = 1
                 )
             }
