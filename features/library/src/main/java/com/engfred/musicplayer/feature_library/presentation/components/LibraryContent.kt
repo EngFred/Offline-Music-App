@@ -43,15 +43,8 @@ fun LibraryContent(
     selectedAudioFiles: Set<AudioFile>,
     isSelectionMode: Boolean,
     onToggleSelection: (AudioFile) -> Unit,
-    onLongPress: (AudioFile) -> Unit,
-    onOpenMixOfTheDay: (Long) -> Unit
+    onLongPress: (AudioFile) -> Unit
 ) {
-
-    LaunchedEffect(uiState.mixOfTheDayPlaylist) {
-        if (uiState.mixOfTheDayPlaylist != null && lazyListState.firstVisibleItemIndex <= 1) {
-            lazyListState.scrollToItem(0)
-        }
-    }
 
     Box(
         modifier = modifier
@@ -68,9 +61,6 @@ fun LibraryContent(
         when {
             uiState.isLoading -> {
                 Column(modifier = Modifier.fillMaxSize()) {
-//                    if (uiState.searchQuery.isEmpty()) {
-//                        ShimmerMixOfTheDayCard()
-//                    }
                     // Generate 10 skeleton items to fill the screen
                     repeat(10) {
                         ShimmerAudioFileItem()
@@ -108,17 +98,6 @@ fun LibraryContent(
                     state = lazyListState,
                     modifier = Modifier.fillMaxSize(),
                 ) {
-
-                    if (uiState.searchQuery.isEmpty()) {
-                        uiState.mixOfTheDayPlaylist?.let { mixPlaylist ->
-                            item(key = "mix_of_the_day") { // Standard item, NOT sticky!
-                                MixOfTheDayCard(
-                                    playlist = mixPlaylist,
-                                    onClick = { onOpenMixOfTheDay(mixPlaylist.id) }
-                                )
-                            }
-                        }
-                    }
 
                     val audios = uiState.filteredAudioFiles.ifEmpty { uiState.audioFiles }
                     items(audios, key = { it.id }) { audioFile ->

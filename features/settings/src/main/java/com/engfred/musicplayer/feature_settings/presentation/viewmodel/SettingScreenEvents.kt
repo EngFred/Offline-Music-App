@@ -15,6 +15,4 @@ sealed class SettingsEvent {
     data class UpdateAudioPreset(val preset: AudioPreset) : SettingsEvent()
     data class UpdateAudioFileTypeFilter(val filter: AudioFileTypeFilter) : SettingsEvent()
     data class UpdateWidgetBackgroundMode(val mode: WidgetBackgroundMode, val context: Context) : SettingsEvent()
-
-    data class UpdateMixOfTheDayFilterByDuration(val enabled: Boolean) : SettingsEvent()
 }

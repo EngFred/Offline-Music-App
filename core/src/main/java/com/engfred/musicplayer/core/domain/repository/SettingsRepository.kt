@@ -3,7 +3,6 @@ package com.engfred.musicplayer.core.domain.repository
 import com.engfred.musicplayer.core.domain.model.AppSettings
 import com.engfred.musicplayer.core.domain.model.AudioFileTypeFilter
 import com.engfred.musicplayer.core.domain.model.AudioPreset
-import com.engfred.musicplayer.core.domain.model.DjMixPlaylistFilter
 import com.engfred.musicplayer.core.domain.model.FilterOption
 import com.engfred.musicplayer.core.domain.model.LastPlaybackState
 import com.engfred.musicplayer.core.domain.model.PlayerLayout
@@ -30,26 +29,6 @@ interface SettingsRepository {
     suspend fun updateWidgetBackgroundMode(mode: WidgetBackgroundMode)
     suspend fun getLastScanTimestamp(): Long
     suspend fun updateLastScanTimestamp(timestamp: Long)
-
-    // ── Mix of the Day ────────────────────────────────────────────────────────
-    /** Persists whether tracks longer than 5 minutes are excluded from daily mixes. */
-    suspend fun updateMixOfTheDayFilterByDuration(enabled: Boolean)
-
-    // ── DJ Mix ────────────────────────────────────────────────────────────
-    suspend fun updateDjRealMixMode(enabled: Boolean)
-
-    suspend fun updateLoopQueue(enabled: Boolean)
-
-    suspend fun updateDjDualDeckMode(enabled: Boolean)
-
-    // ── Mix of the Day ────────────────────────────────────────────────────────
-    suspend fun getLastMixOfTheDayTimestamp(): Long
-    suspend fun updateLastMixOfTheDayTimestamp(timestamp: Long)
-
-    suspend fun updateDjAutoSampler(enabled: Boolean)
-    suspend fun updateDjSampleVolume(volume: Float)
-
-    suspend fun updateDjMixPlaylistFilter(filter: DjMixPlaylistFilter)
 
     // ── App update ────────────────────────────────────────────────────────────
     suspend fun getLastUpdateCheckTimestamp(): Long

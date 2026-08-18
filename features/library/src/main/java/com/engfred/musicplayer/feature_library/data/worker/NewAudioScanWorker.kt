@@ -13,9 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
-import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkerParameters
-import com.engfred.musicplayer.core.domain.BpmScanScheduler
 import com.engfred.musicplayer.core.domain.repository.SettingsRepository
 import com.engfred.musicplayer.feature_library.R
 import com.engfred.musicplayer.feature_library.data.source.local.ContentResolverDataSource
@@ -28,8 +26,7 @@ class NewAudioScanWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
     private val dataSource: ContentResolverDataSource,
-    private val settingsRepository: SettingsRepository,
-    private val bpmScanScheduler: BpmScanScheduler
+    private val settingsRepository: SettingsRepository
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
@@ -65,9 +62,6 @@ class NewAudioScanWorker @AssistedInject constructor(
             val firstSongName = newFiles.first().title ?: "New Song"
             showNotification(newFiles.size, firstSongName)
             settingsRepository.updateLastScanTimestamp(currentTime)
-
-            bpmScanScheduler.scheduleGlobalScan()   // ← replaces GlobalBpmScanWorker.enqueue()
-            Log.d("NewAudioScanWorker", "Chained global BPM scan for ${newFiles.size} new files")
         }
 
         return Result.success()

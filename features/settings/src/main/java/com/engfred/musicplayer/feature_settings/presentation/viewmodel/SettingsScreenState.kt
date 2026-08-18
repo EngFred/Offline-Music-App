@@ -15,7 +15,6 @@ data class SettingsScreenState(
     val audioPreset: AudioPreset = AudioPreset.NONE,
     val widgetBackgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.STATIC,
     val audioFileTypeFilter: AudioFileTypeFilter = AudioFileTypeFilter.ALL,
-    val mixOfTheDayFilterByDuration: Boolean = false,
     val isLoading: Boolean = false,
     val error: String? = null,
     val updateInfo: UpdateInfo? = null,

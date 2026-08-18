@@ -33,8 +33,6 @@
 -keep @androidx.room.Entity class * { *; }
 -keep @androidx.room.Dao interface * { *; }
 -keep @androidx.room.Database class * { *; }
-# Keep the whole data.local package — covers Entity, Dao, Db, Converter, _Impl
--keep class com.engfred.musicplayer.feature_dj_mix.data.local.** { *; }
 -keep class * extends androidx.room.RoomDatabase { *; }
 -keep class **_Impl { *; }
 
@@ -51,25 +49,9 @@
 -keep interface androidx.media3.** { *; }
 -dontwarn androidx.media3.**
 
-# Your custom AudioProcessor implementations
--keep class com.engfred.musicplayer.feature_dj_mix.data.crossfade.WaveformCaptureAudioProcessor { *; }
-
-# ── 7. JNI — aubio BPM bridge (aubio_bridge.c) ───────────────────────
-# Covers whatever Kotlin class in data.bpm declares the native methods.
--keepclasseswithmembernames class com.engfred.musicplayer.feature_dj_mix.data.bpm.** {
-    native <methods>;
-}
-
+# ── 7. JNI ───────────────────────────────────────────────────────────
 # Safety net: keep native methods in ANY class across the whole app
 -keepclasseswithmembernames class * {
-    native <methods>;
-}
-
-# ── JNI — aubio BPM bridge (BpmAnalyzer.analyzeBeatsNative) ───────
--keepclasseswithmembernames class com.engfred.musicplayer.feature_dj_mix.data.bpm.BpmAnalyzer {
-    native <methods>;
-}
--keepclasseswithmembernames class com.engfred.musicplayer.feature_dj_mix.data.bpm.** {
     native <methods>;
 }
 
@@ -100,12 +82,8 @@
 -keep class sh.calvin.reorderable.** { *; }
 -dontwarn sh.calvin.**
 
-# ── 12. Domain models & DJ Mix state ─────────────────────────────────
+# ── 12. Domain models ────────────────────────────────────────────────
 -keep class com.engfred.musicplayer.core.domain.model.** { *; }
--keep class com.engfred.musicplayer.feature_dj_mix.domain.** { *; }
--keep class com.engfred.musicplayer.feature_dj_mix.data.crossfade.CrossfadeEngineState { *; }
--keep class com.engfred.musicplayer.feature_dj_mix.data.crossfade.MixStrategy { *; }
--keep class com.engfred.musicplayer.feature_dj_mix.data.crossfade.MixDecision { *; }
 
 # ── 13. Enums ────────────────────────────────────────────────────────
 -keepclassmembers enum * {

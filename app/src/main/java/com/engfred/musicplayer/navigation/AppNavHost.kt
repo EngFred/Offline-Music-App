@@ -35,8 +35,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.engfred.musicplayer.core.domain.model.AudioFile
-import com.engfred.musicplayer.feature_dj_mix.presentation.screens.MixStudioScreen
-import com.engfred.musicplayer.feature_dj_mix.presentation.viewmodel.DjMixArgs
 import com.engfred.musicplayer.feature_trim.presentation.TrimScreen
 import com.engfred.musicplayer.feature_edit.presentation.screen.EditScreen
 import com.engfred.musicplayer.feature_player.presentation.screens.NowPlayingScreen
@@ -66,8 +64,6 @@ fun AppNavHost(
     onToggleStopAfterCurrent: () -> Unit,
     playbackPositionMs: Long,
     totalDurationMs: Long,
-    isDjMixActive: Boolean,
-    onNavigateToDjMix: () -> Unit,
     // ── driven from MainActivity so that navigateToNowPlayingOnStart ──
     // and the onNavigateToNowPlaying lambda both open the same overlay.
     showNowPlaying: Boolean,
@@ -126,14 +122,6 @@ fun AppNavHost(
                     onToggleStopAfterCurrent = onToggleStopAfterCurrent,
                     playbackPositionMs = playbackPositionMs,
                     totalDurationMs = totalDurationMs,
-                    isDjMixActive = isDjMixActive,
-                    onNavigateToDjMix = onNavigateToDjMix,
-                    onOpenMixOfTheDay = { playlistId ->
-                        rootNavController.navigate(AppDestinations.DjMix.createRoute(playlistId))
-                    },
-                    onDjMixPlaylistSelected = { playlistId ->
-                        rootNavController.navigate(AppDestinations.DjMix.createRoute(playlistId))
-                    },
                     onNavigateToDuplicates = {
                         rootNavController.navigate(AppDestinations.FindDuplicates.route)
                     }
@@ -174,24 +162,8 @@ fun AppNavHost(
                     stopAfterCurrent = stopAfterCurrent,
                     onToggleStopAfterCurrent = onToggleStopAfterCurrent,
                     playbackPositionMs = playbackPositionMs,
-                    totalDurationMs = totalDurationMs,
-                    onDjMixClick = { playlistId ->
-                        rootNavController.navigate(AppDestinations.DjMix.createRoute(playlistId))
-                    }
+                    totalDurationMs = totalDurationMs
                 )
-            }
-
-            composable(
-                route = AppDestinations.DjMix.route,
-                arguments = listOf(
-                    navArgument(DjMixArgs.PLAYLIST_ID) { type = NavType.LongType }
-                ),
-                enterTransition = { slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(400)) },
-                exitTransition = { slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(400)) },
-                popEnterTransition = { slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(400)) },
-                popExitTransition = { slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(400)) }
-            ) {
-                MixStudioScreen(onNavigateBack = { rootNavController.navigateUp() })
             }
 
             composable(

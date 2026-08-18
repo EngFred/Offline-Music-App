@@ -10,7 +10,6 @@ import com.engfred.musicplayer.feature_settings.domain.usecases.GetAppSettingsUs
 import com.engfred.musicplayer.feature_settings.domain.usecases.GetAudioFileTypeFilterUseCase
 import com.engfred.musicplayer.feature_settings.domain.usecases.UpdateAudioFileTypeFilterUseCase
 import com.engfred.musicplayer.feature_settings.domain.usecases.UpdateAudioPresetUseCase
-import com.engfred.musicplayer.feature_settings.domain.usecases.UpdateMixOfTheDayFilterByDurationUseCase
 import com.engfred.musicplayer.feature_settings.domain.usecases.UpdatePlayerLayoutUseCase
 import com.engfred.musicplayer.feature_settings.domain.usecases.UpdatePlaylistLayoutUseCase
 import com.engfred.musicplayer.feature_settings.domain.usecases.UpdateThemeUseCase
@@ -36,7 +35,6 @@ class SettingsViewModel @Inject constructor(
     private val updateAudioPresetUseCase: UpdateAudioPresetUseCase,
     private val updateAudioFileTypeFilterUseCase: UpdateAudioFileTypeFilterUseCase,
     private val updateWidgetBackgroundModeUseCase: UpdateWidgetBackgroundModeUseCase,
-    private val updateMixOfTheDayFilterByDurationUseCase: UpdateMixOfTheDayFilterByDurationUseCase,
     private val checkForUpdateUseCase: CheckForUpdateUseCase,
     @Named("versionName") private val versionName: String
 ) : ViewModel() {
@@ -53,7 +51,6 @@ class SettingsViewModel @Inject constructor(
                     playlistLayoutType          = appSettings.playlistLayoutType,
                     audioPreset                 = appSettings.audioPreset,
                     widgetBackgroundMode        = appSettings.widgetBackgroundMode,
-                    mixOfTheDayFilterByDuration = appSettings.mixOfTheDayFilterByDuration,
                 )
             }
         }.launchIn(viewModelScope)
@@ -156,14 +153,6 @@ class SettingsViewModel @Inject constructor(
                         }
                     } catch (e: Exception) {
                         _uiState.update { it.copy(error = "Failed to update widget mode: ${e.localizedMessage}") }
-                    }
-                }
-                is SettingsEvent.UpdateMixOfTheDayFilterByDuration -> {
-                    _uiState.update { it.copy(isLoading = true) }
-                    try {
-                        updateMixOfTheDayFilterByDurationUseCase(event.enabled)
-                    } catch (e: Exception) {
-                        _uiState.update { it.copy(error = "Failed to update Mix of the Day setting: ${e.localizedMessage}") }
                     }
                 }
             }

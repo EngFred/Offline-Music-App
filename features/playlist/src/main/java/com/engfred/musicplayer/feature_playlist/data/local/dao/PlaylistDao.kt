@@ -59,41 +59,6 @@ interface PlaylistDao {
     suspend fun deletePlaylistSong(playlistId: Long, audioFileId: Long)
 
     // ---------------------------------------------------------------------------
-    // Atomic Mix-of-the-Day replacement
-    //
-    // All three operations run inside a single SQLite transaction, so Room
-    // fires exactly ONE invalidation signal → exactly ONE downstream Flow
-    // emission. This prevents the intermediate "mix exists but songs = []"
-    // state that previously caused the UI card to never appear.
-    // ---------------------------------------------------------------------------
-
-    /**
-     * Atomically replaces the Mix of the Day playlist and its songs.
-     *
-     * Execution order matters:
-     *  1. Delete old songs first (FK child rows) so the parent row can be
-     *     re-inserted without constraint violations.
-     *  2. Re-insert / replace the playlist metadata row.
-     *  3. Bulk-insert the new songs.
-     *
-     * Because all three steps share the same transaction, observers of
-     * [getPlaylistsWithSongs] and [getPlaylistWithSongsById] see either the
-     * fully-populated new mix or the old one — never an empty intermediate state.
-     */
-    @Transaction
-    suspend fun replaceMixOfTheDay(
-        playlist: PlaylistEntity,
-        songs: List<PlaylistSongEntity>
-    ) {
-        // Step 1: purge old songs before touching the parent row.
-        deleteAllSongsFromPlaylist(playlist.playlistId)
-        // Step 2: upsert the playlist metadata (name, createdAt, type, etc.).
-        insertPlaylist(playlist)
-        // Step 3: bulk-insert the new tracks.
-        insertPlaylistSongs(songs)
-    }
-
-    // ---------------------------------------------------------------------------
     // Queries
     // ---------------------------------------------------------------------------
 

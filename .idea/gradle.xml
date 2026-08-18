@@ -6,19 +6,19 @@
       <GradleProjectSettings>
         <option name="testRunner" value="CHOOSE_PER_TEST" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
+        <option name="gradleJvm" value="jbr-25" />
         <option name="modules">
           <set>
-            <option value="$PROJECT_DIR$" />
-            <option value="$PROJECT_DIR$/app" />
-            <option value="$PROJECT_DIR$/core" />
-            <option value="$PROJECT_DIR$/features" />
-            <option value="$PROJECT_DIR$/features/dj_mix" />
-            <option value="$PROJECT_DIR$/features/edit" />
-            <option value="$PROJECT_DIR$/features/library" />
-            <option value="$PROJECT_DIR$/features/player" />
-            <option value="$PROJECT_DIR$/features/playlist" />
-            <option value="$PROJECT_DIR$/features/settings" />
-            <option value="$PROJECT_DIR$/features/trim" />
+            <option value="/Volumes/DevStorage/development/MusicPlayer" />
+            <option value="/Volumes/DevStorage/development/MusicPlayer/app" />
+            <option value="/Volumes/DevStorage/development/MusicPlayer/core" />
+            <option value="/Volumes/DevStorage/development/MusicPlayer/features" />
+            <option value="/Volumes/DevStorage/development/MusicPlayer/features/edit" />
+            <option value="/Volumes/DevStorage/development/MusicPlayer/features/library" />
+            <option value="/Volumes/DevStorage/development/MusicPlayer/features/player" />
+            <option value="/Volumes/DevStorage/development/MusicPlayer/features/playlist" />
+            <option value="/Volumes/DevStorage/development/MusicPlayer/features/settings" />
+            <option value="/Volumes/DevStorage/development/MusicPlayer/features/trim" />
           </set>
         </option>
       </GradleProjectSettings>

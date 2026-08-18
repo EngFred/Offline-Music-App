@@ -12,7 +12,6 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.engfred.musicplayer.core.domain.model.AppSettings
 import com.engfred.musicplayer.core.domain.model.AudioFileTypeFilter
 import com.engfred.musicplayer.core.domain.model.AudioPreset
-import com.engfred.musicplayer.core.domain.model.DjMixPlaylistFilter
 import com.engfred.musicplayer.core.domain.model.FilterOption
 import com.engfred.musicplayer.core.domain.model.LastPlaybackState
 import com.engfred.musicplayer.core.domain.model.PlayerLayout
@@ -51,20 +50,6 @@ class SettingsRepositoryImpl @Inject constructor(
         private val LAST_QUEUE_IDS                    = stringPreferencesKey("last_queue_ids")
 
         private val LAST_SCAN_TIMESTAMP               = longPreferencesKey("last_scan_timestamp")
-
-        // ── Mix of the Day ────────────────────────────────────────────────────
-        private val MIX_OF_THE_DAY_FILTER_BY_DURATION = booleanPreferencesKey("mix_of_the_day_filter_by_duration")
-
-        // ── DJ Mix ────────────────────────────────────────────────────────────
-        private val DJ_REAL_MIX_MODE       = booleanPreferencesKey("dj_real_mix_mode")
-        private val DJ_AUTO_SAMPLER        = booleanPreferencesKey("dj_auto_sampler")
-        private val DJ_SAMPLE_VOLUME       = floatPreferencesKey("dj_sample_volume")
-        private val DJ_DUAL_DECK_MODE         = booleanPreferencesKey("dj_dual_deck_mode")
-
-        private val DJ_LOOP_QUEUE = booleanPreferencesKey("dj_loop_queue")
-
-        private val LAST_MIX_OF_THE_DAY_TIMESTAMP     = longPreferencesKey("last_mix_of_the_day_timestamp")
-        private val DJ_MIX_PLAYLIST_FILTER            = stringPreferencesKey("dj_mix_playlist_filter")
         private val LAST_UPDATE_CHECK_TIMESTAMP        = longPreferencesKey("last_update_check_timestamp")
 
         private val CUSTOM_PLAYER_BACKGROUND_URI = stringPreferencesKey("custom_player_background_uri")
@@ -85,11 +70,6 @@ class SettingsRepositoryImpl @Inject constructor(
                 val playlistLayoutType = PlaylistLayoutType.valueOf(
                     preferences[PLAYLIST_LAYOUT_TYPE] ?: PlaylistLayoutType.LIST.name
                 )
-                val djMixFilter = try {
-                    DjMixPlaylistFilter.valueOf(
-                        preferences[DJ_MIX_PLAYLIST_FILTER] ?: DjMixPlaylistFilter.ALL.name
-                    )
-                } catch (_: Exception) { DjMixPlaylistFilter.ALL }
                 val repeatMode = RepeatMode.valueOf(
                     preferences[REPEAT_MODE] ?: RepeatMode.OFF.name
                 )
@@ -113,13 +93,6 @@ class SettingsRepositoryImpl @Inject constructor(
                     repeatMode                 = repeatMode,
                     audioPreset                = selectedAudioPreset,
                     widgetBackgroundMode       = widgetMode,
-                    djMixPlaylistFilter        = djMixFilter,
-                    isRealMixMode              = preferences[DJ_REAL_MIX_MODE] ?: true,
-                    autoSamplerEnabled         = preferences[DJ_AUTO_SAMPLER] ?: true,
-                    sampleVolume               = preferences[DJ_SAMPLE_VOLUME] ?: 1f,
-                    isDualDeckMode             = preferences[DJ_DUAL_DECK_MODE] ?: false,
-                    loopQueue                  = preferences[DJ_LOOP_QUEUE] ?: false,
-                    mixOfTheDayFilterByDuration = preferences[MIX_OF_THE_DAY_FILTER_BY_DURATION] ?: false,
                     customPlayerBackgroundUri = preferences[CUSTOM_PLAYER_BACKGROUND_URI],
                 )
             }
@@ -220,50 +193,12 @@ class SettingsRepositoryImpl @Inject constructor(
         dataStore.edit { it[SELECT_WIDGET_BACKGROUND_MODE] = mode.name }
     }
 
-    override suspend fun updateMixOfTheDayFilterByDuration(enabled: Boolean) {
-        dataStore.edit { it[MIX_OF_THE_DAY_FILTER_BY_DURATION] = enabled }
-    }
-
     override suspend fun getLastScanTimestamp(): Long {
         return dataStore.data.first()[LAST_SCAN_TIMESTAMP] ?: 0L
     }
 
     override suspend fun updateLastScanTimestamp(timestamp: Long) {
         dataStore.edit { it[LAST_SCAN_TIMESTAMP] = timestamp }
-    }
-
-    // ── DJ Mix Settings Updates ───────────────────────────────────────────────
-
-    override suspend fun updateDjRealMixMode(enabled: Boolean) {
-        dataStore.edit { it[DJ_REAL_MIX_MODE] = enabled }
-    }
-
-    override suspend fun updateDjAutoSampler(enabled: Boolean) {
-        dataStore.edit { it[DJ_AUTO_SAMPLER] = enabled }
-    }
-
-    override suspend fun updateDjSampleVolume(volume: Float) {
-        dataStore.edit { it[DJ_SAMPLE_VOLUME] = volume }
-    }
-
-    override suspend fun updateDjDualDeckMode(enabled: Boolean) {
-        dataStore.edit { it[DJ_DUAL_DECK_MODE] = enabled }
-    }
-
-    override suspend fun updateLoopQueue(enabled: Boolean) {
-        dataStore.edit { it[DJ_LOOP_QUEUE] = enabled }
-    }
-
-    override suspend fun getLastMixOfTheDayTimestamp(): Long {
-        return dataStore.data.first()[LAST_MIX_OF_THE_DAY_TIMESTAMP] ?: 0L
-    }
-
-    override suspend fun updateLastMixOfTheDayTimestamp(timestamp: Long) {
-        dataStore.edit { it[LAST_MIX_OF_THE_DAY_TIMESTAMP] = timestamp }
-    }
-
-    override suspend fun updateDjMixPlaylistFilter(filter: DjMixPlaylistFilter) {
-        dataStore.edit { it[DJ_MIX_PLAYLIST_FILTER] = filter.name }
     }
 
     override suspend fun getLastUpdateCheckTimestamp(): Long =

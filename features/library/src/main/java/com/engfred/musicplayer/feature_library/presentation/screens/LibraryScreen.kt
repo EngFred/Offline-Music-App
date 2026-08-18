@@ -63,7 +63,6 @@ fun LibraryScreen(
     modifier: Modifier = Modifier,
     onEditSong: (AudioFile) -> Unit,
     onTrimAudio: (AudioFile) -> Unit,
-    onOpenMixOfTheDay: (Long) -> Unit,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val uiState = viewModel.uiState.collectAsState().value
@@ -326,8 +325,7 @@ fun LibraryScreen(
                     onToggleSelection = { audioFile -> viewModel.onEvent(LibraryEvent.ToggleSelection(audioFile)) },
                     onLongPress = { audioFile ->
                         if (!isSelectionMode) viewModel.onEvent(LibraryEvent.ToggleSelection(audioFile))
-                    },
-                    onOpenMixOfTheDay = onOpenMixOfTheDay
+                    }
                 )
             }
         }

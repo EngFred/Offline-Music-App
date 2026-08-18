@@ -73,7 +73,6 @@ include(":features:playlist")
 include(":features:settings")
 include(":features:trim")
 include(":features:edit")
-include(":features:dj_mix")
 ```
 
 ---
@@ -143,7 +142,6 @@ features/
  ├─ playlist/
  ├─ settings/
  ├─ edit/
- ├─ dj_mix/
  └─ trim/
 ```
 

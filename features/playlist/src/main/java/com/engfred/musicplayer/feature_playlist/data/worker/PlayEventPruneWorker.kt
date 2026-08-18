@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit
  * is ever deleted. Adjust RETENTION_DAYS if the query window changes.
  *
  * WIRING: call [PlayEventPruneWorker.schedule] once from your Application or
- * MainActivity onCreate — identical pattern to MixOfTheDayWorker.schedule().
+ * MainActivity onCreate.
  */
 @HiltWorker
 class PlayEventPruneWorker @AssistedInject constructor(

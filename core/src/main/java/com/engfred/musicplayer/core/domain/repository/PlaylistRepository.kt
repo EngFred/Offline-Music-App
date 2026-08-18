@@ -71,7 +71,6 @@ interface PlaylistRepository {
     suspend fun recordSongPlayEvent(audioFileId: Long)
 
     suspend fun addSongsToPlaylist(playlistId: Long, audioFiles: List<AudioFile>): Int
-    suspend fun replaceMixOfTheDay(playlist: Playlist, songs: List<AudioFile>)
 
 
     /**

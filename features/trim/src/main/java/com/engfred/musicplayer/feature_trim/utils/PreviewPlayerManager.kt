@@ -231,7 +231,6 @@ class PreviewPlayerManager @Inject constructor(
      * Helper to ensure no other audio is playing before we blast the preview.
      */
     private fun silenceBackgroundAudio() {
-        activePlayerRegistry.requestStopDjMix()
         activePlayerRegistry.requestPauseNormalPlayer()
     }
 

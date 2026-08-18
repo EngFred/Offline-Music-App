@@ -215,16 +215,6 @@ fun SettingsScreen(
                     }
                 )
 
-                FlatToggleRow(
-                    title = "Mix of the Day — Short Tracks Only",
-                    subtitle = "Limit daily mixes to tracks under 5 minutes for tighter, faster-paced sets.",
-                    icon = Icons.Rounded.HourglassTop,
-                    isChecked = uiState.mixOfTheDayFilterByDuration,
-                    onCheckedChange = { isChecked ->
-                        viewModel.onEvent(SettingsEvent.UpdateMixOfTheDayFilterByDuration(isChecked))
-                    }
-                )
-
                 SettingsActionRow(
                     title = "Find Duplicates",
                     subtitle = "Free up space by safely removing identical audio files.",

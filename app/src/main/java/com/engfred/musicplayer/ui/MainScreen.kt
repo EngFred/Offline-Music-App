@@ -40,7 +40,6 @@ import com.engfred.musicplayer.core.ui.components.MiniPlayer
 import com.engfred.musicplayer.core.ui.components.PlayShuffleBar
 import com.engfred.musicplayer.core.util.TextUtils.formatCount
 import com.engfred.musicplayer.core.util.TextUtils.pluralize
-import com.engfred.musicplayer.feature_dj_mix.presentation.screens.MixStudioLauncherScreen
 import com.engfred.musicplayer.feature_library.presentation.screens.LibraryScreen
 import com.engfred.musicplayer.feature_playlist.presentation.screens.PlaylistsScreen
 import com.engfred.musicplayer.feature_settings.presentation.screens.SettingsScreen
@@ -70,17 +69,12 @@ fun MainScreen(
     onToggleStopAfterCurrent: () -> Unit,
     playbackPositionMs: Long,
     totalDurationMs: Long,
-    isDjMixActive: Boolean,
-    onNavigateToDjMix: () -> Unit,
-    onOpenMixOfTheDay: (Long) -> Unit,
-    onDjMixPlaylistSelected: (Long) -> Unit,
     onNavigateToDuplicates: () -> Unit
 ) {
     val bottomNavController = rememberNavController()
     val bottomNavItems = listOf(
         AppDestinations.BottomNavItem.Library,
         AppDestinations.BottomNavItem.Playlists,
-        AppDestinations.BottomNavItem.DjMix,
         AppDestinations.BottomNavItem.Settings,
     )
     var showDropdownMenu by remember { mutableStateOf(false) }
@@ -112,13 +106,11 @@ fun MainScreen(
 
             val isOnLibrary  = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Library.baseRoute   } == true
             val isOnPlaylist = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Playlists.baseRoute  } == true
-            val isOnDjMix    = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.DjMix.baseRoute      } == true
             val isOnSettings = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Settings.baseRoute   } == true
 
             val mainTitle = when {
                 isOnLibrary  -> AppDestinations.BottomNavItem.Library.label
                 isOnPlaylist -> AppDestinations.BottomNavItem.Playlists.label
-                isOnDjMix    -> AppDestinations.BottomNavItem.DjMix.label
                 isOnSettings -> AppDestinations.BottomNavItem.Settings.label
                 else         -> "Music"
             }
@@ -143,34 +135,27 @@ fun MainScreen(
                     .navigationBarsPadding()
                     .background(MaterialTheme.colorScheme.surface)
             ) {
-                if (isDjMixActive) {
-                    AutoMixBar(
-                        onClick = onNavigateToDjMix,
-                        modifier = Modifier.fillMaxWidth()
+                if (playingAudioFile != null || lastPlaybackAudio != null) {
+                    MiniPlayer(
+                        onClick = onNavigateToNowPlaying,
+                        modifier = Modifier.fillMaxWidth(),
+                        onPlayPause = onPlayPause,
+                        onPlayNext = onPlayNext,
+                        onPlayPrev = onPlayPrev,
+                        isPlaying = isPlaying,
+                        playingAudioFile = playingAudioFile ?: lastPlaybackAudio,
+                        onToggleStopAfterCurrent = onToggleStopAfterCurrent,
+                        stopAfterCurrent = stopAfterCurrent,
+                        playbackPositionMs = playbackPositionMs,
+                        totalDurationMs = totalDurationMs,
                     )
                 } else {
-                    if (playingAudioFile != null || lastPlaybackAudio != null) {
-                        MiniPlayer(
-                            onClick = onNavigateToNowPlaying,
-                            modifier = Modifier.fillMaxWidth(),
-                            onPlayPause = onPlayPause,
-                            onPlayNext = onPlayNext,
-                            onPlayPrev = onPlayPrev,
-                            isPlaying = isPlaying,
-                            playingAudioFile = playingAudioFile ?: lastPlaybackAudio,
-                            onToggleStopAfterCurrent = onToggleStopAfterCurrent,
-                            stopAfterCurrent = stopAfterCurrent,
-                            playbackPositionMs = playbackPositionMs,
-                            totalDurationMs = totalDurationMs,
+                    if (audioItems.isNotEmpty()) {
+                        PlayShuffleBar(
+                            onPlayAll = onPlayAll,
+                            onShuffleAll = onShuffleAll,
+                            modifier = Modifier.fillMaxWidth()
                         )
-                    } else {
-                        if (audioItems.isNotEmpty()) {
-                            PlayShuffleBar(
-                                onPlayAll = onPlayAll,
-                                onShuffleAll = onShuffleAll,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
                     }
                 }
 
@@ -223,18 +208,12 @@ fun MainScreen(
                 LibraryScreen(
                     onEditSong = onEditSong,
                     onTrimAudio = onTrimAudio,
-                    onOpenMixOfTheDay = onOpenMixOfTheDay
                 )
             }
             composable(AppDestinations.BottomNavItem.Playlists.baseRoute) {
                 PlaylistsScreen(
                     onPlaylistClick = onPlaylistClick,
                     onCreatePlaylist = onCreatePlaylist
-                )
-            }
-            composable(AppDestinations.BottomNavItem.DjMix.baseRoute) {
-                MixStudioLauncherScreen(
-                    onPlaylistSelected = onDjMixPlaylistSelected,
                 )
             }
             composable(AppDestinations.BottomNavItem.Settings.baseRoute) {

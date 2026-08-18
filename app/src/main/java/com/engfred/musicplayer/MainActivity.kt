@@ -25,7 +25,6 @@ import com.engfred.musicplayer.core.data.SharedAudioDataSource
 import com.engfred.musicplayer.core.domain.ActivePlayerRegistry
 import com.engfred.musicplayer.core.domain.model.AppSettings
 import com.engfred.musicplayer.core.domain.model.AudioFile
-import com.engfred.musicplayer.core.domain.model.AutomaticPlaylistType
 import com.engfred.musicplayer.core.domain.model.UpdateInfo
 import com.engfred.musicplayer.core.domain.repository.LibraryRepository
 import com.engfred.musicplayer.core.domain.repository.PlaybackController
@@ -36,15 +35,11 @@ import com.engfred.musicplayer.core.domain.usecases.PermissionHandlerUseCase
 import com.engfred.musicplayer.core.ui.theme.AppThemeType
 import com.engfred.musicplayer.core.ui.theme.MusicPlayerAppTheme
 import com.engfred.musicplayer.core.util.MediaUtils
-import com.engfred.musicplayer.feature_dj_mix.data.bpm.GlobalBpmScanWorker
-import com.engfred.musicplayer.feature_dj_mix.data.bpm.MixOfTheDayWorker
-import com.engfred.musicplayer.feature_dj_mix.domain.DjSessionManager
 import com.engfred.musicplayer.feature_library.data.worker.NewAudioScanWorker
 import com.engfred.musicplayer.feature_playlist.data.worker.PlayEventPruneWorker
 import com.engfred.musicplayer.feature_settings.domain.usecases.GetAppSettingsUseCase
 import com.engfred.musicplayer.helpers.IntentPermissionHelper
 import com.engfred.musicplayer.helpers.PlaybackQueueHelper
-import com.engfred.musicplayer.navigation.AppDestinations
 import com.engfred.musicplayer.navigation.AppNavHost
 import com.engfred.musicplayer.ui.CustomSplashScreen
 import com.engfred.musicplayer.update.UpdateCheckWorker
@@ -58,6 +53,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
+import kotlin.time.Duration.Companion.milliseconds
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -69,7 +65,6 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var permissionHandlerUseCase: PermissionHandlerUseCase
     @Inject lateinit var activePlayerRegistry: ActivePlayerRegistry
-    @Inject lateinit var djSessionManager: DjSessionManager
     @Inject lateinit var checkForUpdateUseCase: CheckForUpdateUseCase
 
     private var externalPlaybackUri by mutableStateOf<Uri?>(null)
@@ -85,9 +80,6 @@ class MainActivity : ComponentActivity() {
     private var showNowPlaying by mutableStateOf(false)
 
     private var navigateToNowPlayingOnStart by mutableStateOf(false)
-    private var navigateToDjMixOnStart by mutableStateOf(false)
-    private var navigateToMixOfTheDayOnStart by mutableStateOf(false)
-    private var mixOfTheDayPlaylistId by mutableLongStateOf(AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID)
 
     private val uiScope get() = lifecycleScope
 
@@ -191,100 +183,37 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } catch (t: Throwable) {
-                // Network or API failure — do NOT update the timestamp so the next
-                // launch retries the check rather than silently skipping it.
                 Log.w(TAG, "On-launch update check failed: ${t.message}")
             }
         }
 
         handleIncomingIntent(intent)
 
-        if (intent?.getBooleanExtra("OPEN_MIX_OF_THE_DAY", false) == true) {
-            mixOfTheDayPlaylistId      = intent.getLongExtra("MIX_PLAYLIST_ID", AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID)
-            navigateToMixOfTheDayOnStart = true
-        }
-        if (intent?.getBooleanExtra("OPEN_DJ_MIX", false) == true) {
-            navigateToDjMixOnStart = true
-        }
-
         setContent {
             val audioItems by sharedAudioDataSource.deviceAudioFiles.collectAsState(initial = emptyList())
 
-            var globalScanTriggered by remember { mutableStateOf(false) }
-            LaunchedEffect(audioItems) {
-                if (!globalScanTriggered && audioItems.isNotEmpty()) {
-                    globalScanTriggered = true
-                    GlobalBpmScanWorker.enqueue(this@MainActivity)
-                }
-            }
-
-            // ── gate the full UI behind the custom splash ────────────────
-            // Initialize from our static session tracker. If the app process is
-            // alive (because music is playing), this will instantly be true!
             var splashComplete by remember { mutableStateOf(hasShownSplashThisSession) }
-            // ─────────────────────────────────────────────────────────────────
 
             val selectedTheme = initialAppSettings?.selectedTheme ?: AppThemeType.NEON_DARK
             MusicPlayerAppTheme(selectedTheme = selectedTheme) {
 
-                // ── NEW: show splash until CustomSplashScreen calls onSplashComplete ──
                 if (!splashComplete) {
                     CustomSplashScreen(
                         isReady = appSettingsLoaded,
                         onSplashComplete = {
                             splashComplete = true
-                            hasShownSplashThisSession = true // Mark it as shown for this session
+                            hasShownSplashThisSession = true
                         },
                     )
-                    return@MusicPlayerAppTheme   // ← skip building the nav graph while splash is visible
+                    return@MusicPlayerAppTheme
                 }
-                // ──────────────────────────────────────────────────────────────
 
-                // ── Everything below is UNCHANGED from your original code ─────
                 val navController = androidx.navigation.compose.rememberNavController()
 
                 LaunchedEffect(navigateToNowPlayingOnStart) {
                     if (navigateToNowPlayingOnStart) {
                         showNowPlaying = true
                         navigateToNowPlayingOnStart = false
-                    }
-                }
-
-                val isDjMixActive by activePlayerRegistry.isDjMixActive.collectAsState()
-
-                val navigateToDjMix: () -> Unit = {
-                    if (isDjMixActive) {
-                        val playlistId = djSessionManager.activePlaylistId
-                        if (playlistId != null) {
-                            val route = AppDestinations.DjMix.createRoute(playlistId)
-                            if (navController.currentDestination?.route != route) {
-                                navController.navigate(route) {
-                                    launchSingleTop = true
-                                    restoreState    = true
-                                }
-                            }
-                        } else {
-                            navController.navigate(AppDestinations.DjMix.createRoute(-1)) {
-                                launchSingleTop = true
-                            }
-                        }
-                    }
-                    Unit
-                }
-
-                LaunchedEffect(navigateToDjMixOnStart) {
-                    if (navigateToDjMixOnStart) {
-                        navigateToDjMix()
-                        navigateToDjMixOnStart = false
-                    }
-                }
-
-                LaunchedEffect(navigateToMixOfTheDayOnStart) {
-                    if (navigateToMixOfTheDayOnStart) {
-                        navController.navigate(AppDestinations.DjMix.createRoute(mixOfTheDayPlaylistId)) {
-                            launchSingleTop = true
-                        }
-                        navigateToMixOfTheDayOnStart = false
                     }
                 }
 
@@ -298,72 +227,29 @@ class MainActivity : ComponentActivity() {
                 AppNavHost(
                     rootNavController = navController,
                     onNavigateToNowPlaying = {
-                        uiScope.launch {
-                            if (playbackState.currentAudioFile == null) {
-                                val lastState = settingsRepository.getLastPlaybackState().first()
-                                val startUri  = lastPlaybackAudio?.uri ?: return@launch
-                                playbackController.initiatePlayback(startUri, lastState.positionMs)
-                                if (!playbackController.waitUntilReady(5000)) return@launch
-                            }
-                            // ↓ Open overlay instead of navigating
-                            showNowPlaying = true
-                        }
+                        showNowPlaying = true
                     },
-                    // ── NEW params ──────────────────────────────────────────────────────
                     showNowPlaying    = showNowPlaying,
                     onShowNowPlaying  = { showNowPlaying = it },
-                    // ── Everything below is unchanged ───────────────────────────────────
                     onPlayPause = {
-                        uiScope.launch {
-                            if (playbackState.currentAudioFile != null) {
-                                playbackController.playPause()
-                            } else {
-                                val lastState = settingsRepository.getLastPlaybackState().first()
-                                lastPlaybackAudio?.uri?.let {
-                                    playbackController.initiatePlayback(it, lastState.positionMs)
-                                }
-                            }
-                        }
+                        uiScope.launch { playbackController.playPause() }
                     },
                     onPlayNext = {
-                        uiScope.launch {
-                            if (playbackState.currentAudioFile != null) {
-                                playbackController.skipToNext()
-                            } else {
-                                val lastState = settingsRepository.getLastPlaybackState().first()
-                                lastPlaybackAudio?.uri?.let { uri ->
-                                    playbackController.initiatePlayback(uri, lastState.positionMs)
-                                    if (playbackController.waitUntilReady(5000)) playbackController.skipToNext()
-                                }
-                            }
-                        }
+                        uiScope.launch { playbackController.skipToNext() }
                     },
                     onPlayPrev = {
-                        uiScope.launch {
-                            if (playbackState.currentAudioFile != null) {
-                                playbackController.skipToPrevious()
-                            } else {
-                                val lastState = settingsRepository.getLastPlaybackState().first()
-                                lastPlaybackAudio?.uri?.let { uri ->
-                                    playbackController.initiatePlayback(uri, lastState.positionMs)
-                                    if (playbackController.waitUntilReady(5000)) playbackController.skipToPrevious()
-                                }
-                            }
-                        }
+                        uiScope.launch { playbackController.skipToPrevious() }
                     },
                     playingAudioFile  = playbackState.currentAudioFile,
                     isPlaying         = playbackState.isPlaying,
-                    context           = this,
-                    onPlayAll         = { PlaybackQueueHelper.playAll(this, sharedAudioDataSource, playbackController, settingsRepository) },
-                    onShuffleAll      = { PlaybackQueueHelper.shuffleAll(this, sharedAudioDataSource, playbackController, settingsRepository) },
+                    context           = this@MainActivity,
+                    onPlayAll         = { PlaybackQueueHelper.playAll(this@MainActivity, sharedAudioDataSource, playbackController, settingsRepository) },
+                    onShuffleAll      = { PlaybackQueueHelper.shuffleAll(this@MainActivity, sharedAudioDataSource, playbackController, settingsRepository) },
                     audioItems        = audioItems,
                     onReleasePlayer   = { uiScope.launch { playbackController.releasePlayer() } },
                     lastPlaybackAudio = lastPlaybackAudio,
                     stopAfterCurrent  = playbackState.stopAfterCurrent,
                     onToggleStopAfterCurrent = {
-                        if (!playbackState.stopAfterCurrent) {
-                            Toast.makeText(this, "Playback will stop when current song ends", Toast.LENGTH_SHORT).show()
-                        }
                         playbackController.toggleStopAfterCurrent()
                     },
                     playbackPositionMs = if (playbackState.currentAudioFile != null) {
@@ -379,25 +265,14 @@ class MainActivity : ComponentActivity() {
                         } else playbackState.totalDurationMs
                     } else {
                         lastPlaybackAudio?.duration ?: 0L
-                    },
-                    isDjMixActive     = isDjMixActive,
-                    onNavigateToDjMix = navigateToDjMix
+                    }
                 )
 
-//                LaunchedEffect(externalPlaybackUri) {
-//                    val uri = externalPlaybackUri ?: return@LaunchedEffect
-//                    val success = withContext(Dispatchers.IO) { initiatePlaybackFromExternalUri(uri) }
-//                    if (success) {
-//                        navController.navigate(AppDestinations.NowPlaying.route) { launchSingleTop = true }
-//                    }
-//                    externalPlaybackUri = null
-//                }
                 LaunchedEffect(externalPlaybackUri) {
                     val uri = externalPlaybackUri ?: return@LaunchedEffect
                     val success = withContext(Dispatchers.IO) { initiatePlaybackFromExternalUri(uri) }
 
                     if (success) {
-                        // Now Playing is an overlay now! Trigger the boolean instead of navigating.
                         showNowPlaying = true
                     }
 
@@ -421,11 +296,6 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIncomingIntent(intent)
-        if (intent.getBooleanExtra("OPEN_DJ_MIX", false)) navigateToDjMixOnStart = true
-        if (intent.getBooleanExtra("OPEN_MIX_OF_THE_DAY", false)) {
-            mixOfTheDayPlaylistId      = intent.getLongExtra("MIX_PLAYLIST_ID", AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID)
-            navigateToMixOfTheDayOnStart = true
-        }
         uiScope.launch { checkIntentForNewMusic(intent) }
     }
 
@@ -436,10 +306,7 @@ class MainActivity : ComponentActivity() {
             ExistingPeriodicWorkPolicy.KEEP,
             workRequest
         )
-        MixOfTheDayWorker.schedule(this)
         UpdateCheckWorker.schedule(this)
-        // schedule weekly pruning of song_play_events rows older than 90 days.
-        // Without this the table grows unbounded and the GROUP BY query gets slower.
         PlayEventPruneWorker.schedule(this)
     }
 
@@ -542,7 +409,7 @@ class MainActivity : ComponentActivity() {
             playbackController.initiatePlayback(uri)
 
             // reactive wait — suspends until state satisfies condition or 3 s elapses.
-            val started = withTimeoutOrNull(3_000) {
+            val started = withTimeoutOrNull(3_000.milliseconds) {
                 playbackController.getPlaybackState()
                     .first { state ->
                         state.currentAudioFile != null && (state.isPlaying || state.isLoading)

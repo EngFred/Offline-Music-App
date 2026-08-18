@@ -61,11 +61,6 @@
             </intent-filter>
         </service>
 
-        <service
-            android:name="com.engfred.musicplayer.feature_dj_mix.data.service.AutoMixService"
-            android:foregroundServiceType="mediaPlayback"
-            android:exported="false" />
-
         <receiver
             android:name=".widget.PlayerWidgetProvider"
             android:exported="true"

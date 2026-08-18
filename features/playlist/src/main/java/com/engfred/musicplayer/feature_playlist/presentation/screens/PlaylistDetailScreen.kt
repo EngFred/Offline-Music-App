@@ -72,7 +72,6 @@ import com.engfred.musicplayer.core.ui.components.MiniPlayer
 import com.engfred.musicplayer.core.ui.components.ShimmerAudioFileItem
 import com.engfred.musicplayer.core.util.TextUtils.pluralize
 import com.engfred.musicplayer.feature_playlist.presentation.components.detail.AddSongsBottomSheet
-import com.engfred.musicplayer.feature_playlist.presentation.components.detail.DjMixButton
 import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistActionButtons
 import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistDetailHeaderSection
 import com.engfred.musicplayer.feature_playlist.presentation.components.detail.PlaylistDetailTopBar
@@ -99,9 +98,6 @@ fun PlaylistDetailScreen(
     onToggleStopAfterCurrent: () -> Unit,
     playbackPositionMs: Long,
     totalDurationMs: Long,
-    // ── DJ Mix entry point ────────────────────────────────────────────────────
-    // Null means the caller does not support DJ Mix navigation (e.g. a test host).
-    onDjMixClick: ((Long) -> Unit)? = null,
     viewModel: PlaylistDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -145,15 +141,8 @@ fun PlaylistDetailScreen(
         }
     }
 
-    // ReadOnly = automatic playlists that are NOT "Favorites".
-    // User playlists and Favorites allow DJ Mix.
     val isReadOnlyPlaylist = uiState.playlist?.isAutomatic == true &&
             !uiState.playlist?.name.equals("Favorites", ignoreCase = true)
-
-    // DJ Mix button is shown for ANY playlist with songs (automatic or manual)
-    // as long as the caller has wired up onDjMixClick.
-    val showDjMixButton = onDjMixClick != null
-            && uiState.playlist?.songs?.isNotEmpty() == true
 
     val isSelectionMode = uiState.selectedSongs.isNotEmpty() && !isReadOnlyPlaylist
     val coroutineScope = rememberCoroutineScope()
@@ -164,19 +153,6 @@ fun PlaylistDetailScreen(
 
     val batchSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var allowBatchDismiss by remember { mutableStateOf(false) }
-
-    // Unified click handler for the DJ Mix button to ensure consistent UX across layouts
-    val handleDjMixClick: () -> Unit = {
-        val trackCount = uiState.playlist?.songs?.size ?: 0
-        if (trackCount < 3) {
-            Toast.makeText(context, "The Mix engine requires at least 3 tracks to mix.", Toast.LENGTH_SHORT).show()
-        } else {
-            val playlistId = uiState.playlist?.id
-            if (playlistId != null && onDjMixClick != null) {
-                onDjMixClick.invoke(playlistId)
-            }
-        }
-    }
 
     Scaffold(
         bottomBar = {
@@ -344,15 +320,6 @@ fun PlaylistDetailScreen(
                                             isCompact = true
                                         )
 
-                                        // ── DJ Mix button (portrait) ──────────────
-                                        if (showDjMixButton) {
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            DjMixButton(
-                                                onClick = handleDjMixClick,
-                                                modifier = Modifier.padding(horizontal = 12.dp)
-                                            )
-                                        }
-
                                         Spacer(modifier = Modifier.height(24.dp))
                                         PlaylistSongsHeader(
                                             songCount = uiState.playlist?.songs?.size ?: 0,
@@ -457,14 +424,6 @@ fun PlaylistDetailScreen(
                                 onShuffleAllClick = { if (uiState.playlist?.songs?.isNotEmpty() == true) viewModel.onEvent(PlaylistDetailEvent.ShuffleAll) },
                                 isCompact = false
                             )
-                        }
-                        // ── DJ Mix button (landscape) ─────────────────────────────
-                        if (showDjMixButton) {
-                            item {
-                                DjMixButton(
-                                    onClick = handleDjMixClick
-                                )
-                            }
                         }
                         item { Spacer(modifier = Modifier.height(16.dp)) }
                     }

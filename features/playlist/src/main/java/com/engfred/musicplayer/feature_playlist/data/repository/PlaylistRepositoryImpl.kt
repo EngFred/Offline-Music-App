@@ -164,12 +164,6 @@ class PlaylistRepositoryImpl @Inject constructor(
                 }
             )
 
-            // ── Mix of the Day ─────────────────────────────────────────────
-            val mixPlaylist = metaPlaylists[AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID]
-            if (mixPlaylist != null && mixPlaylist.songs.isNotEmpty()) {
-                automaticPlaylists.add(0, mixPlaylist)
-            }
-
             automaticPlaylists + userPlaylists
         }
     }
@@ -221,13 +215,6 @@ class PlaylistRepositoryImpl @Inject constructor(
                 )
             }
 
-            // ── Mix of the Day ─────────────────────────────────────────────
-            playlistId == AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID -> {
-                playlistDao.getPlaylistWithSongsById(playlistId)
-                    .distinctUntilChanged()
-                    .map { it?.toDomain() }
-            }
-
             // ── Artist playlists ───────────────────────────────────────────
             playlistId < 0 -> {
                 val artistId = -playlistId
@@ -277,12 +264,6 @@ class PlaylistRepositoryImpl @Inject constructor(
 
     override suspend fun deletePlaylist(playlistId: Long) =
         playlistDao.deletePlaylist(playlistId)
-
-    override suspend fun replaceMixOfTheDay(playlist: Playlist, songs: List<AudioFile>) {
-        val playlistEntity = playlist.toEntity()
-        val songEntities   = songs.map { it.toPlaylistSongEntity(playlist.id) }
-        playlistDao.replaceMixOfTheDay(playlistEntity, songEntities)
-    }
 
     // ── Song management ───────────────────────────────────────────────────────
 

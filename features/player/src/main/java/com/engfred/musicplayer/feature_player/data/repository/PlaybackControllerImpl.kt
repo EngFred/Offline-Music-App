@@ -45,21 +45,6 @@ private const val TAG = "PlayerControllerImpl"
 
 /**
  * Implementation of [PlaybackController] backed by a Media3 [MediaController].
- *
- * ── What changed and why ─────────────────────────────────────────────────────
- * BUG FIX: Playing a song from the home screen while the DJ Mix was active caused
- * both audio systems to play simultaneously. Two-way coordination is now handled
- * via [ActivePlayerRegistry]:
- *
- * 1. When normal playback starts (initiatePlayback / initiateShufflePlayback),
- *    [ActivePlayerRegistry.requestStopDjMix] is called. This emits a signal that
- *    [DjMixService] observes — it releases the CrossfadeEngine and stops itself.
- *    There is no direct class reference to DjMixService here; the registry in
- *    :core acts as a decoupled message bus between the two feature modules.
- *
- * 2. When the DJ Mix starts, DjMixViewModel calls [ActivePlayerRegistry.onDjMixStarted].
- *    This controller observes [isDjMixActive] becoming true and pauses the normal
- *    ExoPlayer so both systems never hold audio focus simultaneously.
  */
 @UnstableApi
 @Singleton
@@ -139,21 +124,6 @@ class PlaybackControllerImpl @Inject constructor(
             progressTracker.startPlaybackPositionUpdates()
         }
 
-        // Pause the normal ExoPlayer whenever the DJ Mix becomes active.
-        // This prevents both systems from playing simultaneously when the user
-        // starts the DJ Mix while a normal song is already playing.
-        repositoryScope.launch {
-            activePlayerRegistry.isDjMixActive
-                .collect { isDjActive ->
-                    if (isDjActive) {
-                        withContext(Dispatchers.Main) {
-                            mediaController.value?.pause()
-                            Log.d(TAG, "Auto Mix started — normal player paused.")
-                        }
-                    }
-                }
-        }
-
         repositoryScope.launch {
             activePlayerRegistry.pauseNormalPlayerSignal.collect {
                 withContext(Dispatchers.Main) {
@@ -166,17 +136,11 @@ class PlaybackControllerImpl @Inject constructor(
 
     /**
      * Starts normal playback from [initialAudioFileUri].
-     *
-     * FIX: Calls requestStopDjMix() before initiating playback. If DjMixService is
-     * running, it will receive the stop signal and release the CrossfadeEngine,
-     * preventing both audio systems from holding audio focus simultaneously.
      */
     override suspend fun initiatePlayback(
         initialAudioFileUri: android.net.Uri,
         startPositionMs: Long
     ) {
-        // Stop the DJ Mix if it is active. DjMixService observes this signal.
-        activePlayerRegistry.requestStopDjMix()
         queueManager.initiatePlayback(initialAudioFileUri, intendedRepeatMode, startPositionMs)
     }
 
@@ -185,8 +149,6 @@ class PlaybackControllerImpl @Inject constructor(
             Log.w(TAG, "Cannot initiate shuffle playback: empty queue.")
             return
         }
-        // Stop the DJ Mix before taking over audio focus.
-        activePlayerRegistry.requestStopDjMix()
         val shuffledQueue = playingQueue.shuffled()
         sharedAudioDataSource.setPlayingQueue(shuffledQueue)
         initiatePlayback(shuffledQueue.first().uri, C.TIME_UNSET)

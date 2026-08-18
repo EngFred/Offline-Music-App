@@ -28,6 +28,5 @@ data class LibraryScreenState(
     val selectedAudioFiles: Set<AudioFile> = emptySet(),
     val showBatchDeleteConfirmationDialog: Boolean = false,
 
-    val showCreatePlaylistDialog: Boolean = false,
-    val mixOfTheDayPlaylist: Playlist? = null
+    val showCreatePlaylistDialog: Boolean = false
 )

@@ -9,7 +9,6 @@ import androidx.activity.result.IntentSenderRequest
 import com.engfred.musicplayer.core.common.Resource
 import com.engfred.musicplayer.core.data.SharedAudioDataSource
 import com.engfred.musicplayer.core.domain.model.AudioFile
-import com.engfred.musicplayer.core.domain.model.AutomaticPlaylistType
 import com.engfred.musicplayer.core.domain.model.FilterOption
 import com.engfred.musicplayer.core.domain.model.Playlist
 import com.engfred.musicplayer.core.domain.repository.PlaybackController
@@ -70,7 +69,6 @@ class LibraryViewModel @Inject constructor(
         startObservingPlaybackState()
         observePlaylists()
         observeFilterOption()
-        observeMixOfTheDay()
     }
 
     // ── Observers ─────────────────────────────────────────────────────────────
@@ -117,30 +115,6 @@ class LibraryViewModel @Inject constructor(
                     applySearchAndFilter()
                 }
         }
-    }
-
-    /**
-     * Continuously observes the Mix of the Day playlist from Room.
-     *
-     * Key design points:
-     * - Uses [launchIn] so the coroutine lives for the entire ViewModel lifetime
-     * (tied to [viewModelScope]) — no `first()` one-shot collection.
-     * - [distinctUntilChanged] prevents redundant recompositions when Room fires
-     * spurious invalidations without an actual data change.
-     * - Because [PlaylistRepository.getPlaylistById] for the mix ID is backed by a
-     * Room @Transaction query, this Flow is guaranteed to emit only after the
-     * atomic write in [MixOfTheDayWorker] completes — so `playlist.songs` is
-     * always either null (not yet generated) or fully populated (35 tracks).
-     */
-    private fun observeMixOfTheDay() {
-        playlistRepository
-            .getPlaylistById(AutomaticPlaylistType.MIX_OF_THE_DAY_PLAYLIST_ID)
-            .distinctUntilChanged()
-            .onEach { playlist ->
-                Log.d(TAG, "Mix of the Day updated: ${playlist?.songs?.size ?: 0} tracks")
-                _uiState.update { it.copy(mixOfTheDayPlaylist = playlist) }
-            }
-            .launchIn(viewModelScope)
     }
 
     // ── Event handler ─────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@
   Drop this file directly into your project at:
       app/src/main/res/drawable/ic_notification.xml
 
-  Then in NewAudioScanWorker.kt and MixOfTheDayWorker.kt replace:
+  Then in NewAudioScanWorker.kt replace:
       val iconResId = android.R.drawable.stat_sys_headset
   with:
       val iconResId = R.drawable.ic_notification

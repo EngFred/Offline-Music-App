@@ -24,8 +24,6 @@ android {
 
     buildTypes {
         debug {
-            // No splits for debug — emulators (x86_64) get all ABIs
-            // so libbpm_analyzer.so is always found
         }
         release {
             isMinifyEnabled = true
@@ -79,7 +77,6 @@ dependencies {
     implementation(project(":features:settings"))
     implementation(project(":features:trim"))
     implementation(project(":features:edit"))
-    implementation(project(":features:dj_mix"))
 
     // Android Core & Lifecycle
     implementation(libs.androidx.core.ktx)

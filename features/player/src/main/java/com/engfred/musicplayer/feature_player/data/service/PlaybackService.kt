@@ -440,18 +440,8 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    // ── FIX: Suppress the normal-player notification while the DJ Mix is
-    //         active, AND remove the lingering "Starting music service..."
-    //         placeholder when nothing is loaded into the player yet. ─────────
     override fun onUpdateNotification(session: MediaSession, startInForeground: Boolean) {
         when {
-            // DJ Mix is active — cancel the normal player notification so it
-            // doesn't conflict with the DJ service's own notification.
-            activePlayerRegistry.isDjMixActive.value -> {
-                (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
-                    ?.cancel(MUSIC_NOTIFICATION_ID)
-            }
-
             // Nothing is loaded and nothing is playing — demote the service out
             // of the foreground so the "Starting music service..." placeholder
             // is removed from the notification shade and the badge disappears.
