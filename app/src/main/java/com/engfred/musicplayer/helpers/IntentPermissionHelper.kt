@@ -36,8 +36,19 @@ object IntentPermissionHelper {
         try {
             if (intent == null) return
 
-            if (intent.action == Intent.ACTION_VIEW) {
-                val uri = intent.data ?: return
+            val uri = when (intent.action) {
+                Intent.ACTION_VIEW -> intent.data
+                Intent.ACTION_SEND -> {
+                    val streamUri = intent.extras?.get(Intent.EXTRA_STREAM) as? Uri
+                    streamUri ?: intent.clipData?.getItemAt(0)?.uri ?: intent.getStringExtra(Intent.EXTRA_TEXT)
+                        ?.trim()
+                        ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+                        ?.let { Uri.parse(it) }
+                }
+                else -> null
+            } ?: return
+
+            if (intent.action == Intent.ACTION_VIEW || intent.action == Intent.ACTION_SEND) {
                 val uriString = uri.toString()
 
                 if (isLastHandledUri(uriString)) {
@@ -46,7 +57,16 @@ object IntentPermissionHelper {
                 }
 
                 setLastHandledUri(uriString)
-                Log.d(TAG, "Incoming ACTION_VIEW with URI: $uriString")
+                Log.d(TAG, "Incoming ${intent.action} with URI: $uriString")
+
+                // Network URLs do not need storage permission or a ContentResolver
+                // stream probe. Media3 can open HTTP(S) sources directly.
+                if (uri.scheme.equals("http", ignoreCase = true) ||
+                    uri.scheme.equals("https", ignoreCase = true)
+                ) {
+                    onUriReady(uri)
+                    return
+                }
 
                 if (intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) {
                     try {

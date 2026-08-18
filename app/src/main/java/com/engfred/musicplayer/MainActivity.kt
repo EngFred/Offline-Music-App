@@ -71,6 +71,7 @@ class MainActivity : AppCompatActivity() {
     @Inject lateinit var castSessionManager: CastSessionManager
 
     private var externalPlaybackUri by mutableStateOf<Uri?>(null)
+    private var externalPlaybackMimeType by mutableStateOf<String?>(null)
     private var pendingPlaybackUri: Uri? = null
     private var lastHandledUriString: String? = null
     private lateinit var permissionLauncher: ActivityResultLauncher<String>
@@ -317,14 +318,23 @@ class MainActivity : AppCompatActivity() {
                     val uri = externalPlaybackUri ?: return@LaunchedEffect
                     val mime = try { contentResolver.getType(uri) ?: "" } catch (_: Exception) { "" }
                     val uriStr = uri.toString()
+                    val isNetworkUrl = uri.scheme.equals("http", ignoreCase = true) ||
+                            uri.scheme.equals("https", ignoreCase = true)
+                    val hintedMime = externalPlaybackMimeType.orEmpty()
                     val isVideo = mime.startsWith("video/") ||
+                            hintedMime.startsWith("video/") ||
+                            uriStr.contains(".m3u8", ignoreCase = true) ||
+                            uriStr.contains(".mpd", ignoreCase = true) ||
                             uriStr.endsWith(".mp4", ignoreCase = true) ||
                             uriStr.endsWith(".mkv", ignoreCase = true) ||
                             uriStr.endsWith(".webm", ignoreCase = true) ||
                             uriStr.endsWith(".3gp", ignoreCase = true) ||
                             uriStr.endsWith(".mov", ignoreCase = true) ||
                             uriStr.endsWith(".avi", ignoreCase = true) ||
-                            uriStr.endsWith(".ts", ignoreCase = true)
+                            uriStr.endsWith(".ts", ignoreCase = true) ||
+                            // A shared HTTPS URL with no MIME or recognizable suffix
+                            // is most commonly a video stream from an external player.
+                            isNetworkUrl && hintedMime.isBlank()
 
                     if (isVideo) {
                         navController.navigate(AppDestinations.VideoPlayer.createRoute(videoUri = uriStr))
@@ -336,6 +346,11 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     externalPlaybackUri = null
+                    externalPlaybackMimeType = null
+                    // The same file can be shared again after returning to the
+                    // source app. This guard only prevents duplicate delivery of
+                    // the currently queued intent, not future opens of the URI.
+                    lastHandledUriString = null
                 }
 
                 val currentUpdateInfo = updateInfo
@@ -389,6 +404,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleIncomingIntent(intent: Intent?) {
         try {
+            if (intent?.action == Intent.ACTION_VIEW || intent?.action == Intent.ACTION_SEND) {
+                externalPlaybackMimeType = intent.type
+            }
             IntentPermissionHelper.handleIncomingIntent(
                 this,
                 intent,
