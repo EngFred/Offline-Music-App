@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -95,6 +96,114 @@ fun VideoPlayerControls(
                 onClick = { onEvent(VideoPlayerEvent.ToggleControls) }
             )
     ) {
+        // ── 1. TV Cast Mode: Fixed Positioned Center Display (ZERO layout shift) ──
+        if (state.isCastConnected) {
+            // Anchor 1: Permanent TV Status Info (fixed position, never shifts)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .offset(y = (-46).dp)
+                    .padding(horizontal = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                // TV Icon with ambient glow
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.5.dp,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                    ),
+                    modifier = Modifier.size(80.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Tv,
+                            contentDescription = "Casting",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Receiver Name Headline e.g. "Casting on Android TV"
+                val deviceName = state.castDeviceName
+                val castTitle = if (!deviceName.isNullOrBlank()) "Casting on $deviceName" else "Casting on TV"
+
+                Text(
+                    text = castTitle,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.3.sp
+                    ),
+                    color = Color.White
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Video Title
+                state.videoFile?.title?.let { title ->
+                    Text(
+                        text = title.replace('_', ' ').trim(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.7f),
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Cast status badge
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.CastConnected,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "Connected",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+
+            // Anchor 2: Playback Buttons Row positioned at fixed slot below TV info (zero layout shift)
+            AnimatedVisibility(
+                visible = state.areControlsVisible && !state.isLocked,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .offset(y = 110.dp)
+            ) {
+                PlaybackButtonsRow(
+                    state = state,
+                    onEvent = onEvent
+                )
+            }
+        }
+
         // Center Buffering Spinner
         if (state.playbackState.isLoading) {
             Box(
@@ -151,7 +260,7 @@ fun VideoPlayerControls(
             return@Box
         }
 
-        // Main Controls Overlay
+        // ── 2. Interactive Overlay Controls (Top Bar, Bottom Scrubber, Local center buttons) ──
         AnimatedVisibility(
             visible = state.areControlsVisible,
             enter = fadeIn(),
@@ -170,7 +279,7 @@ fun VideoPlayerControls(
                         )
                     )
             ) {
-                // 1. Top Bar
+                // Top Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -242,132 +351,16 @@ fun VideoPlayerControls(
                             }
                         }
 
-                        // Cast Button
-                        Surface(
-                            shape = CircleShape,
-                            color = if (state.isCastConnected) {
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-                            } else {
-                                Color.White.copy(alpha = 0.14f)
-                            },
-                            border = if (state.isCastConnected) {
-                                androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-                            } else null,
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                CastMediaRouteButton(
-                                    tintColor = if (state.isCastConnected) MaterialTheme.colorScheme.primary else Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                            }
-                        }
+                        // Cast Button (Transparent background, pure icon)
+                        CastMediaRouteButton(
+                            tintColor = if (state.isCastConnected) MaterialTheme.colorScheme.primary else Color.White,
+                            modifier = Modifier.size(36.dp)
+                        )
                     }
                 }
 
-                // 2. Center Content: TV Cast Status or Normal Center Playback Controls
-                if (state.isCastConnected) {
-                    // Integrated TV Cast View with Controls directly below
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(horizontal = 32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        // TV Icon with ambient glow
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.5.dp,
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                            ),
-                            modifier = Modifier.size(80.dp)
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Tv,
-                                    contentDescription = "Casting",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(40.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Receiver Name Headline e.g. "Casting on Android TV"
-                        val deviceName = state.castDeviceName
-                        val castTitle = if (!deviceName.isNullOrBlank()) "Casting on $deviceName" else "Casting on TV"
-
-                        Text(
-                            text = castTitle,
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.3.sp
-                            ),
-                            color = Color.White
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        // Video Title
-                        state.videoFile?.title?.let { title ->
-                            Text(
-                                text = title.replace('_', ' ').trim(),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.White.copy(alpha = 0.7f),
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Cast status badge
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.CastConnected,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = "Connected",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.Bold
-                                    ),
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        // Center Playback Buttons for TV Stream
-                        PlaybackButtonsRow(
-                            state = state,
-                            onEvent = onEvent
-                        )
-                    }
-                } else {
-                    // Normal Center Playback Controls (when playing locally on phone)
+                // Center Controls for Local Phone Playback (when NOT casting)
+                if (!state.isCastConnected) {
                     PlaybackButtonsRow(
                         state = state,
                         onEvent = onEvent,
@@ -375,7 +368,7 @@ fun VideoPlayerControls(
                     )
                 }
 
-                // 3. Bottom Bar: Scrubber, Timestamps & Actions
+                // Bottom Bar: Scrubber, Timestamps & Quick Actions
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
