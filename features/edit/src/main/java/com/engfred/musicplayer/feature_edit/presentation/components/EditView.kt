@@ -34,7 +34,6 @@ fun EditView(
     playbackPositionMs: Long,
     totalDurationMs: Long,
 ) {
-    // Subtle background gradient
     val backgroundBrush = Brush.verticalGradient(
         colors = listOf(
             MaterialTheme.colorScheme.surface,
@@ -43,7 +42,11 @@ fun EditView(
     )
 
     Scaffold(
-        modifier = Modifier.imePadding(),
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        modifier = Modifier
+            .fillMaxSize()
+            .background(backgroundBrush)
+            .imePadding(),
         topBar = {
             CustomTopBar(
                 title = "Edit Metadata",
@@ -74,22 +77,21 @@ fun EditView(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
-                .background(backgroundBrush)
                 .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // 1. Premium Album Art Selector
+            // 1. Album Art Selector with Floating Action Badge
             EditableAlbumArt(
                 imageUri = uiState.albumArtPreviewUri,
                 onClick = onPickImage
             )
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
-            // 2. Sleek Input Forms
+            // 2. Input Fields
             EditMetadataForm(
                 title = uiState.title,
                 artist = uiState.artist,
@@ -97,15 +99,15 @@ fun EditView(
                 onArtistChange = onArtistChange
             )
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(40.dp))
 
-            // 3. Focused Action Section
+            // 3. Save Action
             EditActionSection(
                 isSaving = uiState.isSaving,
                 onSave = onSave
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

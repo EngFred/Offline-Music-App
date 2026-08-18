@@ -3,24 +3,25 @@ package com.engfred.musicplayer.feature_trim.presentation
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ContentCut
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.engfred.musicplayer.core.ui.components.CustomTopBar
-import com.engfred.musicplayer.feature_trim.presentation.components.TrimHeader
-import com.engfred.musicplayer.feature_trim.presentation.components.TrimWaveformEditor
-import com.engfred.musicplayer.feature_trim.presentation.components.TrimPlaybackControls
 import com.engfred.musicplayer.feature_trim.presentation.components.TrimBottomAction
+import com.engfred.musicplayer.feature_trim.presentation.components.TrimHeader
+import com.engfred.musicplayer.feature_trim.presentation.components.TrimPlaybackControls
+import com.engfred.musicplayer.feature_trim.presentation.components.TrimWaveformEditor
 import kotlinx.coroutines.flow.collectLatest
 
 @Composable
@@ -49,19 +50,22 @@ fun TrimScreen(
         }
     }
 
-    // A subtle gradient background for a premium feel
     val backgroundBrush = Brush.verticalGradient(
         colors = listOf(
             MaterialTheme.colorScheme.surface,
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
         )
     )
 
     Scaffold(
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        modifier = Modifier
+            .fillMaxSize()
+            .background(backgroundBrush),
         topBar = {
             CustomTopBar(
                 modifier = Modifier.statusBarsPadding(),
-                title = "Trim File",
+                title = "Trim Audio",
                 onNavigateBack = {
                     if (uiState.isTrimming) showConfirmBackDialog = true else onNavigateUp()
                 },
@@ -73,7 +77,6 @@ fun TrimScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(backgroundBrush)
                 .padding(padding)
         ) {
             val state = uiState
@@ -82,16 +85,16 @@ fun TrimScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                        .padding(horizontal = 24.dp, vertical = 12.dp)
                         .animateContentSize(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // 1. Premium Header (Album Art & Info)
+                    // 1. Album Art & Info
                     TrimHeader(audioFile = state.audioFile)
 
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(28.dp))
 
-                    // 2. The Core Interactive Waveform
+                    // 2. Interactive Waveform
                     TrimWaveformEditor(
                         durationMs = state.audioFile.duration,
                         startMs = state.startTimeMs,
@@ -122,7 +125,7 @@ fun TrimScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(100.dp)) // Padding for bottom action
+                    Spacer(modifier = Modifier.height(96.dp))
                 }
 
                 // 4. Floating Action Bar at the bottom
@@ -138,32 +141,75 @@ fun TrimScreen(
         }
     }
 
-    // Dialogs remain standard Material 3
+    // Polished 20dp Dialogs
     if (showSaveDialog) {
         AlertDialog(
             onDismissRequest = { showSaveDialog = false },
-            title = { Text("Save Trimmed File") },
-            text = { Text("The trimmed file will be saved alongside the original file.") },
+            shape = RoundedCornerShape(20.dp),
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.ContentCut,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = { Text("Save Trimmed Audio") },
+            text = { Text("The trimmed audio will be saved as a new file in your music library.") },
             confirmButton = {
-                TextButton(onClick = { showSaveDialog = false; viewModel.trimAudio() }) { Text("Save") }
+                FilledTonalButton(
+                    onClick = {
+                        showSaveDialog = false
+                        viewModel.trimAudio()
+                    }
+                ) {
+                    Text("Save")
+                }
             },
             dismissButton = {
-                TextButton(onClick = { showSaveDialog = false }) { Text("Cancel") }
-            }
+                OutlinedButton(onClick = { showSaveDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface
         )
     }
 
     if (showConfirmBackDialog) {
         AlertDialog(
             onDismissRequest = { showConfirmBackDialog = false },
+            shape = RoundedCornerShape(20.dp),
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
             title = { Text("Cancel Trimming?") },
-            text = { Text("This will stop the trim operation.") },
+            text = { Text("This will stop the current trim operation.") },
             confirmButton = {
-                TextButton(onClick = { viewModel.cancelTrim(); showConfirmBackDialog = false; onNavigateUp() }) { Text("Yes") }
+                FilledTonalButton(
+                    onClick = {
+                        viewModel.cancelTrim()
+                        showConfirmBackDialog = false
+                        onNavigateUp()
+                    },
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                ) {
+                    Text("Yes, Cancel")
+                }
             },
             dismissButton = {
-                TextButton(onClick = { showConfirmBackDialog = false }) { Text("No") }
-            }
+                OutlinedButton(onClick = { showConfirmBackDialog = false }) {
+                    Text("Keep Trimming")
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface
         )
     }
 }

@@ -44,7 +44,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
 private const val TAG = "PlaybackService"
@@ -166,7 +165,7 @@ class PlaybackService : MediaSessionService() {
 
             setMediaNotificationProvider(musicNotificationProvider)
 
-            runBlocking {
+            serviceScope.launch {
                 loadLastIdleDisplayInfo()
                 if (sharedAudioDataSource.playingQueueAudioFiles.value.isEmpty()) {
                     Log.d(TAG, "Playing queue was empty, loading songs...")
@@ -184,8 +183,8 @@ class PlaybackService : MediaSessionService() {
                     exoPlayer.prepare()
                     Log.d(TAG, "Pre-populated ExoPlayer queue: ${mediaItems.size} items, startIndex=$startIndex, startPos=$startPos")
                 }
+                isFullShown = lastIdleDisplayInfo != null
             }
-            isFullShown = lastIdleDisplayInfo != null
 
             exoPlayer.addListener(object : Player.Listener {
                 @RequiresApi(Build.VERSION_CODES.P)

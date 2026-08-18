@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.engfred.musicplayer.feature_trim.presentation.TrimUiState
 
@@ -31,28 +32,47 @@ fun TrimPlaybackControls(
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Reset Button
-        IconButton(onClick = onReset, enabled = !isTrimming) {
-            Icon(imageVector = Icons.Rounded.Refresh, contentDescription = "Reset Trim", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        IconButton(
+            onClick = onReset,
+            enabled = !isTrimming,
+            modifier = Modifier.size(48.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Refresh,
+                contentDescription = "Reset Trim",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp)
+            )
         }
 
-        // Play/Pause (Hero Button)
+        // Hero Play/Pause Button
         FloatingActionButton(
             onClick = onTogglePlay,
             shape = CircleShape,
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            elevation = FloatingActionButtonDefaults.elevation(0.dp)
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp),
+            modifier = Modifier.size(64.dp)
         ) {
             Icon(
                 imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription = if (isPlaying) "Pause" else "Play",
                 modifier = Modifier.size(32.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                tint = MaterialTheme.colorScheme.onPrimary
             )
         }
 
         // Seek to Start
-        IconButton(onClick = onSeekToStart) {
-            Icon(imageVector = Icons.Rounded.Replay, contentDescription = "Seek to Start", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        IconButton(
+            onClick = onSeekToStart,
+            modifier = Modifier.size(48.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Replay,
+                contentDescription = "Seek to Start",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp)
+            )
         }
     }
 }
@@ -66,7 +86,7 @@ fun TrimBottomAction(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(horizontal = 24.dp, vertical = 16.dp),
         color = Color.Transparent
     ) {
         val trimDurationMs = state.endTimeMs - state.startTimeMs
@@ -76,12 +96,16 @@ fun TrimBottomAction(
         val canSave = !state.isTrimming && !hasCriticalError && trimDurationMs >= 30_000L && state.trimResult == null && isTrimmed
 
         if (state.isTrimming) {
-            // Re-using your custom loading indicator but constrained nicely inside the bottom bar area
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 shape = RoundedCornerShape(24.dp)
             ) {
-                Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     TrimLoadingIndicator(
                         title = "Trimming Audio...",
                         subtitle = "Please do not close the app"
@@ -94,12 +118,17 @@ fun TrimBottomAction(
                 enabled = canSave,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp), // Premium tall button
-                shape = RoundedCornerShape(28.dp)
+                    .height(52.dp),
+                shape = RoundedCornerShape(26.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
             ) {
                 Text(
                     text = if (state.trimResult != null) "Saved Successfully" else "Save Trimmed Audio",
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
                 )
             }
         }
