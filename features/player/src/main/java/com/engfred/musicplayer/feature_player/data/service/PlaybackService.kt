@@ -217,6 +217,16 @@ class PlaybackService : MediaSessionService() {
                     super.onPositionDiscontinuity(reason)
                     updateWidgetWithInfo()
                 }
+
+                override fun onRepeatModeChanged(repeatMode: Int) {
+                    super.onRepeatModeChanged(repeatMode)
+                    updateWidgetWithInfo()
+                }
+
+                override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                    super.onShuffleModeEnabledChanged(shuffleModeEnabled)
+                    updateWidgetWithInfo()
+                }
             })
 
             serviceScope.launch {
@@ -385,13 +395,15 @@ class PlaybackService : MediaSessionService() {
                     RepeatMode.ALL -> RepeatMode.ONE
                     RepeatMode.ONE -> RepeatMode.OFF
                 }
+                preferredRepeatMode = nextMode
+                settingsRepository.updateRepeatMode(nextMode)
                 playbackController.setRepeatMode(nextMode)
+                updateWidgetWithInfo()
             }
             ACTION_WIDGET_SHUFFLE -> serviceScope.launch {
-                val queue = sharedAudioDataSource.playingQueueAudioFiles.value
-                if (queue.isNotEmpty()) {
-                    playbackController.initiateShufflePlayback(queue)
-                }
+                val nextShuffle = !exoPlayer.shuffleModeEnabled
+                exoPlayer.shuffleModeEnabled = nextShuffle
+                updateWidgetWithInfo()
             }
         }
 
