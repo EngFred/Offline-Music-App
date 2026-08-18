@@ -8,6 +8,8 @@ import android.os.PowerManager
 import com.engfred.musicplayer.core.data.server.LocalMediaHttpServer
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.model.CastState
+import com.engfred.musicplayer.core.domain.repository.RepeatMode
+import com.engfred.musicplayer.core.domain.repository.ShuffleMode
 import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaMetadata
 import com.google.android.gms.cast.MediaQueueItem
@@ -224,20 +226,32 @@ class CastSessionManager @Inject constructor(
         return remoteMediaClient?.isPlaying ?: false
     }
 
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private fun runOnMainThread(block: () -> Unit) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post(block)
+        }
+    }
+
     /**
      * Loads and starts playing a single audio file on the Cast receiver.
      */
     fun loadMedia(audioFile: AudioFile, startPositionMs: Long = 0L, autoPlay: Boolean = true) {
-        val client = remoteMediaClient ?: return
-        val mediaInfo = buildMediaInfo(audioFile)
+        runOnMainThread {
+            val client = remoteMediaClient ?: return@runOnMainThread
+            val mediaInfo = buildMediaInfo(audioFile)
 
-        val loadOptions = com.google.android.gms.cast.MediaLoadRequestData.Builder()
-            .setMediaInfo(mediaInfo)
-            .setCurrentTime(startPositionMs.coerceAtLeast(0L))
-            .setAutoplay(autoPlay)
-            .build()
+            val loadOptions = com.google.android.gms.cast.MediaLoadRequestData.Builder()
+                .setMediaInfo(mediaInfo)
+                .setCurrentTime(startPositionMs.coerceAtLeast(0L))
+                .setAutoplay(autoPlay)
+                .build()
 
-        client.load(loadOptions)
+            client.load(loadOptions)
+        }
     }
 
     /**
@@ -247,63 +261,129 @@ class CastSessionManager @Inject constructor(
         queue: List<AudioFile>,
         startIndex: Int,
         startPositionMs: Long = 0L,
-        repeatAll: Boolean = false
+        repeatMode: RepeatMode = RepeatMode.OFF
     ) {
-        val client = remoteMediaClient ?: return
-        if (queue.isEmpty()) return
+        runOnMainThread {
+            val client = remoteMediaClient ?: return@runOnMainThread
+            if (queue.isEmpty()) return@runOnMainThread
 
-        val items = queue.map { file ->
-            MediaQueueItem.Builder(buildMediaInfo(file))
-                .setAutoplay(true)
-                .build()
-        }.toTypedArray()
+            val items = queue.map { file ->
+                MediaQueueItem.Builder(buildMediaInfo(file))
+                    .setAutoplay(true)
+                    .build()
+            }.toTypedArray()
 
-        val validIndex = startIndex.coerceIn(0, queue.size - 1)
-        val repeatMode = if (repeatAll) {
-            MediaStatus.REPEAT_MODE_REPEAT_ALL
-        } else {
-            MediaStatus.REPEAT_MODE_REPEAT_OFF
+            val validIndex = startIndex.coerceIn(0, queue.size - 1)
+            val castRepeatMode = when (repeatMode) {
+                RepeatMode.OFF -> MediaStatus.REPEAT_MODE_REPEAT_OFF
+                RepeatMode.ONE -> MediaStatus.REPEAT_MODE_REPEAT_SINGLE
+                RepeatMode.ALL -> MediaStatus.REPEAT_MODE_REPEAT_ALL
+            }
+
+            client.queueLoad(
+                items,
+                validIndex,
+                castRepeatMode,
+                startPositionMs.coerceAtLeast(0L),
+                null
+            )
         }
+    }
 
-        client.queueLoad(
-            items,
-            validIndex,
-            repeatMode,
-            startPositionMs.coerceAtLeast(0L),
-            null
-        )
+    fun setRepeatMode(mode: RepeatMode) {
+        runOnMainThread {
+            val client = remoteMediaClient ?: return@runOnMainThread
+            val castRepeatMode = when (mode) {
+                RepeatMode.OFF -> MediaStatus.REPEAT_MODE_REPEAT_OFF
+                RepeatMode.ONE -> MediaStatus.REPEAT_MODE_REPEAT_SINGLE
+                RepeatMode.ALL -> MediaStatus.REPEAT_MODE_REPEAT_ALL
+            }
+            client.queueSetRepeatMode(castRepeatMode, null)?.setResultCallback {
+                client.requestStatus()
+            }
+        }
+    }
+
+    fun setShuffleMode(mode: ShuffleMode, queue: List<AudioFile>, currentSong: AudioFile?) {
+        runOnMainThread {
+            val client = remoteMediaClient ?: return@runOnMainThread
+            val mediaStatus = client.mediaStatus
+            val currentItemId = mediaStatus?.currentItemId ?: MediaQueueItem.INVALID_ITEM_ID
+            val queueItems = mediaStatus?.queueItems
+
+            if (queueItems != null && queueItems.isNotEmpty() && currentItemId != MediaQueueItem.INVALID_ITEM_ID) {
+                val upcomingItemIds = queueItems.map { it.itemId }.filter { it != currentItemId }
+                if (upcomingItemIds.isNotEmpty()) {
+                    val targetOrder = if (mode == ShuffleMode.ON) {
+                        upcomingItemIds.shuffled()
+                    } else {
+                        val idToQueueIndex = queue.mapIndexed { index, audio -> audio.id.toString() to index }.toMap()
+                        upcomingItemIds.sortedBy { itemId ->
+                            val item = queueItems.find { it.itemId == itemId }
+                            val audioId = item?.media?.contentId?.substringAfter("/media/")?.substringBefore("?")
+                            idToQueueIndex[audioId] ?: itemId
+                        }
+                    }
+                    client.queueReorderItems(targetOrder.toIntArray(), MediaQueueItem.INVALID_ITEM_ID, null)?.setResultCallback {
+                        client.requestStatus()
+                    }
+                    return@runOnMainThread
+                }
+            }
+
+            val targetRepeatMode = if (mode == ShuffleMode.ON) {
+                MediaStatus.REPEAT_MODE_REPEAT_ALL_AND_SHUFFLE
+            } else {
+                MediaStatus.REPEAT_MODE_REPEAT_OFF
+            }
+            client.queueSetRepeatMode(targetRepeatMode, null)?.setResultCallback {
+                client.requestStatus()
+            }
+        }
     }
 
     fun play() {
-        remoteMediaClient?.play()
+        runOnMainThread {
+            remoteMediaClient?.play()
+        }
     }
 
     fun pause() {
-        remoteMediaClient?.pause()
+        runOnMainThread {
+            remoteMediaClient?.pause()
+        }
     }
 
     fun togglePlayPause() {
-        val client = remoteMediaClient ?: return
-        if (client.isPlaying) {
-            client.pause()
-        } else {
-            client.play()
+        runOnMainThread {
+            val client = remoteMediaClient ?: return@runOnMainThread
+            if (client.isPlaying) {
+                client.pause()
+            } else {
+                client.play()
+            }
         }
     }
 
     fun seekTo(positionMs: Long) {
-        val options = MediaSeekOptions.Builder()
-            .setPosition(positionMs.coerceAtLeast(0L))
-            .build()
-        remoteMediaClient?.seek(options)
+        runOnMainThread {
+            val options = MediaSeekOptions.Builder()
+                .setPosition(positionMs.coerceAtLeast(0L))
+                .build()
+            remoteMediaClient?.seek(options)
+        }
     }
 
     fun skipToNext() {
-        remoteMediaClient?.queueNext(null)
+        runOnMainThread {
+            remoteMediaClient?.queueNext(null)
+        }
     }
 
     fun skipToPrevious() {
-        remoteMediaClient?.queuePrev(null)
+        runOnMainThread {
+            remoteMediaClient?.queuePrev(null)
+        }
     }
 
     private fun buildMediaInfo(audioFile: AudioFile): MediaInfo {

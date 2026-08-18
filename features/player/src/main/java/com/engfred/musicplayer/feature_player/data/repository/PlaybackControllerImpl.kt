@@ -152,7 +152,7 @@ class PlaybackControllerImpl @Inject constructor(
                 val startIndex = playingQueue.indexOfFirst { it.uri == initialAudioFileUri }.coerceAtLeast(0)
                 val pos = if (startPositionMs == C.TIME_UNSET) 0L else startPositionMs
                 if (playingQueue.isNotEmpty()) {
-                    castSessionManager.loadQueue(playingQueue, startIndex, pos)
+                    castSessionManager.loadQueue(playingQueue, startIndex, pos, intendedRepeatMode)
                 } else {
                     castSessionManager.loadMedia(targetAudio, pos)
                 }
@@ -266,23 +266,31 @@ class PlaybackControllerImpl @Inject constructor(
     override suspend fun setRepeatMode(mode: RepeatMode) {
         intendedRepeatMode = mode
         withContext(Dispatchers.Main) {
+            if (castSessionManager.isConnected()) {
+                castSessionManager.setRepeatMode(mode)
+            }
             mediaController.value?.let { controller ->
                 controller.repeatMode = when (mode) {
                     RepeatMode.OFF -> Player.REPEAT_MODE_OFF
                     RepeatMode.ONE -> Player.REPEAT_MODE_ONE
                     RepeatMode.ALL -> Player.REPEAT_MODE_ALL
                 }
-                _playbackState.update { it.copy(repeatMode = mode) }
             } ?: Log.w(TAG, "MediaController not available for setRepeatMode.")
+            _playbackState.update { it.copy(repeatMode = mode) }
         }
     }
 
     override suspend fun setShuffleMode(mode: ShuffleMode) {
         withContext(Dispatchers.Main) {
+            if (castSessionManager.isConnected()) {
+                val queue = sharedAudioDataSource.playingQueueAudioFiles.value
+                val currentAudio = _playbackState.value.currentAudioFile
+                castSessionManager.setShuffleMode(mode, queue, currentAudio)
+            }
             mediaController.value?.let {
                 it.shuffleModeEnabled = mode == ShuffleMode.ON
-                _playbackState.update { it.copy(shuffleMode = mode) }
             } ?: Log.w(TAG, "MediaController not available for setShuffleMode.")
+            _playbackState.update { it.copy(shuffleMode = mode) }
         }
     }
 

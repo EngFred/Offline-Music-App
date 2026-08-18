@@ -117,6 +117,12 @@ class CastPlaybackBridge @Inject constructor(
             }
         }
 
+        val remoteRepeatMode = when (mediaStatus.queueRepeatMode) {
+            MediaStatus.REPEAT_MODE_REPEAT_SINGLE -> com.engfred.musicplayer.core.domain.repository.RepeatMode.ONE
+            MediaStatus.REPEAT_MODE_REPEAT_ALL, MediaStatus.REPEAT_MODE_REPEAT_ALL_AND_SHUFFLE -> com.engfred.musicplayer.core.domain.repository.RepeatMode.ALL
+            else -> targetPlaybackState?.value?.repeatMode ?: com.engfred.musicplayer.core.domain.repository.RepeatMode.OFF
+        }
+
         targetPlaybackState?.update { current ->
             current.copy(
                 currentAudioFile = currentAudioFile ?: current.currentAudioFile,
@@ -126,6 +132,7 @@ class CastPlaybackBridge @Inject constructor(
                 playbackPositionMs = position,
                 playingSongIndex = currentItemIndex,
                 playingQueue = if (queue.isNotEmpty()) queue else current.playingQueue,
+                repeatMode = remoteRepeatMode,
                 castState = CastState.CONNECTED
             )
         }

@@ -308,12 +308,11 @@ class PlaybackService : MediaSessionService() {
                     }
 
                     if (queue.isNotEmpty()) {
-                        val repeatAll = exoPlayer.repeatMode == Player.REPEAT_MODE_ALL
                         castSessionManager.loadQueue(
                             queue = queue,
                             startIndex = currentIndex,
                             startPositionMs = currentPos,
-                            repeatAll = repeatAll
+                            repeatMode = preferredRepeatMode
                         )
                     }
                 }
