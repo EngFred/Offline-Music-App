@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CastConnected
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -30,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
@@ -59,7 +62,7 @@ fun TopBar(
     isFavorite: Boolean = false,
     onToggleFavorite: () -> Unit = {},
     dynamicContentColor: Color? = null,
-    onShareAudio: (() -> Unit)? = null
+    onShareAudio: (() -> Unit)? = null,
 ) {
     var showLayoutMenu by remember { mutableStateOf(false) }
     val configuration = LocalConfiguration.current
@@ -242,6 +245,72 @@ fun TopBar(
             }
         }
     }
+}
+
+@Composable
+fun CastingStatusPill(
+    visible: Boolean,
+    deviceName: String?,
+    contentColor: Color,
+    style: CastingStatusStyle = CastingStatusStyle.ETHEREAL,
+    modifier: Modifier = Modifier
+) {
+    if (!visible) return
+
+    val destination = deviceName?.takeIf { it.isNotBlank() } ?: "TV"
+    val shape = when (style) {
+        CastingStatusStyle.MINIMALIST -> RoundedCornerShape(50)
+        CastingStatusStyle.ETHEREAL -> RoundedCornerShape(18.dp)
+        CastingStatusStyle.IMMERSIVE -> RoundedCornerShape(14.dp)
+    }
+    val surfaceColor = when (style) {
+        CastingStatusStyle.MINIMALIST -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        CastingStatusStyle.ETHEREAL -> MaterialTheme.colorScheme.surface.copy(alpha = 0.42f)
+        CastingStatusStyle.IMMERSIVE -> Color.Black.copy(alpha = 0.34f)
+    }
+    val borderColor = when (style) {
+        CastingStatusStyle.MINIMALIST -> MaterialTheme.colorScheme.primary.copy(alpha = 0.58f)
+        CastingStatusStyle.ETHEREAL -> contentColor.copy(alpha = 0.24f)
+        CastingStatusStyle.IMMERSIVE -> MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)
+    }
+    Surface(
+        modifier = modifier,
+        color = surfaceColor,
+        shape = shape,
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = borderColor
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(
+                horizontal = if (style == CastingStatusStyle.IMMERSIVE) 11.dp else 10.dp,
+                vertical = if (style == CastingStatusStyle.MINIMALIST) 5.dp else 6.dp
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.CastConnected,
+                contentDescription = "Casting to $destination",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = "Casting to $destination",
+                color = contentColor.copy(alpha = 0.9f),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+enum class CastingStatusStyle {
+    MINIMALIST,
+    ETHEREAL,
+    IMMERSIVE
 }
 
 @Composable

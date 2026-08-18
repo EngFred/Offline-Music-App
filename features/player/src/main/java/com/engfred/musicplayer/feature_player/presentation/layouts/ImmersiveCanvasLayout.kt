@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -79,6 +80,8 @@ import com.engfred.musicplayer.feature_player.presentation.components.FavoriteBu
 import com.engfred.musicplayer.feature_player.presentation.components.QueueBottomSheet
 import com.engfred.musicplayer.feature_player.presentation.components.SeekBarSection
 import com.engfred.musicplayer.feature_player.presentation.components.TopBar
+import com.engfred.musicplayer.feature_player.presentation.components.CastingStatusPill
+import com.engfred.musicplayer.feature_player.presentation.components.CastingStatusStyle
 import com.engfred.musicplayer.feature_player.presentation.components.TrackInfo
 import com.engfred.musicplayer.feature_player.presentation.viewmodel.PlayerEvent
 import com.engfred.musicplayer.feature_player.utils.loadBitmapFromUri
@@ -322,6 +325,16 @@ fun ImmersiveCanvasLayout(
                         .statusBarsPadding()
                 )
 
+                CastingStatusPill(
+                    visible = uiState.castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED,
+                    deviceName = uiState.castDeviceName,
+                    contentColor = Color.White,
+                    style = CastingStatusStyle.IMMERSIVE,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .offset(y = 72.dp)
+                )
+
                 // Translucent Frosted Glass Control Card at bottom
                 Surface(
                     modifier = Modifier
@@ -535,7 +548,14 @@ fun ImmersiveCanvasLayout(
                             },
                             selectedLayout = selectedLayout,
                             onLayoutSelected = onLayoutSelected,
-                            dynamicContentColor = Color.White
+                            dynamicContentColor = Color.White,
+                        )
+                        CastingStatusPill(
+                            visible = uiState.castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED,
+                            deviceName = uiState.castDeviceName,
+                            contentColor = Color.White,
+                            style = CastingStatusStyle.IMMERSIVE,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         TrackInfo(

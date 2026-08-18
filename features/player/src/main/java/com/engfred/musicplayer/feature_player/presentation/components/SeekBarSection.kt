@@ -60,6 +60,18 @@ fun SeekBarSection(
     horizontalPadding: Dp = 0.dp,
     isPlaying: Boolean = true
 ) {
+    // A media item can briefly report an unknown duration while it is loading.
+    // Slider/Compose cannot represent a zero-length range, so always expose a
+    // finite, non-zero range to prevent 0/0 from becoming NaN in rendering.
+    val safeDurationMs = totalDurationMs.coerceAtLeast(1L)
+    val safeDuration = safeDurationMs.toFloat()
+        .takeIf { it.isFinite() && it > 0f }
+        ?: 1f
+    val safeSliderValue = sliderValue
+        .takeIf { it.isFinite() }
+        ?.coerceIn(0f, safeDuration)
+        ?: 0f
+
     // Interaction source to detect if user is dragging
     val interactionSource = remember { MutableInteractionSource() }
     val isDragged by interactionSource.collectIsDraggedAsState()
@@ -67,7 +79,7 @@ fun SeekBarSection(
     // If the user is dragging, we use the raw value (instant feedback).
     // If not dragging, we animate the value to smooth out the 500ms updates.
     val animatedSliderValue by animateFloatAsState(
-        targetValue = sliderValue,
+        targetValue = safeSliderValue,
         animationSpec = tween(
             durationMillis = if (isDragged) 0 else 500, // Instant when dragging, 500ms smooth when playing
             easing = LinearEasing
@@ -76,7 +88,7 @@ fun SeekBarSection(
     )
 
     // The value to actually display in the UI
-    val displayValue = if (isDragged) sliderValue else animatedSliderValue
+    val displayValue = if (isDragged) safeSliderValue else animatedSliderValue
 
     // Custom thumb: A static circular indicator
     val customThumb: @Composable (SliderState) -> Unit = {
@@ -116,7 +128,7 @@ fun SeekBarSection(
         }
     }
 
-    val sliderValueRange = 0f..totalDurationMs.toFloat().coerceAtLeast(0f)
+    val sliderValueRange = 0f..safeDuration
 
     @Composable
     fun WaveformSeekBar(
@@ -155,7 +167,7 @@ fun SeekBarSection(
                     onDragEnd = { onValueChangeFinished() },
                     onDrag = { change, _ ->
                         val dragPosition = change.position.x.coerceIn(0f, size.width.toFloat())
-                        val fraction = dragPosition / size.width
+                        val fraction = if (size.width > 0f) dragPosition / size.width else 0f
                         val newValue = valueRange.start + fraction * (valueRange.endInclusive - valueRange.start)
                         onValueChange(newValue.coerceIn(valueRange))
                     }

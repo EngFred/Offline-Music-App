@@ -51,6 +51,8 @@ import com.engfred.musicplayer.core.domain.repository.PlaybackState
 import com.engfred.musicplayer.core.domain.repository.RepeatMode
 import com.engfred.musicplayer.core.util.MediaUtils.shareAudioFile
 import com.engfred.musicplayer.feature_player.presentation.components.ControlBar
+import com.engfred.musicplayer.feature_player.presentation.components.CastingStatusPill
+import com.engfred.musicplayer.feature_player.presentation.components.CastingStatusStyle
 import com.engfred.musicplayer.feature_player.presentation.components.QueueBottomSheet
 import com.engfred.musicplayer.feature_player.presentation.components.SeekBarSection
 import com.engfred.musicplayer.feature_player.presentation.components.TopBar
@@ -162,6 +164,13 @@ fun MinimalistGrooveLayout(
                         shareAudioFile(context, it)
                     }
                 }
+            )
+
+            CastingStatusPill(
+                visible = uiState.castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED,
+                deviceName = uiState.castDeviceName,
+                contentColor = MaterialTheme.colorScheme.onBackground,
+                style = CastingStatusStyle.MINIMALIST
             )
 
             if (isLandscape) {

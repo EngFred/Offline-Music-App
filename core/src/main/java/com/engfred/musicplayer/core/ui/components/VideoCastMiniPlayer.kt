@@ -64,6 +64,7 @@ fun VideoCastMiniPlayer(
     durationMs: Long = 0L,
     onPlayPause: () -> Unit,
     onClick: () -> Unit,
+    castDeviceName: String? = null,
     modifier: Modifier = Modifier
 ) {
     val targetProgress = if (durationMs > 0) currentPositionMs.toFloat() / durationMs else 0f
@@ -141,7 +142,7 @@ fun VideoCastMiniPlayer(
                         )
                     }
                     Text(
-                        text = "Casting to TV",
+                        text = "Casting to ${castDeviceName?.takeIf { it.isNotBlank() } ?: "TV"}",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                         maxLines = 1
@@ -187,6 +188,7 @@ fun AnimatedVideoCastMiniPlayer(
     durationMs: Long,
     onPlayPause: () -> Unit,
     onClick: () -> Unit,
+    castDeviceName: String? = null,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -202,7 +204,8 @@ fun AnimatedVideoCastMiniPlayer(
                 currentPositionMs = currentPositionMs,
                 durationMs = durationMs,
                 onPlayPause = onPlayPause,
-                onClick = onClick
+                onClick = onClick,
+                castDeviceName = castDeviceName
             )
         }
     }

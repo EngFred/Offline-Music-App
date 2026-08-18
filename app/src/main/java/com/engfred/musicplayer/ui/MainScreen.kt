@@ -78,11 +78,13 @@ fun MainScreen(
     onVideoClick: (VideoFile) -> Unit = {},
     onCastVideo: (VideoFile) -> Unit = {},
     castState: com.engfred.musicplayer.core.domain.model.CastState = com.engfred.musicplayer.core.domain.model.CastState.DISCONNECTED,
+    castDeviceName: String? = null,
     // Video cast mini-player
     videoCastTitle: String? = null,
     videoCastIsPlaying: Boolean = false,
     videoCastPositionMs: Long = 0L,
     videoCastDurationMs: Long = 0L,
+    videoCastDeviceName: String? = null,
     onVideoCastPlayPause: () -> Unit = {},
     onNavigateToVideoCast: () -> Unit = {}
 ) {
@@ -160,6 +162,7 @@ fun MainScreen(
                     durationMs = videoCastDurationMs,
                     onPlayPause = onVideoCastPlayPause,
                     onClick = onNavigateToVideoCast,
+                    castDeviceName = videoCastDeviceName,
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -177,7 +180,8 @@ fun MainScreen(
                         stopAfterCurrent = stopAfterCurrent,
                         playbackPositionMs = playbackPositionMs,
                         totalDurationMs = totalDurationMs,
-                        castState = castState
+                        castState = castState,
+                        castDeviceName = castDeviceName
                     )
                 } else if (videoCastTitle == null && audioItems.isNotEmpty()) {
                     PlayShuffleBar(

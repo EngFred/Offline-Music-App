@@ -72,11 +72,13 @@ fun AppNavHost(
     onShowNowPlaying: (Boolean) -> Unit,
     onCastVideo: ((VideoFile) -> Unit)? = null,
     castState: com.engfred.musicplayer.core.domain.model.CastState = com.engfred.musicplayer.core.domain.model.CastState.DISCONNECTED,
+    castDeviceName: String? = null,
     // Video cast mini-player
     videoCastTitle: String? = null,
     videoCastIsPlaying: Boolean = false,
     videoCastPositionMs: Long = 0L,
     videoCastDurationMs: Long = 0L,
+    videoCastDeviceName: String? = null,
     videoCastVideoId: Long? = null,
     onVideoCastPlayPause: () -> Unit = {}
 ) {
@@ -143,10 +145,12 @@ fun AppNavHost(
                         onCastVideo?.invoke(videoFile)
                     },
                     castState = castState,
+                    castDeviceName = castDeviceName,
                     videoCastTitle = videoCastTitle,
                     videoCastIsPlaying = videoCastIsPlaying,
                     videoCastPositionMs = videoCastPositionMs,
                     videoCastDurationMs = videoCastDurationMs,
+                    videoCastDeviceName = videoCastDeviceName,
                     onVideoCastPlayPause = onVideoCastPlayPause,
                     onNavigateToVideoCast = {
                         if (videoCastVideoId != null) {

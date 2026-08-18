@@ -116,7 +116,11 @@ fun VideoScrubber(
                     detectTapGestures(
                         onPress = { offset ->
                             componentWidth = size.width.toFloat()
-                            val frac = (offset.x / size.width).coerceIn(0f, 1f)
+                            val frac = if (size.width > 0f) {
+                                (offset.x / size.width).coerceIn(0f, 1f)
+                            } else {
+                                0f
+                            }
                             isDragging = true
                             dragFraction = frac
                             val targetMs = (frac * safeDuration).toLong()
@@ -131,11 +135,19 @@ fun VideoScrubber(
                         onDragStart = { offset ->
                             componentWidth = size.width.toFloat()
                             isDragging = true
-                            dragFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                            dragFraction = if (size.width > 0f) {
+                                (offset.x / size.width).coerceIn(0f, 1f)
+                            } else {
+                                0f
+                            }
                         },
                         onDrag = { change, _ ->
                             change.consume()
-                            dragFraction = (change.position.x / size.width).coerceIn(0f, 1f)
+                            dragFraction = if (size.width > 0f) {
+                                (change.position.x / size.width).coerceIn(0f, 1f)
+                            } else {
+                                0f
+                            }
                         },
                         onDragEnd = {
                             isDragging = false

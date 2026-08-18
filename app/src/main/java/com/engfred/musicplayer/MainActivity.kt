@@ -85,6 +85,7 @@ class MainActivity : AppCompatActivity() {
     private var videoCastIsPlaying: Boolean by mutableStateOf(false)
     private var videoCastPositionMs: Long by mutableLongStateOf(0L)
     private var videoCastDurationMs: Long by mutableLongStateOf(0L)
+    private var videoCastDeviceName: String? by mutableStateOf(null)
     private var videoCastVideoId: Long? by mutableStateOf(null)
 
     private var showNowPlaying by mutableStateOf(false)
@@ -147,9 +148,11 @@ class MainActivity : AppCompatActivity() {
                     videoCastIsPlaying = castVid.isPlaying
                     videoCastPositionMs = castVid.currentPositionMs
                     videoCastDurationMs = castVid.durationMs
+                    videoCastDeviceName = castSessionManager.connectedDeviceName.value
                     videoCastVideoId = videoFile.id
                 } else {
                     videoCastTitle = null
+                    videoCastDeviceName = null
                     videoCastVideoId = null
                 }
             }
@@ -297,11 +300,13 @@ class MainActivity : AppCompatActivity() {
                         castSessionManager.loadVideo(videoFile)
                     },
                     castState = playbackState.castState,
+                    castDeviceName = playbackState.castDeviceName,
                     // Video cast mini-player data
                     videoCastTitle = videoCastTitle,
                     videoCastIsPlaying = videoCastIsPlaying,
                     videoCastPositionMs = videoCastPositionMs,
                     videoCastDurationMs = videoCastDurationMs,
+                    videoCastDeviceName = videoCastDeviceName,
                     videoCastVideoId = videoCastVideoId,
                     onVideoCastPlayPause = {
                         castSessionManager.togglePlayPause()

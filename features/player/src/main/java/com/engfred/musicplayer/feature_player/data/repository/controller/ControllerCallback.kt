@@ -56,7 +56,7 @@ class ControllerCallback(
         if (hasRecordedForCurrentPlay) return
         val playedDurationMs = progress.playbackPositionMs
         val totalDurationMs = progress.totalDurationMs
-        if (playedDurationMs != C.TIME_UNSET) {
+        if (playedDurationMs != C.TIME_UNSET && totalDurationMs > 0L) {
             val playedPercentage = playedDurationMs.toFloat() / totalDurationMs
             if (playedPercentage >= 0.5f) {
                 val audioFileId = progress.mediaId?.toLongOrNull()

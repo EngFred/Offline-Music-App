@@ -61,6 +61,8 @@ import com.engfred.musicplayer.feature_player.presentation.components.FavoriteBu
 import com.engfred.musicplayer.feature_player.presentation.components.QueueBottomSheet
 import com.engfred.musicplayer.feature_player.presentation.components.SeekBarSection
 import com.engfred.musicplayer.feature_player.presentation.components.TopBar
+import com.engfred.musicplayer.feature_player.presentation.components.CastingStatusPill
+import com.engfred.musicplayer.feature_player.presentation.components.CastingStatusStyle
 import com.engfred.musicplayer.feature_player.presentation.components.TrackInfo
 import com.engfred.musicplayer.feature_player.presentation.viewmodel.PlayerEvent
 import com.engfred.musicplayer.feature_player.utils.getDynamicGradientColors
@@ -263,6 +265,13 @@ fun EtherealFlowLayout(
                         }
                     )
 
+                    CastingStatusPill(
+                        visible = uiState.castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED,
+                        deviceName = uiState.castDeviceName,
+                        contentColor = MaterialTheme.colorScheme.onBackground,
+                        style = CastingStatusStyle.ETHEREAL
+                    )
+
                     Spacer(modifier = Modifier.height(8.dp))
 
                     AlbumArtDisplay(
@@ -398,6 +407,13 @@ fun EtherealFlowLayout(
                             onShareAudio = {
                                 uiState.currentAudioFile?.let { shareAudioFile(context, it) }
                             }
+                        )
+
+                        CastingStatusPill(
+                            visible = uiState.castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED,
+                            deviceName = uiState.castDeviceName,
+                            contentColor = MaterialTheme.colorScheme.onBackground,
+                            style = CastingStatusStyle.ETHEREAL
                         )
 
                         Spacer(modifier = Modifier.height(12.dp))

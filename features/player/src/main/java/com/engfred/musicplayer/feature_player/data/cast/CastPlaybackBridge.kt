@@ -43,7 +43,13 @@ class CastPlaybackBridge @Inject constructor(
         bridgeScope.launch {
             castSessionManager.castState.collectLatest { state ->
                 val isVideo = castSessionManager.isCurrentMediaVideo() || activePlayerRegistry.activeMediaType.value == ActiveMediaType.VIDEO
-                targetPlaybackState?.update { it.copy(castState = if (isVideo) CastState.DISCONNECTED else state) }
+                val deviceName = if (!isVideo && state == CastState.CONNECTED) castSessionManager.connectedDeviceName.value else null
+                targetPlaybackState?.update {
+                    it.copy(
+                        castState = if (isVideo) CastState.DISCONNECTED else state,
+                        castDeviceName = deviceName
+                    )
+                }
                 if (state == CastState.CONNECTED) {
                     startProgressTracker()
                 } else {
@@ -61,7 +67,13 @@ class CastPlaybackBridge @Inject constructor(
     fun attachPlaybackState(playbackState: MutableStateFlow<PlaybackState>) {
         targetPlaybackState = playbackState
         val isVideo = castSessionManager.isCurrentMediaVideo() || activePlayerRegistry.activeMediaType.value == ActiveMediaType.VIDEO
-        playbackState.update { it.copy(castState = if (isVideo) CastState.DISCONNECTED else castSessionManager.castState.value) }
+        val deviceName = if (!isVideo && castSessionManager.castState.value == CastState.CONNECTED) castSessionManager.connectedDeviceName.value else null
+        playbackState.update {
+            it.copy(
+                castState = if (isVideo) CastState.DISCONNECTED else castSessionManager.castState.value,
+                castDeviceName = deviceName
+            )
+        }
     }
 
     fun getLatestPlaybackState(): PlaybackState {
@@ -154,7 +166,8 @@ class CastPlaybackBridge @Inject constructor(
                 playingSongIndex = currentItemIndex,
                 playingQueue = if (queue.isNotEmpty()) queue else current.playingQueue,
                 repeatMode = remoteRepeatMode,
-                castState = CastState.CONNECTED
+                castState = CastState.CONNECTED,
+                castDeviceName = castSessionManager.connectedDeviceName.value
             )
         }
         onCastStateUpdated?.invoke()

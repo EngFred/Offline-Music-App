@@ -43,7 +43,8 @@ fun MiniPlayer(
     isPlaying: Boolean,
     playbackPositionMs: Long = 0L,
     totalDurationMs: Long = 0L,
-    castState: com.engfred.musicplayer.core.domain.model.CastState = com.engfred.musicplayer.core.domain.model.CastState.DISCONNECTED
+    castState: com.engfred.musicplayer.core.domain.model.CastState = com.engfred.musicplayer.core.domain.model.CastState.DISCONNECTED,
+    castDeviceName: String? = null
 ) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -63,6 +64,8 @@ fun MiniPlayer(
             val cleanArtist = remember(audioFile.artist) {
                 audioFile.artist?.replace('_', ' ')?.trim() ?: "Unknown Artist"
             }
+            val castDestination = castDeviceName?.takeIf { it.isNotBlank() } ?: "TV"
+            val isCasting = castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED
 
             Surface(
                 modifier = Modifier
@@ -106,7 +109,7 @@ fun MiniPlayer(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                if (castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED) {
+                                if (isCasting) {
                                     Icon(
                                         imageVector = Icons.Rounded.CastConnected,
                                         contentDescription = "Casting to device",
@@ -127,9 +130,9 @@ fun MiniPlayer(
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED) "Casting • $cleanArtist" else cleanArtist,
+                                text = if (isCasting) "Casting to $castDestination" else cleanArtist,
                                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                                color = if (castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED) MaterialTheme.colorScheme.primary.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                color = if (isCasting) MaterialTheme.colorScheme.primary.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
