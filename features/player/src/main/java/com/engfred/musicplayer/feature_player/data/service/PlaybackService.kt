@@ -89,7 +89,7 @@ class PlaybackService : MediaSessionService() {
     private var isFullShown: Boolean = false
 
     companion object {
-        const val WIDGET_PROVIDER_CLASS = "com.engfred.musicplayer.widget.MusicWidgetProvider"
+        const val WIDGET_PROVIDER_CLASS = "com.engfred.musicplayer.widget.PlayerWidgetProvider"
         const val ACTION_WIDGET_PLAY_PAUSE = "com.engfred.musicplayer.ACTION_WIDGET_PLAY_PAUSE"
         const val ACTION_WIDGET_NEXT = "com.engfred.musicplayer.ACTION_WIDGET_NEXT"
         const val ACTION_WIDGET_PREV = "com.engfred.musicplayer.ACTION_WIDGET_PREV"
