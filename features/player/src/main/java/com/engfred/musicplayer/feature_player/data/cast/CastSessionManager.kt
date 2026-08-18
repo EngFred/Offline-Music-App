@@ -319,13 +319,16 @@ class CastSessionManager @Inject constructor(
             putString(MediaMetadata.KEY_ARTIST, audioFile.artist ?: "Unknown Artist")
             putString(MediaMetadata.KEY_ALBUM_TITLE, audioFile.album ?: "Unknown Album")
 
-            audioFile.albumArtUri?.let { artUri ->
-                val artUrl = localMediaServer.registerArt(
+            val albumArtUri = audioFile.albumArtUri
+            val artUrl = if (albumArtUri != null) {
+                localMediaServer.registerArt(
                     id = audioFile.id.toString(),
-                    contentUri = artUri
+                    contentUri = albumArtUri
                 )
-                addImage(WebImage(Uri.parse(artUrl)))
+            } else {
+                localMediaServer.getDefaultArtUrl()
             }
+            addImage(WebImage(Uri.parse(artUrl)))
         }
 
         return MediaInfo.Builder(mediaUrl)

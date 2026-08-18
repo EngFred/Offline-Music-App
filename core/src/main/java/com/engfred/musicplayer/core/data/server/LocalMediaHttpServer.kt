@@ -104,6 +104,14 @@ class LocalMediaHttpServer @Inject constructor(
     }
 
     /**
+     * Returns the LAN HTTP URL for the generated default album art placeholder.
+     */
+    fun getDefaultArtUrl(): String {
+        val ip = serverIp ?: LanAddressUtil.getLocalIpAddress() ?: "127.0.0.1"
+        return "http://$ip:$currentPort/art/default?token=$sessionToken"
+    }
+
+    /**
      * Clears all registered media entries.
      */
     fun clearRegistry() {
@@ -259,19 +267,15 @@ class LocalMediaHttpServer @Inject constructor(
     }
 
     private fun serveArt(artId: String): NanoHTTPD.Response {
-        val uri = artRegistry[artId] ?: return NanoHTTPD.newFixedLengthResponse(
-            NanoHTTPD.Response.Status.NOT_FOUND,
-            NanoHTTPD.MIME_PLAINTEXT,
-            "Artwork not registered"
-        )
+        if (artId == "default") {
+            return serveDefaultArtResponse()
+        }
+
+        val uri = artRegistry[artId] ?: return serveDefaultArtResponse()
 
         return try {
             val inputStream = contentResolver.openInputStream(uri)
-                ?: return NanoHTTPD.newFixedLengthResponse(
-                    NanoHTTPD.Response.Status.NOT_FOUND,
-                    NanoHTTPD.MIME_PLAINTEXT,
-                    "Art stream unavailable"
-                )
+                ?: return serveDefaultArtResponse()
 
             val mimeType = contentResolver.getType(uri) ?: "image/jpeg"
             val pfd = contentResolver.openFileDescriptor(uri, "r")
@@ -283,11 +287,87 @@ class LocalMediaHttpServer @Inject constructor(
                 NanoHTTPD.newChunkedResponse(NanoHTTPD.Response.Status.OK, mimeType, inputStream)
             }
         } catch (_: Exception) {
-            NanoHTTPD.newFixedLengthResponse(
-                NanoHTTPD.Response.Status.NOT_FOUND,
-                NanoHTTPD.MIME_PLAINTEXT,
-                "Failed to load artwork"
+            serveDefaultArtResponse()
+        }
+    }
+
+    private fun serveDefaultArtResponse(): NanoHTTPD.Response {
+        val bytes = getDefaultArtBytes()
+        return NanoHTTPD.newFixedLengthResponse(
+            NanoHTTPD.Response.Status.OK,
+            "image/png",
+            java.io.ByteArrayInputStream(bytes),
+            bytes.size.toLong()
+        )
+    }
+
+    @Volatile
+    private var cachedDefaultArt: ByteArray? = null
+
+    private fun getDefaultArtBytes(): ByteArray {
+        cachedDefaultArt?.let { return it }
+        val size = 512
+        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+
+        // Draw modern dark gradient background
+        val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            shader = android.graphics.LinearGradient(
+                0f, 0f, size.toFloat(), size.toFloat(),
+                android.graphics.Color.rgb(30, 32, 38),
+                android.graphics.Color.rgb(16, 18, 22),
+                android.graphics.Shader.TileMode.CLAMP
             )
         }
+        canvas.drawRect(0f, 0f, size.toFloat(), size.toFloat(), bgPaint)
+
+        val center = size / 2f
+
+        // Draw circular vinyl disc
+        val discPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(25, 27, 32)
+            style = android.graphics.Paint.Style.FILL
+        }
+        canvas.drawCircle(center, center, size * 0.42f, discPaint)
+
+        // Draw subtle vinyl grooves
+        val ringPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.argb(30, 255, 255, 255)
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 3f
+        }
+        canvas.drawCircle(center, center, size * 0.36f, ringPaint)
+        canvas.drawCircle(center, center, size * 0.28f, ringPaint)
+
+        // Draw center circular label
+        val centerPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(66, 133, 244) // Clean music accent
+            style = android.graphics.Paint.Style.FILL
+        }
+        canvas.drawCircle(center, center, size * 0.16f, centerPaint)
+
+        // Draw stylized music note in center
+        val notePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            style = android.graphics.Paint.Style.FILL
+        }
+        canvas.drawCircle(center - 24f, center + 20f, 18f, notePaint)
+        canvas.drawCircle(center + 28f, center + 6f, 18f, notePaint)
+
+        val stemPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 9f
+            strokeCap = android.graphics.Paint.Cap.ROUND
+        }
+        canvas.drawLine(center - 10f, center + 20f, center - 10f, center - 34f, stemPaint)
+        canvas.drawLine(center + 42f, center + 6f, center + 42f, center - 48f, stemPaint)
+        canvas.drawLine(center - 10f, center - 34f, center + 42f, center - 48f, stemPaint)
+
+        val stream = java.io.ByteArrayOutputStream()
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 95, stream)
+        val bytes = stream.toByteArray()
+        cachedDefaultArt = bytes
+        return bytes
     }
 }
