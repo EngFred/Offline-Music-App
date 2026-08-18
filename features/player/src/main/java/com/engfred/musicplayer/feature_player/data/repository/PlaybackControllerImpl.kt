@@ -199,6 +199,22 @@ class PlaybackControllerImpl @Inject constructor(
                     return
                 }
             } else {
+                // A receiver can be connected before any media has been transferred (for
+                // example, when reopening the app with yesterday's paused mini-player).
+                // In that state RemoteMediaClient.play() is a no-op, so use this first tap to
+                // transfer the remembered track and intentionally begin playback on the TV.
+                if (!castSessionManager.hasRemoteMedia()) {
+                    val currentAudio = _playbackState.value.currentAudioFile
+                        ?: settingsRepository.getLastPlaybackState().first().audioId?.let { id ->
+                            sharedAudioDataSource.playingQueueAudioFiles.value.find { it.id == id }
+                        }
+                        ?: sharedAudioDataSource.playingQueueAudioFiles.value.firstOrNull()
+                    if (currentAudio != null) {
+                        val position = _playbackState.value.playbackPositionMs
+                        initiatePlayback(currentAudio.uri, if (position > 0) position else C.TIME_UNSET)
+                    }
+                    return
+                }
                 castSessionManager.togglePlayPause()
                 return
             }

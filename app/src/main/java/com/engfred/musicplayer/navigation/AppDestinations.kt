@@ -28,11 +28,16 @@ sealed class AppDestinations(val route: String) {
 
     data object CreatePlaylist : AppDestinations("create_playlist")
 
-    data object VideoPlayer : AppDestinations("video_player?videoId={videoId}&videoUri={videoUri}") {
-        fun createRoute(videoId: Long? = null, videoUri: String? = null): String {
+    data object VideoPlayer : AppDestinations("video_player?videoId={videoId}&videoUri={videoUri}&videoMimeType={videoMimeType}") {
+        fun createRoute(
+            videoId: Long? = null,
+            videoUri: String? = null,
+            videoMimeType: String? = null
+        ): String {
             val idParam = videoId ?: -1L
             val uriParam = if (videoUri != null) Uri.encode(videoUri) else ""
-            return "video_player?videoId=$idParam&videoUri=$uriParam"
+            val mimeTypeParam = if (videoMimeType != null) Uri.encode(videoMimeType) else ""
+            return "video_player?videoId=$idParam&videoUri=$uriParam&videoMimeType=$mimeTypeParam"
         }
     }
 

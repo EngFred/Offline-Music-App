@@ -34,6 +34,8 @@ class VideoPlaybackControllerImpl @Inject constructor(
 
     private val _playbackState = MutableStateFlow(VideoPlaybackState())
     override val playbackState: StateFlow<VideoPlaybackState> = _playbackState.asStateFlow()
+    override val currentMediaUri: Uri?
+        get() = exoPlayer?.currentMediaItem?.localConfiguration?.uri
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {

@@ -56,7 +56,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
@@ -190,7 +189,7 @@ fun VideoPlayerControls(
 
             // Anchor 2: Playback Buttons Row positioned at fixed slot below TV info (zero layout shift)
             AnimatedVisibility(
-                visible = state.areControlsVisible && !state.isLocked,
+                visible = state.areControlsVisible && !state.isLocked && !state.playbackState.isLoading,
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier
@@ -360,7 +359,7 @@ fun VideoPlayerControls(
                 }
 
                 // Center Controls for Local Phone Playback (when NOT casting)
-                if (!state.isCastConnected) {
+                if (!state.isCastConnected && !state.playbackState.isLoading) {
                     PlaybackButtonsRow(
                         state = state,
                         onEvent = onEvent,
@@ -548,32 +547,27 @@ private fun PlaybackButtonsRow(
             )
         }
 
-        IconButton(
+        Surface(
             onClick = { onEvent(VideoPlayerEvent.TogglePlayPause) },
-            modifier = Modifier
-                .shadow(elevation = 12.dp, shape = CircleShape, spotColor = MaterialTheme.colorScheme.primary)
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary,
-                            Color(0xFFFF5722)
-                        )
-                    ),
-                    CircleShape
-                )
-                .size(64.dp)
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)),
+            shadowElevation = 6.dp,
+            modifier = Modifier.size(60.dp)
         ) {
-            val icon = when {
-                state.playbackState.isEnded -> Icons.Rounded.Replay
-                state.playbackState.isPlaying -> Icons.Rounded.Pause
-                else -> Icons.Rounded.PlayArrow
+            Box(contentAlignment = Alignment.Center) {
+                val icon = when {
+                    state.playbackState.isEnded -> Icons.Rounded.Replay
+                    state.playbackState.isPlaying -> Icons.Rounded.Pause
+                    else -> Icons.Rounded.PlayArrow
+                }
+                Icon(
+                    imageVector = icon,
+                    contentDescription = if (state.playbackState.isPlaying) "Pause" else "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(32.dp)
+                )
             }
-            Icon(
-                imageVector = icon,
-                contentDescription = if (state.playbackState.isPlaying) "Pause" else "Play",
-                tint = Color.White,
-                modifier = Modifier.size(36.dp)
-            )
         }
 
         IconButton(

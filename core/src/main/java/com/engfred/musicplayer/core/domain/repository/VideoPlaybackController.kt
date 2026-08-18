@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
  */
 interface VideoPlaybackController {
     val playbackState: StateFlow<VideoPlaybackState>
+    val currentMediaUri: Uri?
     fun prepare(uri: Uri, startPositionMs: Long = 0L, playWhenReady: Boolean = true)
     fun play()
     fun pause()

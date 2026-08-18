@@ -337,7 +337,12 @@ class MainActivity : AppCompatActivity() {
                             isNetworkUrl && hintedMime.isBlank()
 
                     if (isVideo) {
-                        navController.navigate(AppDestinations.VideoPlayer.createRoute(videoUri = uriStr))
+                        navController.navigate(
+                            AppDestinations.VideoPlayer.createRoute(
+                                videoUri = uriStr,
+                                videoMimeType = hintedMime.takeIf { it.isNotBlank() }
+                            )
+                        )
                     } else {
                         val success = withContext(Dispatchers.IO) { initiatePlaybackFromExternalUri(uri) }
                         if (success) {

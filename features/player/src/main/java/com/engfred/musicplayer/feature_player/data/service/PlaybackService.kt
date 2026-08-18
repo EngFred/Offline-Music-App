@@ -307,20 +307,25 @@ class PlaybackService : MediaSessionService() {
                         return@launch
                     }
 
+                    val shouldResumeOnReceiver = exoPlayer.isPlaying
                     val currentPos = exoPlayer.currentPosition
                     val currentIndex = exoPlayer.currentMediaItemIndex
                     val queue = sharedAudioDataSource.playingQueueAudioFiles.value
 
-                    if (exoPlayer.isPlaying) {
+                    if (shouldResumeOnReceiver) {
                         exoPlayer.pause()
                     }
 
-                    if (queue.isNotEmpty() && activePlayerRegistry.activeMediaType.value == com.engfred.musicplayer.core.domain.ActiveMediaType.AUDIO) {
+                    // A saved mini-player may be paused, which leaves the active type as NONE.
+                    // Still transfer it so the receiver owns the selected track; preserve its
+                    // paused/playing state so connecting never starts music unexpectedly.
+                    if (queue.isNotEmpty()) {
                         castSessionManager.loadQueue(
                             queue = queue,
                             startIndex = currentIndex,
                             startPositionMs = currentPos,
-                            repeatMode = preferredRepeatMode
+                            repeatMode = preferredRepeatMode,
+                            autoPlay = shouldResumeOnReceiver
                         )
                     }
                 }

@@ -32,6 +32,7 @@ object VideoModule {
     }
 
     @Provides
+    @Singleton
     fun provideVideoPlaybackController(
         @ApplicationContext context: Context
     ): com.engfred.musicplayer.core.domain.repository.VideoPlaybackController {

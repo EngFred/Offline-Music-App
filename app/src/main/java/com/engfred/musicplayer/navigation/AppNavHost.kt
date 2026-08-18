@@ -298,6 +298,10 @@ fun AppNavHost(
                     navArgument("videoUri") {
                         type = NavType.StringType
                         defaultValue = ""
+                    },
+                    navArgument("videoMimeType") {
+                        type = NavType.StringType
+                        defaultValue = ""
                     }
                 ),
                 enterTransition = { slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(400)) },

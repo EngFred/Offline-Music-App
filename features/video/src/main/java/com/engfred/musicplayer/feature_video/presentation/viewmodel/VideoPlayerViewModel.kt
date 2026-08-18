@@ -69,12 +69,13 @@ class VideoPlayerViewModel @Inject constructor(
 
         val rawVideoId = savedStateHandle.get<Long>("videoId")
         val rawVideoUriStr = savedStateHandle.get<String>("videoUri")
+        val rawVideoMimeType = savedStateHandle.get<String>("videoMimeType")
         val videoUri = if (!rawVideoUriStr.isNullOrBlank()) Uri.parse(Uri.decode(rawVideoUriStr)) else null
 
         if (rawVideoId != null && rawVideoId != -1L) {
             loadVideoById(rawVideoId)
         } else if (videoUri != null) {
-            loadVideoByUri(videoUri)
+            loadVideoByUri(videoUri, rawVideoMimeType)
         }
     }
 
@@ -202,7 +203,7 @@ class VideoPlayerViewModel @Inject constructor(
         }
     }
 
-    private fun loadVideoByUri(uri: Uri) {
+    private fun loadVideoByUri(uri: Uri, sharedMimeType: String? = null) {
         viewModelScope.launch {
             when (val res = videoRepository.getVideoFileByUri(uri)) {
                 is Resource.Success -> {
@@ -240,7 +241,7 @@ class VideoPlayerViewModel @Inject constructor(
                 duration = 0L,
                 uri = uri,
                 thumbnailUri = null,
-                mimeType = "video/*"
+                mimeType = sharedMimeType?.takeIf { it.isNotBlank() } ?: inferVideoMimeType(uri)
             )
             _uiState.update { it.copy(videoFile = fallbackVideo) }
             startVideoPlayback(fallbackVideo, 0L)
@@ -252,9 +253,18 @@ class VideoPlayerViewModel @Inject constructor(
         if (videoCastManager.isConnected()) {
             videoPlaybackController.pause()
             videoCastManager.loadVideo(video, startPos)
-        } else {
+        } else if (videoPlaybackController.currentMediaUri != video.uri) {
+            // Keep the existing player through configuration changes. Re-preparing
+            // the same source would restart it and can surface an older player.
             videoPlaybackController.prepare(video.uri, startPos, true)
         }
+    }
+
+    private fun inferVideoMimeType(uri: Uri): String = when {
+        uri.toString().contains(".m3u8", ignoreCase = true) -> "application/vnd.apple.mpegurl"
+        uri.toString().contains(".mpd", ignoreCase = true) -> "application/dash+xml"
+        uri.toString().contains(".webm", ignoreCase = true) -> "video/webm"
+        else -> "video/mp4"
     }
 
     private fun observePlaybackState() {

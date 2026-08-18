@@ -271,6 +271,12 @@ class CastSessionManager @Inject constructor(
 
     fun getRemoteClient(): RemoteMediaClient? = remoteMediaClient
 
+    /** True once the receiver has an item that playback controls can operate on. */
+    fun hasRemoteMedia(): Boolean {
+        val client = remoteMediaClient ?: return false
+        return client.mediaInfo != null || client.mediaStatus?.mediaInfo != null
+    }
+
     fun getRemotePositionMs(): Long {
         return remoteMediaClient?.approximateStreamPosition ?: 0L
     }
@@ -320,7 +326,8 @@ class CastSessionManager @Inject constructor(
         queue: List<AudioFile>,
         startIndex: Int,
         startPositionMs: Long = 0L,
-        repeatMode: RepeatMode = RepeatMode.OFF
+        repeatMode: RepeatMode = RepeatMode.OFF,
+        autoPlay: Boolean = true
     ) {
         _currentVideoFile.value = null
         _videoCastPlaybackState.value = VideoCastPlaybackState()
@@ -330,7 +337,7 @@ class CastSessionManager @Inject constructor(
 
             val items = queue.map { file ->
                 MediaQueueItem.Builder(buildMediaInfo(file))
-                    .setAutoplay(true)
+                    .setAutoplay(autoPlay)
                     .build()
             }.toTypedArray()
 
@@ -501,15 +508,12 @@ class CastSessionManager @Inject constructor(
             putString(MediaMetadata.KEY_ARTIST, audioFile.artist ?: "Unknown Artist")
             putString(MediaMetadata.KEY_ALBUM_TITLE, audioFile.album ?: "Unknown Album")
 
-            val albumArtUri = audioFile.albumArtUri
-            val artUrl = if (albumArtUri != null) {
+            val artUrl = audioFile.albumArtUri?.let { albumArtUri ->
                 localMediaServer.registerArt(
                     id = audioFile.id.toString(),
                     contentUri = albumArtUri
                 )
-            } else {
-                localMediaServer.getDefaultArtUrl()
-            }
+            } ?: localMediaServer.getDefaultArtUrl()
             addImage(WebImage(Uri.parse(artUrl)))
         }
 
@@ -550,17 +554,20 @@ class CastSessionManager @Inject constructor(
     }
 
     private fun buildVideoMediaInfo(videoFile: VideoFile): MediaInfo {
-        val mimeType = if (videoFile.mimeType.isNotBlank() && videoFile.mimeType != "video/*") {
-            videoFile.mimeType
+        val mimeType = resolveVideoMimeType(videoFile)
+        val isRemoteStream = videoFile.uri.scheme.equals("http", ignoreCase = true) ||
+            videoFile.uri.scheme.equals("https", ignoreCase = true)
+        // The receiver can fetch a public stream itself. Passing it through the
+        // local content server fails because ContentResolver cannot open HTTP(S).
+        val mediaUrl = if (isRemoteStream) {
+            videoFile.uri.toString()
         } else {
-            "video/mp4"
+            localMediaServer.registerMedia(
+                id = videoFile.id.toString(),
+                contentUri = videoFile.uri,
+                mimeType = mimeType
+            )
         }
-
-        val mediaUrl = localMediaServer.registerMedia(
-            id = videoFile.id.toString(),
-            contentUri = videoFile.uri,
-            mimeType = mimeType
-        )
 
         val metadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
             putString(MediaMetadata.KEY_TITLE, videoFile.title)
@@ -568,8 +575,7 @@ class CastSessionManager @Inject constructor(
             if (!folder.isNullOrBlank()) {
                 putString(MediaMetadata.KEY_SUBTITLE, folder)
             }
-            val artUrl = localMediaServer.getDefaultArtUrl()
-            addImage(WebImage(Uri.parse(artUrl)))
+            addImage(WebImage(Uri.parse(localMediaServer.getDefaultArtUrl())))
         }
 
         return MediaInfo.Builder(mediaUrl)
@@ -578,5 +584,17 @@ class CastSessionManager @Inject constructor(
             .setMetadata(metadata)
             .setStreamDuration(videoFile.duration)
             .build()
+    }
+
+    private fun resolveVideoMimeType(videoFile: VideoFile): String {
+        val declaredType = videoFile.mimeType
+        if (declaredType.isNotBlank() && declaredType != "video/*") return declaredType
+
+        return when {
+            videoFile.uri.toString().contains(".m3u8", ignoreCase = true) -> "application/vnd.apple.mpegurl"
+            videoFile.uri.toString().contains(".mpd", ignoreCase = true) -> "application/dash+xml"
+            videoFile.uri.toString().contains(".webm", ignoreCase = true) -> "video/webm"
+            else -> "video/mp4"
+        }
     }
 }
