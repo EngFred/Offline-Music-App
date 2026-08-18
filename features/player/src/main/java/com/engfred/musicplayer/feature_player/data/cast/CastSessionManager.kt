@@ -342,6 +342,35 @@ class CastSessionManager @Inject constructor(
         }
     }
 
+    fun addAudioToQueueNext(audioFile: AudioFile) {
+        runOnMainThread {
+            val client = remoteMediaClient ?: return@runOnMainThread
+            val mediaStatus = client.mediaStatus
+            val currentItemId = mediaStatus?.currentItemId ?: MediaQueueItem.INVALID_ITEM_ID
+            val queueItems = mediaStatus?.queueItems ?: emptyList()
+
+            val item = MediaQueueItem.Builder(buildMediaInfo(audioFile))
+                .setAutoplay(true)
+                .build()
+
+            if (currentItemId != MediaQueueItem.INVALID_ITEM_ID && queueItems.isNotEmpty()) {
+                val currentIndex = queueItems.indexOfFirst { it.itemId == currentItemId }
+                val insertBeforeItemId = if (currentIndex != -1 && currentIndex + 1 < queueItems.size) {
+                    queueItems[currentIndex + 1].itemId
+                } else {
+                    MediaQueueItem.INVALID_ITEM_ID
+                }
+                client.queueInsertItems(arrayOf(item), insertBeforeItemId, null)?.setResultCallback {
+                    client.requestStatus()
+                }
+            } else {
+                client.queueAppendItem(item, null)?.setResultCallback {
+                    client.requestStatus()
+                }
+            }
+        }
+    }
+
     fun play() {
         runOnMainThread {
             remoteMediaClient?.play()

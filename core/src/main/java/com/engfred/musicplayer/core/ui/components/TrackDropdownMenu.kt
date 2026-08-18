@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
@@ -49,7 +50,8 @@ fun TrackDropdownMenu(
     onRemoveOrDelete: (AudioFile) -> Unit,
     onEditInfo: (AudioFile) -> Unit,
     onTrimAudio: (AudioFile) -> Unit,
-    onShare: () -> Unit
+    onShare: () -> Unit,
+    onCastSong: ((AudioFile) -> Unit)? = null
 ) {
     val cleanTitle = remember(audioFile.title) {
         audioFile.title.replace('_', ' ').trim()
@@ -103,6 +105,26 @@ fun TrackDropdownMenu(
         )
 
         // ── Quick Actions ───────────────────────────────────────────────────
+        if (onCastSong != null) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = "Play on TV",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
+                    )
+                },
+                onClick = { onCastSong(audioFile); onDismiss() },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Cast,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            )
+        }
+
         DropdownMenuItem(
             text = {
                 Text(

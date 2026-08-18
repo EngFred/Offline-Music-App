@@ -26,6 +26,5 @@ data class PlaylistDetailScreenState(
     val potentialCoverAudioFile: AudioFile? = null,
 
     val showCreatePlaylistDialog: Boolean = false,
-
-
+    val isCastConnected: Boolean = false
 )

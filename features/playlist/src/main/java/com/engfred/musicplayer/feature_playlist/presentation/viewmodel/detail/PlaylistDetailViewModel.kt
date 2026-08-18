@@ -86,7 +86,8 @@ class PlaylistDetailViewModel @Inject constructor(
             _uiState.update { currentState ->
                 currentState.copy(
                     currentPlayingAudioFile = state.currentAudioFile,
-                    isPlaying               = state.isPlaying
+                    isPlaying               = state.isPlaying,
+                    isCastConnected         = state.castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED
                 )
             }
         }.launchIn(viewModelScope)

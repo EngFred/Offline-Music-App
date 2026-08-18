@@ -117,6 +117,7 @@ fun LibraryContent(
                             onToggleSelect = { onToggleSelection(audioFile) },
                             onItemTap = { onAudioClick(audioFile) },
                             onItemLongPress = { onLongPress(audioFile) },
+                            onCastSong = if (uiState.isCastConnected) { { onAudioClick(it) } } else null,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }

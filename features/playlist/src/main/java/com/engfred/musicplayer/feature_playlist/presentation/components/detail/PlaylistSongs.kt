@@ -31,7 +31,8 @@ fun PlaylistSongs(
     isSelectionMode: Boolean = false,
     selectedSongs: Set<AudioFile> = emptySet(),
     onToggleSelection: (AudioFile) -> Unit = {},
-    onLongPress: (AudioFile) -> Unit = {}
+    onLongPress: (AudioFile) -> Unit = {},
+    onCastSong: ((AudioFile) -> Unit)? = null
 ) {
     AnimatedVisibility(
         visible = songs.isNotEmpty(),
@@ -66,7 +67,8 @@ fun PlaylistSongs(
                     isSelected = isSelected,
                     onToggleSelect = { onToggleSelection(audioFile) },
                     onItemTap = { onSongClick(audioFile) },
-                    onItemLongPress = { onLongPress(audioFile) }
+                    onItemLongPress = { onLongPress(audioFile) },
+                    onCastSong = onCastSong
                 )
             }
         }

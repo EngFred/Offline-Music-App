@@ -378,7 +378,8 @@ fun PlaylistDetailScreen(
                                         } else {
                                             Toast.makeText(context, "Cannot select songs from this playlist.", Toast.LENGTH_SHORT).show()
                                         }
-                                    }
+                                    },
+                                    onCastSong = if (uiState.isCastConnected) { { viewModel.onEvent(PlaylistDetailEvent.PlayAudio(it)) } } else null
                                 )
                             }
                         }
@@ -489,7 +490,8 @@ fun PlaylistDetailScreen(
                                             } else {
                                                 Toast.makeText(context, "Cannot select songs from this playlists.", Toast.LENGTH_SHORT).show()
                                             }
-                                        }
+                                        },
+                                        onCastSong = if (uiState.isCastConnected) { { viewModel.onEvent(PlaylistDetailEvent.PlayAudio(it)) } } else null
                                     )
                                 }
                             }

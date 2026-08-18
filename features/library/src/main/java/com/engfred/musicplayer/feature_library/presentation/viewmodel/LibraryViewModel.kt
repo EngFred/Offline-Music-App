@@ -88,7 +88,8 @@ class LibraryViewModel @Inject constructor(
                     current.copy(
                         currentPlayingId = state.currentAudioFile?.id,
                         isPlaying = state.isPlaying,
-                        currentPlaybackAudioFile = state.currentAudioFile
+                        currentPlaybackAudioFile = state.currentAudioFile,
+                        isCastConnected = state.castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED
                     )
                 }
             }

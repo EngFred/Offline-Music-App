@@ -295,6 +295,18 @@ class PlaybackControllerImpl @Inject constructor(
     }
 
     override suspend fun addAudioToQueueNext(audioFile: AudioFile) {
+        if (castSessionManager.isConnected()) {
+            castSessionManager.addAudioToQueueNext(audioFile)
+            val currentQueue = sharedAudioDataSource.playingQueueAudioFiles.value.toMutableList()
+            val currentAudio = _playbackState.value.currentAudioFile
+            val currentIndex = if (currentAudio != null) currentQueue.indexOfFirst { it.id == currentAudio.id } else -1
+            val insertIndex = if (currentIndex != -1) currentIndex + 1 else currentQueue.size
+            if (!currentQueue.any { it.id == audioFile.id }) {
+                currentQueue.add(insertIndex, audioFile)
+                sharedAudioDataSource.setPlayingQueue(currentQueue)
+            }
+            return
+        }
         queueManager.addAudioToQueueNext(audioFile)
     }
 

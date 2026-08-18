@@ -83,7 +83,8 @@ fun AudioFileItem(
     isSelected: Boolean = false,
     onToggleSelect: () -> Unit = {},
     onItemTap: () -> Unit = {},
-    onItemLongPress: () -> Unit = {}
+    onItemLongPress: () -> Unit = {},
+    onCastSong: ((AudioFile) -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -307,7 +308,8 @@ fun AudioFileItem(
                             onRemoveOrDelete = onRemoveOrDelete,
                             onEditInfo = onEditInfo,
                             onTrimAudio = onTrimAudio,
-                            onShare = { MediaUtils.shareAudioFile(context, audioFile) }
+                            onShare = { MediaUtils.shareAudioFile(context, audioFile) },
+                            onCastSong = onCastSong
                         )
                     }
                 }
