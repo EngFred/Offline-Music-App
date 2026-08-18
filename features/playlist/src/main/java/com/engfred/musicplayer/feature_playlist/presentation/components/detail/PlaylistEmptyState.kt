@@ -16,10 +16,9 @@ fun PlaylistEmptyState(
     modifier: Modifier = Modifier,
     playlistType: AutomaticPlaylistType?
 ) {
-
     val message = if (playlistType == AutomaticPlaylistType.MOST_PLAYED) {
-        "Your most payed tracks of the week will appear here."
-    } else if(playlistType == AutomaticPlaylistType.RECENTLY_ADDED) {
+        "Your most played tracks of the week will appear here."
+    } else if (playlistType == AutomaticPlaylistType.RECENTLY_ADDED) {
         "No recently added songs have been found."
     } else {
         "This playlist is empty. Use the menu above to add songs!"
@@ -30,8 +29,7 @@ fun PlaylistEmptyState(
         exit = fadeOut()
     ) {
         InfoIndicator(
-            modifier = modifier
-                .fillMaxWidth(),
+            modifier = modifier.fillMaxWidth(),
             message = message,
             icon = Icons.Outlined.LibraryMusic
         )

@@ -2,8 +2,6 @@ package com.engfred.musicplayer.feature_playlist.presentation.components.detail
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,30 +9,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 
-/**
- * Action buttons for playlist detail screen.
- *
- * - Both Play and Shuffle are outlined tiles for visual consistency.
- * - Play uses a distinct border color (primary) to differentiate it.
- */
 @Composable
 fun PlaylistActionButtons(
     onPlayAllClick: () -> Unit,
@@ -42,132 +33,75 @@ fun PlaylistActionButtons(
     isCompact: Boolean,
     modifier: Modifier = Modifier
 ) {
-    // Sizes tuned for compact vs expanded
-    val tileHeight = if (isCompact) 56.dp else 68.dp
-    val tileMinWidth = if (isCompact) 130.dp else 180.dp
-    val cornerRadius = if (isCompact) 12.dp else 16.dp
-    val iconSize = if (isCompact) 28.dp else 36.dp
-    val labelStyle = MaterialTheme.typography.titleMedium
+    val buttonHeight = if (isCompact) 48.dp else 52.dp
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = if (isCompact) 12.dp else 0.dp),
+            .padding(horizontal = if (isCompact) 16.dp else 24.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Play tile - Outlined (looks like Shuffle) with primary-colored border
-        OutlinedButton(
+        // Play All - Filled Tonal Button (Primary Action)
+        FilledTonalButton(
             onClick = onPlayAllClick,
             modifier = Modifier
                 .weight(1f)
-                .height(tileHeight)
-                .widthIn(min = tileMinWidth)
-                .clip(RoundedCornerShape(cornerRadius)),
-            shape = RoundedCornerShape(cornerRadius),
-            colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f),
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(tileHeight)
-            ) {
-                // Icon chip
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    tonalElevation = 2.dp,
-                    modifier = Modifier.size(iconSize + 12.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.PlayArrow,
-                            contentDescription = "Play Playlist",
-                            modifier = Modifier.size(iconSize),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column {
-                    Text(
-                        text = "Play",
-                        style = labelStyle,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "All songs",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-
-        // Shuffle tile - Outlined style, lighter border (uses secondary)
-        OutlinedButton(
-            onClick = onShuffleAllClick,
-            modifier = Modifier
-                .weight(1f)
-                .height(tileHeight)
-                .widthIn(min = tileMinWidth)
-                .clip(RoundedCornerShape(cornerRadius)),
-            shape = RoundedCornerShape(cornerRadius),
-            colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f),
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary)
+                .height(buttonHeight),
+            shape = RoundedCornerShape(24.dp),
+            colors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
-                // Icon chip
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    tonalElevation = 2.dp,
-                    modifier = Modifier.size(iconSize + 12.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.Shuffle,
-                            contentDescription = "Shuffle Playlist",
-                            modifier = Modifier.size(iconSize),
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
+                Icon(
+                    imageVector = Icons.Rounded.PlayArrow,
+                    contentDescription = "Play Playlist",
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Play",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
 
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column {
-                    Text(
-                        "Shuffle",
-                        style = labelStyle,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        "Random order",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+        // Shuffle All - Outlined Button (Secondary Action)
+        OutlinedButton(
+            onClick = onShuffleAllClick,
+            modifier = Modifier
+                .weight(1f)
+                .height(buttonHeight),
+            shape = RoundedCornerShape(24.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Shuffle,
+                    contentDescription = "Shuffle Playlist",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Shuffle",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }

@@ -3,11 +3,15 @@ package com.engfred.musicplayer.feature_playlist.presentation.components.detail
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,6 +31,7 @@ fun RenamePlaylistDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
         title = { Text("Rename Playlist") },
         text = {
             Column {
@@ -35,6 +40,11 @@ fun RenamePlaylistDialog(
                     onValueChange = { newPlaylistName = it },
                     label = { Text("New Playlist Name") },
                     singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
                 if (errorMessage != null) {
@@ -48,7 +58,7 @@ fun RenamePlaylistDialog(
             }
         },
         confirmButton = {
-            Button(
+            FilledTonalButton(
                 onClick = { onConfirm(newPlaylistName) },
                 enabled = newPlaylistName.isNotBlank() && newPlaylistName != currentName
             ) {
@@ -56,7 +66,7 @@ fun RenamePlaylistDialog(
             }
         },
         dismissButton = {
-            Button(onClick = onDismiss) {
+            TextButton(onClick = onDismiss) {
                 Text("Cancel")
             }
         },

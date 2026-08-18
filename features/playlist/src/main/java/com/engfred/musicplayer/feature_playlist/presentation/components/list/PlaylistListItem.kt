@@ -2,6 +2,7 @@ package com.engfred.musicplayer.feature_playlist.presentation.components.list
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,18 +34,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.engfred.musicplayer.core.domain.model.Playlist
-import com.engfred.musicplayer.feature_playlist.utils.formatDate
-import com.engfred.musicplayer.feature_playlist.presentation.components.DeleteConfirmationDialog
 import com.engfred.musicplayer.core.util.TextUtils
 import com.engfred.musicplayer.feature_playlist.R
+import com.engfred.musicplayer.feature_playlist.presentation.components.DeleteConfirmationDialog
 import com.engfred.musicplayer.feature_playlist.utils.findFirstAlbumArtUri
+import com.engfred.musicplayer.feature_playlist.utils.formatDate
 import com.skydoves.landscapist.ImageOptions
 import com.skydoves.landscapist.coil.CoilImage
 
@@ -56,10 +60,6 @@ fun PlaylistListItem(
     onDeleteClick: (Long) -> Unit,
     isDeletable: Boolean,
     showDivider: Boolean,
-    // Accept horizontal padding as a parameter so the caller controls spacing,
-    // but the component applies it INTERNALLY — after any background — ensuring
-    // both sides are always identical and the clickable/highlight region is
-    // properly inset from the screen edge.
     horizontalPadding: Dp = 12.dp,
 ) {
     var showDeleteConfirmationDialog by remember { mutableStateOf(false) }
@@ -69,20 +69,20 @@ fun PlaylistListItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                // ↓ clickable first so the ripple covers the full row width
                 .clickable { onClick(playlist.id) }
-                // ↓ horizontal padding applied AFTER clickable — content is
-                //   inset symmetrically; no bleed to the left screen edge
-                .padding(horizontal = horizontalPadding, vertical = 10.dp),
+                .padding(horizontal = horizontalPadding, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Album art / placeholder
             Box(
                 modifier = Modifier
                     .size(56.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(
+                        brush = Brush.linearGradient(
+                            colors = listOf(Color(0xFF2C283E), Color(0xFF161426))
+                        )
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 val displayArt = playlist.findFirstAlbumArtUri()
@@ -90,80 +90,70 @@ fun PlaylistListItem(
                 if (displayArt != null) {
                     CoilImage(
                         imageModel = { displayArt },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .width(56.dp)
-                            .height(56.dp),
+                        modifier = Modifier.size(56.dp),
                         imageOptions = ImageOptions(contentScale = ContentScale.Crop),
                         loading = {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(56.dp)
+                                    .size(56.dp)
                                     .background(MaterialTheme.colorScheme.surfaceVariant)
                             )
                         },
                         failure = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(56.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.MusicNote,
-                                    contentDescription = "No album art available",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(35.dp)
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Rounded.MusicNote,
+                                contentDescription = "No album art available",
+                                tint = Color.White.copy(alpha = 0.6f),
+                                modifier = Modifier.size(28.dp)
+                            )
                         }
                     )
                 } else if (!isDeletable) {
                     Image(
                         painter = painterResource(id = R.drawable.favorites),
                         contentDescription = "Favorites",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .width(56.dp)
-                            .height(56.dp),
+                        modifier = Modifier.size(56.dp),
                         contentScale = ContentScale.Crop
                     )
                 } else {
                     Icon(
                         imageVector = Icons.Rounded.MusicNote,
                         contentDescription = "No album art available",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        tint = Color.White.copy(alpha = 0.6f),
                         modifier = Modifier.size(28.dp)
                     )
                 }
             }
 
-            // Textual info
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = playlist.name,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = TextUtils.pluralize(playlist.songs.size, "song"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Created: ${formatDate(playlist.createdAt)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = TextUtils.pluralize(playlist.songs.size, "song"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    )
+                    Text(
+                        text = " • ",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    )
+                    Text(
+                        text = formatDate(playlist.createdAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
             }
 
-            // Options menu
             if (isDeletable) {
                 Box {
                     IconButton(onClick = { showMenu = true }) {
@@ -177,16 +167,32 @@ fun PlaylistListItem(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false },
                         containerColor = MaterialTheme.colorScheme.surface,
-                        modifier = Modifier.clip(RoundedCornerShape(12.dp))
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(20.dp)
+                        )
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Delete Playlist") },
+                            text = {
+                                Text(
+                                    "Delete Playlist",
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontSize = 13.5.sp
+                                )
+                            },
                             onClick = {
                                 showDeleteConfirmationDialog = true
                                 showMenu = false
                             },
                             leadingIcon = {
-                                Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                Icon(
+                                    Icons.Rounded.Delete,
+                                    contentDescription = "Delete",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         )
                     }
@@ -196,13 +202,11 @@ fun PlaylistListItem(
 
         if (showDivider) {
             HorizontalDivider(
-                // Divider respects the same horizontal inset so it doesn't
-                // bleed to the screen edges either
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = horizontalPadding),
-                thickness = 1.dp,
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)
             )
         }
     }

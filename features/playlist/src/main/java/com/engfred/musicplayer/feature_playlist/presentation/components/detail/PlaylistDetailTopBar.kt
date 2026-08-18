@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.DropdownMenu
@@ -27,11 +30,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.skydoves.landscapist.ImageOptions
 import com.skydoves.landscapist.coil.CoilImage
 
@@ -66,7 +71,6 @@ fun PlaylistDetailTopBar(
                 )
             }
 
-            // Animate visibility of the album art and title
             AnimatedVisibility(
                 visible = scrolledPastHeader,
                 enter = fadeIn(),
@@ -82,7 +86,7 @@ fun PlaylistDetailTopBar(
                         ),
                         modifier = Modifier
                             .size(32.dp)
-                            .clip(CircleShape), // Make the image circular
+                            .clip(CircleShape),
                         failure = {
                             Icon(
                                 imageVector = Icons.Rounded.MusicNote,
@@ -103,7 +107,7 @@ fun PlaylistDetailTopBar(
             }
         }
 
-        if (isAutomaticPlaylist.not()) {
+        if (!isAutomaticPlaylist) {
             Box {
                 IconButton(onClick = { onMoreMenuExpandedChange(true) }) {
                     Icon(
@@ -115,33 +119,55 @@ fun PlaylistDetailTopBar(
                 DropdownMenu(
                     expanded = moreMenuExpanded,
                     onDismissRequest = { onMoreMenuExpandedChange(false) },
-                    offset = DpOffset(x = (-16).dp, y = 0.dp), // pushes it away from screen edge
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surface) // modern background
+                    offset = DpOffset(x = (-16).dp, y = 0.dp),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(20.dp)
+                    )
                 ) {
-                    if (!isAutomaticPlaylist) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "Add songs to playlist",
+                                fontSize = 13.5.sp
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        onClick = {
+                            onAddSongsClick()
+                            onMoreMenuExpandedChange(false)
+                        }
+                    )
+                    if (isEditable) {
                         DropdownMenuItem(
-                            text = { Text("Add songs to playlist") },
+                            text = {
+                                Text(
+                                    "Rename playlist",
+                                    fontSize = 13.5.sp
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Rounded.Edit,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
                             onClick = {
-                                onAddSongsClick()
+                                onRenamePlaylistClick()
                                 onMoreMenuExpandedChange(false)
                             }
-                        )
-                        if (isEditable) {
-                            DropdownMenuItem(
-                                text = { Text("Rename playlist") },
-                                onClick = {
-                                    onRenamePlaylistClick()
-                                    onMoreMenuExpandedChange(false)
-                                }
-                            )
-                        }
-                    } else {
-                        DropdownMenuItem(
-                            text = { Text("Cannot modify automatic playlist") },
-                            onClick = { onMoreMenuExpandedChange(false) },
-                            enabled = false
                         )
                     }
                 }

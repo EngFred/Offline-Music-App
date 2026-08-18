@@ -2,6 +2,7 @@ package com.engfred.musicplayer.feature_playlist.presentation.screens
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,12 +14,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -43,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.ui.components.CustomTopBar
@@ -168,6 +174,12 @@ fun CreatePlaylistScreen(
                 onValueChange = { viewModel.onEvent(CreatePlaylistEvent.UpdateName(it)) },
                 label = { Text("Playlist Name") },
                 isError = uiState.error != null,
+                singleLine = true,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                ),
                 supportingText = {
                     if (uiState.error != null) {
                         Text(uiState.error!!, color = MaterialTheme.colorScheme.error)
@@ -184,11 +196,22 @@ fun CreatePlaylistScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Add Songs (Optional)",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Add Songs",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (uiState.selectedSongIds.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "(${uiState.selectedSongIds.size} selected)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
 
                 // Wrap filter icon and dropdown in Box for proper anchoring
                 Box {
@@ -197,23 +220,51 @@ fun CreatePlaylistScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.FilterList,
-                            contentDescription = "Filter / Sort songs"
+                            contentDescription = "Filter / Sort songs",
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
 
-                    // Dropdown menu anchored to the Box (menu visibility controlled by viewModel)
+                    // Dropdown menu anchored to the Box
                     DropdownMenu(
                         expanded = isFilterMenuOpen,
                         onDismissRequest = { viewModel.onEvent(CreatePlaylistEvent.DismissFilterMenu) },
-                        modifier = Modifier.align(Alignment.TopEnd),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+                            ),
                         offset = DpOffset(x = (-8).dp, y = 0.dp),
                         containerColor = MaterialTheme.colorScheme.surface,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
                     ) {
+                        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                            Text(
+                                text = "Sort Songs",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    letterSpacing = 0.5.sp
+                                ),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        androidx.compose.material3.HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
+                            thickness = 1.dp
+                        )
                         DropdownMenuItem(
                             text = { Text("Latest first") },
                             onClick = {
                                 viewModel.onEvent(CreatePlaylistEvent.SetSortOrder(SortOrder.LATEST))
                                 viewModel.onEvent(CreatePlaylistEvent.DismissFilterMenu)
+                            },
+                            trailingIcon = {
+                                if (currentSort == SortOrder.LATEST) {
+                                    Icon(androidx.compose.material.icons.Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
                             }
                         )
                         DropdownMenuItem(
@@ -221,6 +272,11 @@ fun CreatePlaylistScreen(
                             onClick = {
                                 viewModel.onEvent(CreatePlaylistEvent.SetSortOrder(SortOrder.OLDEST))
                                 viewModel.onEvent(CreatePlaylistEvent.DismissFilterMenu)
+                            },
+                            trailingIcon = {
+                                if (currentSort == SortOrder.OLDEST) {
+                                    Icon(androidx.compose.material.icons.Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
                             }
                         )
                         DropdownMenuItem(
@@ -228,6 +284,11 @@ fun CreatePlaylistScreen(
                             onClick = {
                                 viewModel.onEvent(CreatePlaylistEvent.SetSortOrder(SortOrder.A_Z))
                                 viewModel.onEvent(CreatePlaylistEvent.DismissFilterMenu)
+                            },
+                            trailingIcon = {
+                                if (currentSort == SortOrder.A_Z) {
+                                    Icon(androidx.compose.material.icons.Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
                             }
                         )
                         DropdownMenuItem(
@@ -235,6 +296,11 @@ fun CreatePlaylistScreen(
                             onClick = {
                                 viewModel.onEvent(CreatePlaylistEvent.SetSortOrder(SortOrder.Z_A))
                                 viewModel.onEvent(CreatePlaylistEvent.DismissFilterMenu)
+                            },
+                            trailingIcon = {
+                                if (currentSort == SortOrder.Z_A) {
+                                    Icon(androidx.compose.material.icons.Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
                             }
                         )
                     }
@@ -246,17 +312,35 @@ fun CreatePlaylistScreen(
                 onValueChange = { viewModel.onEvent(CreatePlaylistEvent.UpdateSearchQuery(it)) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                    .padding(vertical = 6.dp),
                 placeholder = { Text("Search songs...") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotBlank()) {
+                        IconButton(onClick = { viewModel.onEvent(CreatePlaylistEvent.UpdateSearchQuery("")) }) {
+                            Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Rounded.Clear,
+                                contentDescription = "Clear search",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
                 singleLine = true,
                 colors = TextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent
                 ),
-                shape = MaterialTheme.shapes.small
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
             )
 
             Spacer(modifier = Modifier.height(8.dp))

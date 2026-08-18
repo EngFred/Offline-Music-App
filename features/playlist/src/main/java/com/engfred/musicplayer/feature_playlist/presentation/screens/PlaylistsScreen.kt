@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.res.Configuration
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.engfred.musicplayer.core.domain.model.PlaylistLayoutType
 import com.engfred.musicplayer.core.domain.model.PlaylistSortOption
@@ -252,7 +254,7 @@ fun PlaylistsScreen(
 
                     // My Playlists section (title as a separate section)
                     if (uiState.userPlaylists.isNotEmpty()) {
-                        // Header with Sort Button
+                        // Header with Layout Toggle & Sort Button
                         item {
                             Row(
                                 modifier = Modifier
@@ -268,68 +270,101 @@ fun PlaylistsScreen(
                                     color = MaterialTheme.colorScheme.onBackground
                                 )
 
-                                // Sort Button & Menu
-                                Box {
-                                    IconButton(onClick = { isSortMenuExpanded = true }) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // Layout Toggle Button
+                                    IconButton(onClick = { viewModel.onEvent(PlaylistEvent.ToggleLayout) }) {
                                         Icon(
-                                            imageVector = Icons.AutoMirrored.Rounded.Sort,
-                                            contentDescription = "Sort Playlists",
+                                            imageVector = if (uiState.currentLayout == PlaylistLayoutType.LIST) Icons.Rounded.GridView else Icons.AutoMirrored.Rounded.List,
+                                            contentDescription = "Toggle layout",
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
 
-                                    DropdownMenu(
-                                        expanded = isSortMenuExpanded,
-                                        onDismissRequest = { isSortMenuExpanded = false }
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("Name (A-Z)") },
-                                            onClick = {
-                                                viewModel.onEvent(PlaylistEvent.ChangeSortOption(PlaylistSortOption.NAME_ASC))
-                                                isSortMenuExpanded = false
-                                            },
-                                            trailingIcon = {
-                                                if (uiState.currentSortOption == PlaylistSortOption.NAME_ASC) {
-                                                    Icon(Icons.Rounded.Check, contentDescription = null)
-                                                }
+                                    // Sort Button & Menu
+                                    Box {
+                                        IconButton(onClick = { isSortMenuExpanded = true }) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Rounded.Sort,
+                                                contentDescription = "Sort Playlists",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+
+                                        DropdownMenu(
+                                            expanded = isSortMenuExpanded,
+                                            onDismissRequest = { isSortMenuExpanded = false },
+                                            containerColor = MaterialTheme.colorScheme.surface,
+                                            shape = RoundedCornerShape(20.dp),
+                                            modifier = Modifier.border(
+                                                width = 1.dp,
+                                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                                                shape = RoundedCornerShape(20.dp)
+                                            )
+                                        ) {
+                                            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                                                Text(
+                                                    text = "Sort By",
+                                                    style = MaterialTheme.typography.labelSmall.copy(
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 11.sp,
+                                                        letterSpacing = 0.5.sp
+                                                    ),
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
                                             }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Name (Z-A)") },
-                                            onClick = {
-                                                viewModel.onEvent(PlaylistEvent.ChangeSortOption(PlaylistSortOption.NAME_DESC))
-                                                isSortMenuExpanded = false
-                                            },
-                                            trailingIcon = {
-                                                if (uiState.currentSortOption == PlaylistSortOption.NAME_DESC) {
-                                                    Icon(Icons.Rounded.Check, contentDescription = null)
+                                            androidx.compose.material3.HorizontalDivider(
+                                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
+                                                thickness = 1.dp
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Name (A-Z)") },
+                                                onClick = {
+                                                    viewModel.onEvent(PlaylistEvent.ChangeSortOption(PlaylistSortOption.NAME_ASC))
+                                                    isSortMenuExpanded = false
+                                                },
+                                                trailingIcon = {
+                                                    if (uiState.currentSortOption == PlaylistSortOption.NAME_ASC) {
+                                                        Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                                    }
                                                 }
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Oldest First") },
-                                            onClick = {
-                                                viewModel.onEvent(PlaylistEvent.ChangeSortOption(PlaylistSortOption.DATE_CREATED_ASC))
-                                                isSortMenuExpanded = false
-                                            },
-                                            trailingIcon = {
-                                                if (uiState.currentSortOption == PlaylistSortOption.DATE_CREATED_ASC) {
-                                                    Icon(Icons.Rounded.Check, contentDescription = null)
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Name (Z-A)") },
+                                                onClick = {
+                                                    viewModel.onEvent(PlaylistEvent.ChangeSortOption(PlaylistSortOption.NAME_DESC))
+                                                    isSortMenuExpanded = false
+                                                },
+                                                trailingIcon = {
+                                                    if (uiState.currentSortOption == PlaylistSortOption.NAME_DESC) {
+                                                        Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                                    }
                                                 }
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Newest First") },
-                                            onClick = {
-                                                viewModel.onEvent(PlaylistEvent.ChangeSortOption(PlaylistSortOption.DATE_CREATED_DESC))
-                                                isSortMenuExpanded = false
-                                            },
-                                            trailingIcon = {
-                                                if (uiState.currentSortOption == PlaylistSortOption.DATE_CREATED_DESC) {
-                                                    Icon(Icons.Rounded.Check, contentDescription = null)
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Oldest First") },
+                                                onClick = {
+                                                    viewModel.onEvent(PlaylistEvent.ChangeSortOption(PlaylistSortOption.DATE_CREATED_ASC))
+                                                    isSortMenuExpanded = false
+                                                },
+                                                trailingIcon = {
+                                                    if (uiState.currentSortOption == PlaylistSortOption.DATE_CREATED_ASC) {
+                                                        Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                                    }
                                                 }
-                                            }
-                                        )
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Newest First") },
+                                                onClick = {
+                                                    viewModel.onEvent(PlaylistEvent.ChangeSortOption(PlaylistSortOption.DATE_CREATED_DESC))
+                                                    isSortMenuExpanded = false
+                                                },
+                                                trailingIcon = {
+                                                    if (uiState.currentSortOption == PlaylistSortOption.DATE_CREATED_DESC) {
+                                                        Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                                    }
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -405,37 +440,21 @@ fun PlaylistsScreen(
             }
         }
 
-        // Floating Action Buttons (FABs)
-        Column(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = Alignment.End,
+        // Floating Action Button
+        FloatingActionButton(
+            onClick = onCreatePlaylist,
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            shape = RoundedCornerShape(16.dp),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 16.dp)
+                .padding(end = 20.dp, bottom = 20.dp)
         ) {
-            // Add new playlist FAB
-            FloatingActionButton(
-                onClick = onCreatePlaylist,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ) {
-                Icon(
-                    modifier = Modifier.size(36.dp),
-                    imageVector = Icons.Rounded.Add,
-                    contentDescription = "Create new playlist"
-                )
-            }
-
-            // Toggle layout FAB
-            FloatingActionButton(
-                onClick = { viewModel.onEvent(PlaylistEvent.ToggleLayout) },
-            ) {
-                Icon(
-                    modifier = Modifier.size(if (uiState.currentLayout == PlaylistLayoutType.LIST) 24.dp else 30.dp),
-                    imageVector = if (uiState.currentLayout == PlaylistLayoutType.LIST) Icons.Rounded.GridView else Icons.AutoMirrored.Rounded.List,
-                    contentDescription = "Toggle layout for My Playlists"
-                )
-            }
+            Icon(
+                imageVector = Icons.Rounded.Add,
+                contentDescription = "Create new playlist",
+                modifier = Modifier.size(28.dp)
+            )
         }
     }
 }
