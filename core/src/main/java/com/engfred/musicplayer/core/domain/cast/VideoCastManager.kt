@@ -12,10 +12,12 @@ data class VideoCastPlaybackState(
 )
 
 /**
- * Interface allowing video feature to command Google Cast without depending on :features:player.
+ * Interface allowing video feature and app shell to command Google Cast without depending on :features:player.
  */
 interface VideoCastManager {
     val videoCastPlaybackState: StateFlow<VideoCastPlaybackState>
+    val currentVideoFile: StateFlow<VideoFile?>
+    fun getCurrentVideo(): VideoFile?
     fun isConnected(): Boolean
     fun isCurrentMediaVideo(): Boolean
     fun loadVideo(videoFile: VideoFile, startPositionMs: Long = 0L)

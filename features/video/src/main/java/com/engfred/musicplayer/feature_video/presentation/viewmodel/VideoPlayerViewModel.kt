@@ -162,7 +162,27 @@ class VideoPlayerViewModel @Inject constructor(
                     val video = res.data
                     if (video != null) {
                         _uiState.update { it.copy(videoFile = video) }
-                        startVideoPlayback(video, 0L)
+                        // If Cast is already playing THIS video, resume from its current position
+                        // instead of reloading from 0 (which would annoyingly reset a 45-min movie)
+                        val castState = videoCastManager.videoCastPlaybackState.value
+                        val alreadyCasting = videoCastManager.isConnected()
+                            && videoCastManager.isCurrentMediaVideo()
+                            && videoCastManager.getCurrentVideo()?.id == video.id
+                        if (alreadyCasting) {
+                            // Just sync UI state from cast — don't reload
+                            _uiState.update { state ->
+                                state.copy(
+                                    playbackState = state.playbackState.copy(
+                                        isPlaying = castState.isPlaying,
+                                        isLoading = castState.isBuffering,
+                                        currentPositionMs = castState.currentPositionMs,
+                                        totalDurationMs = if (castState.durationMs > 0) castState.durationMs else video.duration
+                                    )
+                                )
+                            }
+                        } else {
+                            startVideoPlayback(video, 0L)
+                        }
                         resetControlsTimer()
                     }
                 }
@@ -181,7 +201,24 @@ class VideoPlayerViewModel @Inject constructor(
                     val video = res.data
                     if (video != null) {
                         _uiState.update { it.copy(videoFile = video) }
-                        startVideoPlayback(video, 0L)
+                        val castState = videoCastManager.videoCastPlaybackState.value
+                        val alreadyCasting = videoCastManager.isConnected()
+                            && videoCastManager.isCurrentMediaVideo()
+                            && videoCastManager.getCurrentVideo()?.id == video.id
+                        if (alreadyCasting) {
+                            _uiState.update { state ->
+                                state.copy(
+                                    playbackState = state.playbackState.copy(
+                                        isPlaying = castState.isPlaying,
+                                        isLoading = castState.isBuffering,
+                                        currentPositionMs = castState.currentPositionMs,
+                                        totalDurationMs = if (castState.durationMs > 0) castState.durationMs else video.duration
+                                    )
+                                )
+                            }
+                        } else {
+                            startVideoPlayback(video, 0L)
+                        }
                         resetControlsTimer()
                         return@launch
                     }

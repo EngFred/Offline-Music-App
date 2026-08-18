@@ -42,7 +42,8 @@ class CastPlaybackBridge @Inject constructor(
 
         bridgeScope.launch {
             castSessionManager.castState.collectLatest { state ->
-                targetPlaybackState?.update { it.copy(castState = state) }
+                val isVideo = castSessionManager.isCurrentMediaVideo() || activePlayerRegistry.activeMediaType.value == ActiveMediaType.VIDEO
+                targetPlaybackState?.update { it.copy(castState = if (isVideo) CastState.DISCONNECTED else state) }
                 if (state == CastState.CONNECTED) {
                     startProgressTracker()
                 } else {
@@ -59,7 +60,8 @@ class CastPlaybackBridge @Inject constructor(
      */
     fun attachPlaybackState(playbackState: MutableStateFlow<PlaybackState>) {
         targetPlaybackState = playbackState
-        playbackState.update { it.copy(castState = castSessionManager.castState.value) }
+        val isVideo = castSessionManager.isCurrentMediaVideo() || activePlayerRegistry.activeMediaType.value == ActiveMediaType.VIDEO
+        playbackState.update { it.copy(castState = if (isVideo) CastState.DISCONNECTED else castSessionManager.castState.value) }
     }
 
     fun getLatestPlaybackState(): PlaybackState {
@@ -95,6 +97,13 @@ class CastPlaybackBridge @Inject constructor(
             || activePlayerRegistry.activeMediaType.value == ActiveMediaType.VIDEO
 
         if (isVideo) {
+            targetPlaybackState?.update { current ->
+                if (current.castState == CastState.CONNECTED) {
+                    current.copy(castState = CastState.DISCONNECTED, isPlaying = false)
+                } else {
+                    current
+                }
+            }
             return
         }
         val queue = sharedAudioDataSource.playingQueueAudioFiles.value

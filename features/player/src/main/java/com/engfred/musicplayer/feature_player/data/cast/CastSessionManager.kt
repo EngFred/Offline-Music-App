@@ -50,6 +50,10 @@ class CastSessionManager @Inject constructor(
     private val _videoCastPlaybackState = MutableStateFlow(VideoCastPlaybackState())
     override val videoCastPlaybackState: StateFlow<VideoCastPlaybackState> = _videoCastPlaybackState.asStateFlow()
 
+    private val _currentVideoFile = MutableStateFlow<VideoFile?>(null)
+    override val currentVideoFile: StateFlow<VideoFile?> = _currentVideoFile.asStateFlow()
+    override fun getCurrentVideo(): VideoFile? = _currentVideoFile.value
+
     private var currentCastSession: CastSession? = null
     private var remoteMediaClient: RemoteMediaClient? = null
 
@@ -220,6 +224,7 @@ class CastSessionManager @Inject constructor(
         localMediaServer.stopServer()
         _castState.value = CastState.DISCONNECTED
         _videoCastPlaybackState.value = VideoCastPlaybackState()
+        _currentVideoFile.value = null
 
         onSessionDisconnected?.invoke(lastPosition)
     }
@@ -232,8 +237,6 @@ class CastSessionManager @Inject constructor(
         val type = mediaInfo.metadata?.mediaType
         return type == MediaMetadata.MEDIA_TYPE_MOVIE || mediaInfo.contentType?.startsWith("video/") == true
     }
-
-    private var currentVideoFile: VideoFile? = null
 
     private fun updateVideoCastState() {
         val client = remoteMediaClient
@@ -285,6 +288,7 @@ class CastSessionManager @Inject constructor(
      * Loads and starts playing a single audio file on the Cast receiver.
      */
     fun loadMedia(audioFile: AudioFile, startPositionMs: Long = 0L, autoPlay: Boolean = true) {
+        _currentVideoFile.value = null
         runOnMainThread {
             val client = remoteMediaClient ?: return@runOnMainThread
             val mediaInfo = buildMediaInfo(audioFile)
@@ -308,6 +312,7 @@ class CastSessionManager @Inject constructor(
         startPositionMs: Long = 0L,
         repeatMode: RepeatMode = RepeatMode.OFF
     ) {
+        _currentVideoFile.value = null
         runOnMainThread {
             val client = remoteMediaClient ?: return@runOnMainThread
             if (queue.isEmpty()) return@runOnMainThread
@@ -423,7 +428,7 @@ class CastSessionManager @Inject constructor(
                 val playerState = client.playerState
                 val idleReason = client.idleReason
                 if (playerState == MediaStatus.PLAYER_STATE_IDLE && idleReason == MediaStatus.IDLE_REASON_FINISHED) {
-                    val video = currentVideoFile
+                    val video = _currentVideoFile.value
                     if (video != null) {
                         loadVideo(video, 0L)
                         return@runOnMainThread
@@ -509,7 +514,15 @@ class CastSessionManager @Inject constructor(
      * Streams a video file to the connected Cast receiver device.
      */
     override fun loadVideo(videoFile: VideoFile, startPositionMs: Long) {
-        currentVideoFile = videoFile
+        _currentVideoFile.value = videoFile
+        _videoCastPlaybackState.value = VideoCastPlaybackState(
+            isPlaying = true,
+            isBuffering = true,
+            currentPositionMs = startPositionMs
+        )
+        remoteMediaClient?.let { client ->
+            onRemoteStatusChanged?.invoke(client)
+        }
         runOnMainThread {
             val client = remoteMediaClient ?: return@runOnMainThread
             val mediaInfo = buildVideoMediaInfo(videoFile)

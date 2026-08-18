@@ -66,12 +66,19 @@ fun AppNavHost(
     onToggleStopAfterCurrent: () -> Unit,
     playbackPositionMs: Long,
     totalDurationMs: Long,
-    // ── driven from MainActivity so that navigateToNowPlayingOnStart ──
+    // driven from MainActivity so that navigateToNowPlayingOnStart
     // and the onNavigateToNowPlaying lambda both open the same overlay.
     showNowPlaying: Boolean,
     onShowNowPlaying: (Boolean) -> Unit,
     onCastVideo: ((VideoFile) -> Unit)? = null,
-    castState: com.engfred.musicplayer.core.domain.model.CastState = com.engfred.musicplayer.core.domain.model.CastState.DISCONNECTED
+    castState: com.engfred.musicplayer.core.domain.model.CastState = com.engfred.musicplayer.core.domain.model.CastState.DISCONNECTED,
+    // Video cast mini-player
+    videoCastTitle: String? = null,
+    videoCastIsPlaying: Boolean = false,
+    videoCastPositionMs: Long = 0L,
+    videoCastDurationMs: Long = 0L,
+    videoCastVideoId: Long? = null,
+    onVideoCastPlayPause: () -> Unit = {}
 ) {
     // Intercept the system back button while the overlay is open so it collapses
     // back to the mini player instead of popping the nav back stack.
@@ -135,7 +142,17 @@ fun AppNavHost(
                     onCastVideo = { videoFile ->
                         onCastVideo?.invoke(videoFile)
                     },
-                    castState = castState
+                    castState = castState,
+                    videoCastTitle = videoCastTitle,
+                    videoCastIsPlaying = videoCastIsPlaying,
+                    videoCastPositionMs = videoCastPositionMs,
+                    videoCastDurationMs = videoCastDurationMs,
+                    onVideoCastPlayPause = onVideoCastPlayPause,
+                    onNavigateToVideoCast = {
+                        if (videoCastVideoId != null) {
+                            rootNavController.navigate(AppDestinations.VideoPlayer.createRoute(videoId = videoCastVideoId))
+                        }
+                    }
                 )
             }
 

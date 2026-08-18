@@ -80,6 +80,13 @@ class MainActivity : AppCompatActivity() {
     private var lastPlaybackAudio: AudioFile? by mutableStateOf(null)
     private var lastPlaybackPosition: Long by mutableLongStateOf(0L)
 
+    // Video cast state — observed separately from audio PlaybackState
+    private var videoCastTitle: String? by mutableStateOf(null)
+    private var videoCastIsPlaying: Boolean by mutableStateOf(false)
+    private var videoCastPositionMs: Long by mutableLongStateOf(0L)
+    private var videoCastDurationMs: Long by mutableLongStateOf(0L)
+    private var videoCastVideoId: Long? by mutableStateOf(null)
+
     private var showNowPlaying by mutableStateOf(false)
 
     private var navigateToNowPlayingOnStart by mutableStateOf(false)
@@ -128,6 +135,23 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "Failed to collect playback state: ${t.message}")
+            }
+        }
+
+        // Observe video cast state independently
+        uiScope.launch {
+            castSessionManager.videoCastPlaybackState.collect { castVid ->
+                val videoFile = castSessionManager.getCurrentVideo()
+                if (castSessionManager.isConnected() && castSessionManager.isCurrentMediaVideo() && videoFile != null) {
+                    videoCastTitle = videoFile.title
+                    videoCastIsPlaying = castVid.isPlaying
+                    videoCastPositionMs = castVid.currentPositionMs
+                    videoCastDurationMs = castVid.durationMs
+                    videoCastVideoId = videoFile.id
+                } else {
+                    videoCastTitle = null
+                    videoCastVideoId = null
+                }
             }
         }
 
@@ -272,7 +296,16 @@ class MainActivity : AppCompatActivity() {
                     onCastVideo = { videoFile ->
                         castSessionManager.loadVideo(videoFile)
                     },
-                    castState = playbackState.castState
+                    castState = playbackState.castState,
+                    // Video cast mini-player data
+                    videoCastTitle = videoCastTitle,
+                    videoCastIsPlaying = videoCastIsPlaying,
+                    videoCastPositionMs = videoCastPositionMs,
+                    videoCastDurationMs = videoCastDurationMs,
+                    videoCastVideoId = videoCastVideoId,
+                    onVideoCastPlayPause = {
+                        castSessionManager.togglePlayPause()
+                    }
                 )
 
                 LaunchedEffect(externalPlaybackUri) {

@@ -144,6 +144,12 @@ class PlaybackControllerImpl @Inject constructor(
         initialAudioFileUri: android.net.Uri,
         startPositionMs: Long
     ) {
+        withContext(Dispatchers.Main) {
+            if (mediaController.value?.isPlaying == true) {
+                mediaController.value?.pause()
+            }
+        }
+
         if (castSessionManager.isConnected()) {
             val playingQueue = sharedAudioDataSource.playingQueueAudioFiles.value
             val targetAudio = playingQueue.find { it.uri == initialAudioFileUri }
@@ -167,15 +173,33 @@ class PlaybackControllerImpl @Inject constructor(
             Log.w(TAG, "Cannot initiate shuffle playback: empty queue.")
             return
         }
+        withContext(Dispatchers.Main) {
+            if (mediaController.value?.isPlaying == true) {
+                mediaController.value?.pause()
+            }
+        }
         val shuffledQueue = playingQueue.shuffled()
         sharedAudioDataSource.setPlayingQueue(shuffledQueue)
         initiatePlayback(shuffledQueue.first().uri, C.TIME_UNSET)
     }
 
     override suspend fun playPause() {
-        if (castSessionManager.isConnected() && !castSessionManager.isCurrentMediaVideo()) {
-            castSessionManager.togglePlayPause()
-            return
+        if (castSessionManager.isConnected()) {
+            if (castSessionManager.isCurrentMediaVideo()) {
+                val currentAudio = _playbackState.value.currentAudioFile
+                    ?: settingsRepository.getLastPlaybackState().first().audioId?.let { id ->
+                        sharedAudioDataSource.playingQueueAudioFiles.value.find { it.id == id }
+                    }
+                    ?: sharedAudioDataSource.playingQueueAudioFiles.value.firstOrNull()
+                if (currentAudio != null) {
+                    val pos = _playbackState.value.playbackPositionMs
+                    initiatePlayback(currentAudio.uri, if (pos > 0) pos else C.TIME_UNSET)
+                    return
+                }
+            } else {
+                castSessionManager.togglePlayPause()
+                return
+            }
         }
         withContext(Dispatchers.Main) {
             val controller = mediaController.value

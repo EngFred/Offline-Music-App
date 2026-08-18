@@ -38,6 +38,7 @@ import androidx.navigation.compose.rememberNavController
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.model.VideoFile
 import com.engfred.musicplayer.core.domain.usecases.PermissionHandlerUseCase
+import com.engfred.musicplayer.core.ui.components.AnimatedVideoCastMiniPlayer
 import com.engfred.musicplayer.core.ui.components.CustomTopBar
 import com.engfred.musicplayer.core.ui.components.MiniPlayer
 import com.engfred.musicplayer.core.ui.components.PlayShuffleBar
@@ -76,7 +77,14 @@ fun MainScreen(
     onNavigateToDuplicates: () -> Unit,
     onVideoClick: (VideoFile) -> Unit = {},
     onCastVideo: (VideoFile) -> Unit = {},
-    castState: com.engfred.musicplayer.core.domain.model.CastState = com.engfred.musicplayer.core.domain.model.CastState.DISCONNECTED
+    castState: com.engfred.musicplayer.core.domain.model.CastState = com.engfred.musicplayer.core.domain.model.CastState.DISCONNECTED,
+    // Video cast mini-player
+    videoCastTitle: String? = null,
+    videoCastIsPlaying: Boolean = false,
+    videoCastPositionMs: Long = 0L,
+    videoCastDurationMs: Long = 0L,
+    onVideoCastPlayPause: () -> Unit = {},
+    onNavigateToVideoCast: () -> Unit = {}
 ) {
     val bottomNavController = rememberNavController()
     val bottomNavItems = listOf(
@@ -144,7 +152,19 @@ fun MainScreen(
                     .navigationBarsPadding()
                     .background(MaterialTheme.colorScheme.surface)
             ) {
-                if (playingAudioFile != null || lastPlaybackAudio != null) {
+                // Video Cast Mini Player — shown when video is actively casting
+                AnimatedVideoCastMiniPlayer(
+                    videoTitle = videoCastTitle,
+                    isPlaying = videoCastIsPlaying,
+                    currentPositionMs = videoCastPositionMs,
+                    durationMs = videoCastDurationMs,
+                    onPlayPause = onVideoCastPlayPause,
+                    onClick = onNavigateToVideoCast,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Audio Mini Player — shown when audio is loaded (and video is NOT casting)
+                if (videoCastTitle == null && (playingAudioFile != null || lastPlaybackAudio != null)) {
                     MiniPlayer(
                         onClick = onNavigateToNowPlaying,
                         modifier = Modifier.fillMaxWidth(),
@@ -159,14 +179,12 @@ fun MainScreen(
                         totalDurationMs = totalDurationMs,
                         castState = castState
                     )
-                } else {
-                    if (audioItems.isNotEmpty()) {
-                        PlayShuffleBar(
-                            onPlayAll = onPlayAll,
-                            onShuffleAll = onShuffleAll,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+                } else if (videoCastTitle == null && audioItems.isNotEmpty()) {
+                    PlayShuffleBar(
+                        onPlayAll = onPlayAll,
+                        onShuffleAll = onShuffleAll,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
 
                 HorizontalDivider(
