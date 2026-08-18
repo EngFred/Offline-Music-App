@@ -55,6 +55,13 @@ class VideoPlayerViewModel @Inject constructor(
         activePlayerRegistry.setActiveMediaType(ActiveMediaType.VIDEO)
         activePlayerRegistry.requestPauseNormalPlayer()
 
+        // Set cast state immediately so the UI reflects it from the first frame
+        val initiallyConnected = videoCastManager.isConnected()
+        _uiState.update { it.copy(
+            isCastConnected = initiallyConnected,
+            castState = if (initiallyConnected) CastState.CONNECTED else CastState.DISCONNECTED
+        ) }
+
         observePlaybackState()
         observeCastState()
         observeCastVideoPlaybackState()
@@ -242,8 +249,8 @@ class VideoPlayerViewModel @Inject constructor(
 
     private fun startVideoPlayback(video: VideoFile, startPos: Long) {
         if (videoCastManager.isConnected()) {
-            videoCastManager.loadVideo(video, startPos)
             videoPlaybackController.pause()
+            videoCastManager.loadVideo(video, startPos)
         } else {
             videoPlaybackController.prepare(video.uri, startPos, true)
         }
@@ -261,13 +268,15 @@ class VideoPlayerViewModel @Inject constructor(
 
     private fun observeCastState() {
         viewModelScope.launch {
-            var previousCastConnected = false
-            musicPlaybackController.getPlaybackState().collect { mbState ->
-                val isConnected = mbState.castState == CastState.CONNECTED
+            // Initialize to current state so we don't trigger the "just connected" branch
+            // on the first emission (loadVideoById already handles initial playback)
+            var previousCastConnected = videoCastManager.isConnected()
+            videoCastManager.castStateFlow.collect { state ->
+                val isConnected = state == CastState.CONNECTED
                 _uiState.update {
                     it.copy(
                         isCastConnected = isConnected,
-                        castState = mbState.castState
+                        castState = state
                     )
                 }
 
@@ -276,8 +285,8 @@ class VideoPlayerViewModel @Inject constructor(
                     val currentVideo = _uiState.value.videoFile
                     if (currentVideo != null) {
                         val currentPos = _uiState.value.playbackState.currentPositionMs
-                        videoCastManager.loadVideo(currentVideo, currentPos)
                         videoPlaybackController.pause()
+                        videoCastManager.loadVideo(currentVideo, currentPos)
                     }
                 }
 
@@ -328,6 +337,8 @@ class VideoPlayerViewModel @Inject constructor(
         super.onCleared()
         autoHideControlsJob?.cancel()
         videoPlaybackController.release()
-        activePlayerRegistry.setActiveMediaType(ActiveMediaType.NONE)
+        if (!videoCastManager.isConnected() || !videoCastManager.isCurrentMediaVideo()) {
+            activePlayerRegistry.setActiveMediaType(ActiveMediaType.NONE)
+        }
     }
 }

@@ -79,6 +79,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.ui.components.AddSongToPlaylistDialog
+import com.engfred.musicplayer.core.ui.components.CastMediaRouteButton
 import com.engfred.musicplayer.core.ui.components.ConfirmationDialog
 import com.engfred.musicplayer.feature_library.presentation.components.LibraryContent
 import com.engfred.musicplayer.feature_library.presentation.components.PermissionRequestContent
@@ -341,12 +342,12 @@ fun LibraryScreen(
                                 }
                             }
 
-                            // Quick Action Buttons (Play All & Shuffle)
-                            if (currentAudios.isNotEmpty()) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                            // Action Buttons (Play All & Cast button)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (currentAudios.isNotEmpty()) {
                                     Button(
                                         onClick = {
                                             val targetTrack = currentAudios.find { it.id == uiState.currentPlayingId } ?: currentAudios.firstOrNull()
@@ -354,11 +355,12 @@ fun LibraryScreen(
                                                 viewModel.onEvent(LibraryEvent.PlayAudio(it))
                                             }
                                         },
-                                        shape = RoundedCornerShape(20.dp),
-                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                        shape = CircleShape,
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = MaterialTheme.colorScheme.primary
-                                        )
+                                        ),
+                                        modifier = Modifier.height(36.dp)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Rounded.PlayArrow,
@@ -374,21 +376,24 @@ fun LibraryScreen(
                                             )
                                         )
                                     }
+                                }
 
-                                    FilledTonalButton(
-                                        onClick = {
-                                            val shuffled = currentAudios.shuffled()
-                                            shuffled.firstOrNull()?.let {
-                                                viewModel.onEvent(LibraryEvent.PlayAudio(it))
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(20.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        width = 1.dp,
+                                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+                                    ),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.fillMaxSize()
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Shuffle,
-                                            contentDescription = "Shuffle",
-                                            modifier = Modifier.size(16.dp)
+                                        CastMediaRouteButton(
+                                            tintColor = MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.size(32.dp)
                                         )
                                     }
                                 }

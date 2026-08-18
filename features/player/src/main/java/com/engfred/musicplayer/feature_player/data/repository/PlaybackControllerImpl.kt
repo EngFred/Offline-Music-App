@@ -8,6 +8,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.engfred.musicplayer.core.data.SharedAudioDataSource
+import com.engfred.musicplayer.core.domain.ActiveMediaType
 import com.engfred.musicplayer.core.domain.ActivePlayerRegistry
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.repository.PlaybackController
@@ -151,6 +152,7 @@ class PlaybackControllerImpl @Inject constructor(
         }
 
         if (castSessionManager.isConnected()) {
+            activePlayerRegistry.setActiveMediaType(ActiveMediaType.AUDIO)
             val playingQueue = sharedAudioDataSource.playingQueueAudioFiles.value
             val targetAudio = playingQueue.find { it.uri == initialAudioFileUri }
                 ?: sharedAudioDataSource.deviceAudioFiles.value.find { it.uri == initialAudioFileUri }

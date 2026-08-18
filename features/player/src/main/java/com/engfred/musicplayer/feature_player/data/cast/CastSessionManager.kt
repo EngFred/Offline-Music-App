@@ -50,6 +50,8 @@ class CastSessionManager @Inject constructor(
     private val _videoCastPlaybackState = MutableStateFlow(VideoCastPlaybackState())
     override val videoCastPlaybackState: StateFlow<VideoCastPlaybackState> = _videoCastPlaybackState.asStateFlow()
 
+    override val castStateFlow: StateFlow<CastState> = _castState.asStateFlow()
+
     private val _currentVideoFile = MutableStateFlow<VideoFile?>(null)
     override val currentVideoFile: StateFlow<VideoFile?> = _currentVideoFile.asStateFlow()
     override fun getCurrentVideo(): VideoFile? = _currentVideoFile.value
@@ -232,6 +234,7 @@ class CastSessionManager @Inject constructor(
     override fun isConnected(): Boolean = _castState.value == CastState.CONNECTED
 
     override fun isCurrentMediaVideo(): Boolean {
+        if (_currentVideoFile.value != null) return true
         val client = remoteMediaClient ?: return false
         val mediaInfo = client.mediaInfo ?: client.mediaStatus?.mediaInfo ?: return false
         val type = mediaInfo.metadata?.mediaType
@@ -289,6 +292,7 @@ class CastSessionManager @Inject constructor(
      */
     fun loadMedia(audioFile: AudioFile, startPositionMs: Long = 0L, autoPlay: Boolean = true) {
         _currentVideoFile.value = null
+        _videoCastPlaybackState.value = VideoCastPlaybackState()
         runOnMainThread {
             val client = remoteMediaClient ?: return@runOnMainThread
             val mediaInfo = buildMediaInfo(audioFile)
@@ -313,6 +317,7 @@ class CastSessionManager @Inject constructor(
         repeatMode: RepeatMode = RepeatMode.OFF
     ) {
         _currentVideoFile.value = null
+        _videoCastPlaybackState.value = VideoCastPlaybackState()
         runOnMainThread {
             val client = remoteMediaClient ?: return@runOnMainThread
             if (queue.isEmpty()) return@runOnMainThread

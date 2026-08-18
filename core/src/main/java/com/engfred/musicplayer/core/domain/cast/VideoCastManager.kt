@@ -1,5 +1,6 @@
 package com.engfred.musicplayer.core.domain.cast
 
+import com.engfred.musicplayer.core.domain.model.CastState
 import com.engfred.musicplayer.core.domain.model.VideoFile
 import kotlinx.coroutines.flow.StateFlow
 
@@ -16,6 +17,7 @@ data class VideoCastPlaybackState(
  */
 interface VideoCastManager {
     val videoCastPlaybackState: StateFlow<VideoCastPlaybackState>
+    val castStateFlow: StateFlow<CastState>
     val currentVideoFile: StateFlow<VideoFile?>
     fun getCurrentVideo(): VideoFile?
     fun isConnected(): Boolean

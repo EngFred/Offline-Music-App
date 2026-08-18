@@ -94,7 +94,7 @@ class CastPlaybackBridge @Inject constructor(
         // If a video is being cast or active, do NOT touch the audio PlaybackState!
         val isVideo = currentMediaInfo?.metadata?.mediaType == com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MOVIE
             || currentMediaInfo?.contentType?.startsWith("video/") == true
-            || activePlayerRegistry.activeMediaType.value == ActiveMediaType.VIDEO
+            || (castSessionManager.isCurrentMediaVideo() && currentMediaInfo == null)
 
         if (isVideo) {
             targetPlaybackState?.update { current ->

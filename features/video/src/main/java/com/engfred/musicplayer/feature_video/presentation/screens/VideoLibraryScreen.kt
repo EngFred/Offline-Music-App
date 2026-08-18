@@ -80,10 +80,8 @@ fun VideoLibraryScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             VideoTopBar(
                 totalVideosCount = uiState.videos.size,
-                isSearchActive = uiState.isSearchActive,
                 searchQuery = uiState.searchQuery,
                 onSearchQueryChange = { viewModel.onEvent(VideoLibraryEvent.OnSearchQueryChange(it)) },
-                onSearchActiveToggle = { viewModel.onEvent(VideoLibraryEvent.OnSearchActiveChange(it)) },
                 currentSortOption = uiState.sortOption,
                 onSortOptionChange = { viewModel.onEvent(VideoLibraryEvent.OnSortOptionChange(it)) },
                 availableFolders = uiState.availableFolders,
