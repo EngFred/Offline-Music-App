@@ -134,10 +134,10 @@ fun CustomSplashScreen(
             // 1. Logo
             SplashLogo(visible = logoVisible)
 
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // 2. Equalizer bars
-            SplashEqualizerBars(visible = eqVisible)
+//            Spacer(modifier = Modifier.height(28.dp))
+//
+//            // 2. Equalizer bars
+//            SplashEqualizerBars(visible = eqVisible)
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -156,7 +156,7 @@ fun CustomSplashScreen(
                 label = "titleOffsetY",
             )
             Text(
-                text = "MusicPlayer",
+                text = "F-Music",
                 style = MaterialTheme.typography.headlineLarge.copy(
                     fontWeight = FontWeight.Bold,
                     fontSize = 32.sp,
