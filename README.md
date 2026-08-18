@@ -1,4 +1,4 @@
-# Music - Modern Offline Audio Player
+# Music - Modern Offline Media Player
 
 ![Android](https://img.shields.io/badge/Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
@@ -13,9 +13,9 @@
 A test APK is available for download via the GitHub Releases section.
 👉 You can find the latest build under **Releases** on this repository to try out the app without building it locally.
 
-**Music** is a fully offline, modern, modularized music player built with **Kotlin** and **Jetpack Compose**. 
+**Music** is a modern, modularized media player built with **Kotlin** and **Jetpack Compose**, focused on local audio and video playback with a polished offline-first experience.
 
-Designed with **Clean Architecture** principles, it features a robust audio engine powered by **Media3 (ExoPlayer)**, seamless modular navigation, and advanced features like audio trimming and tag editing. This project serves as a showcase for modern Android development best practices.
+Designed with **Clean Architecture** principles, it features a robust playback engine powered by **Media3 (ExoPlayer)**, Google Cast support for both audio and video, seamless modular navigation, and advanced features like audio trimming and tag editing. This project serves as a showcase for modern Android development best practices.
 
 ---
 
@@ -48,12 +48,14 @@ Designed with **Clean Architecture** principles, it features a robust audio engi
 
 ## Project Overview
 
-Music is an offline-first music player focused on a clean, modular architecture. It showcases:
+Music is an offline-first media player focused on a clean, modular architecture. It showcases:
 
 * Feature-first modularization (each feature lives in its own Gradle module).
 * Clean Architecture (data, domain, presentation layers per feature).
 * Modern Android libraries: Jetpack Compose, Hilt, Media3 (ExoPlayer successor), Room, DataStore, KSP.
-* Offline media scanning and playback with Media3 + local metadata handling.
+* Offline audio and video scanning/playback with Media3 + local metadata handling.
+* Google Cast playback for local audio files and video files, including receiver artwork/metadata support.
+* External playback entry points for opening supported local or streamed media from other apps.
 
 ---
 
@@ -73,6 +75,7 @@ include(":features:playlist")
 include(":features:settings")
 include(":features:trim")
 include(":features:edit")
+include(":features:video")
 ```
 
 ---
@@ -89,6 +92,7 @@ The project uses a centralized version catalog. Selected versions used in the pr
 * Room
 * Coroutines
 * Coil
+* Google Cast SDK
 * KSP
 * accompanist-systemuicontroller
 
@@ -109,7 +113,15 @@ Refer to the `libs.versions.toml` for the full catalog.
 
 ### Media Playback
 
-* Media3 (the modern successor to ExoPlayer) is used for playback and session management. Playback logic is isolated in the `:features:player` module with use-cases in `domain`.
+* Media3 (the modern successor to ExoPlayer) is used for playback and session management.
+* Audio playback logic lives primarily in the `:features:player` module.
+* Video playback is separated into the `:features:video` module, keeping video library, player screen, and video playback state isolated from the audio player.
+
+### Casting
+
+* Google Cast support allows audio files and video files to be sent to Cast receivers such as Android TV.
+* Audio casting includes queue playback, receiver metadata, album artwork, and default artwork fallback when a track has no embedded album art.
+* Video casting supports local and externally opened video media, with receiver metadata/artwork handling kept separate from the local player UI.
 
 ### Persistence & Settings
 
@@ -141,9 +153,9 @@ features/
  │   └─ presentation/
  ├─ playlist/
  ├─ settings/
+ ├─ video/
  ├─ edit/
  └─ trim/
 ```
 
 Each feature follows the same `data/domain/presentation` pattern. Keeping public interfaces in `domain` and implementation details in `data`.
-
