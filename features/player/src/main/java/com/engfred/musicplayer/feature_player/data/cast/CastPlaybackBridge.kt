@@ -62,17 +62,8 @@ class CastPlaybackBridge @Inject constructor(
         progressTrackingJob = bridgeScope.launch {
             while (isActive) {
                 if (castSessionManager.isConnected()) {
-                    val pos = castSessionManager.getRemotePositionMs()
-                    val dur = castSessionManager.getRemoteDurationMs()
-                    val playing = castSessionManager.isRemotePlaying()
-
-                    targetPlaybackState?.update { current ->
-                        current.copy(
-                            playbackPositionMs = pos,
-                            totalDurationMs = if (dur > 0) dur else current.totalDurationMs,
-                            isPlaying = playing,
-                            castState = CastState.CONNECTED
-                        )
+                    castSessionManager.getRemoteClient()?.let { client ->
+                        updateFromRemoteStatus(client)
                     }
                 }
                 delay(500L)
@@ -89,22 +80,35 @@ class CastPlaybackBridge @Inject constructor(
         val mediaStatus = client.mediaStatus ?: return
         val currentMediaInfo = mediaStatus.mediaInfo
         val queue = sharedAudioDataSource.playingQueueAudioFiles.value
+        val allFiles = sharedAudioDataSource.deviceAudioFiles.value
 
+        // Resolve current AudioFile: try ID in media URL first, then metadata
         val currentAudioFile: AudioFile? = currentMediaInfo?.let { info ->
-            val title = info.metadata?.getString(com.google.android.gms.cast.MediaMetadata.KEY_TITLE)
-            val artist = info.metadata?.getString(com.google.android.gms.cast.MediaMetadata.KEY_ARTIST)
-            queue.find { it.title == title && (artist == null || it.artist == artist) }
-                ?: targetPlaybackState?.value?.currentAudioFile
-        }
+            val audioId = info.contentId?.substringAfter("/media/")?.substringBefore("?")?.toLongOrNull()
+            if (audioId != null) {
+                queue.find { it.id == audioId } ?: allFiles.find { it.id == audioId }
+            } else {
+                val title = info.metadata?.getString(com.google.android.gms.cast.MediaMetadata.KEY_TITLE)
+                val artist = info.metadata?.getString(com.google.android.gms.cast.MediaMetadata.KEY_ARTIST)
+                queue.find { it.title == title && (artist == null || it.artist == artist) }
+                    ?: allFiles.find { it.title == title && (artist == null || it.artist == artist) }
+            }
+        } ?: targetPlaybackState?.value?.currentAudioFile
 
         val isPlaying = mediaStatus.playerState == MediaStatus.PLAYER_STATE_PLAYING
         val isLoading = mediaStatus.playerState == MediaStatus.PLAYER_STATE_BUFFERING
-        val duration = currentMediaInfo?.streamDuration?.coerceAtLeast(0L) ?: 0L
+        val duration = (currentMediaInfo?.streamDuration ?: client.streamDuration).coerceAtLeast(0L)
         val position = client.approximateStreamPosition.coerceAtLeast(0L)
 
-        val currentItemIndex = mediaStatus.currentItemId.let { itemId ->
-            val queueItems = mediaStatus.queueItems ?: emptyList()
-            queueItems.indexOfFirst { it.itemId == itemId }.coerceAtLeast(0)
+        val currentItemIndex = if (currentAudioFile != null && queue.isNotEmpty()) {
+            val idx = queue.indexOfFirst { it.id == currentAudioFile.id }
+            if (idx >= 0) idx else 0
+        } else {
+            mediaStatus.currentItemId.let { itemId ->
+                val queueItems = mediaStatus.queueItems ?: emptyList()
+                val idx = queueItems.indexOfFirst { it.itemId == itemId }
+                if (idx >= 0) idx else 0
+            }
         }
 
         targetPlaybackState?.update { current ->
@@ -115,6 +119,7 @@ class CastPlaybackBridge @Inject constructor(
                 totalDurationMs = if (duration > 0) duration else current.totalDurationMs,
                 playbackPositionMs = position,
                 playingSongIndex = currentItemIndex,
+                playingQueue = if (queue.isNotEmpty()) queue else current.playingQueue,
                 castState = CastState.CONNECTED
             )
         }

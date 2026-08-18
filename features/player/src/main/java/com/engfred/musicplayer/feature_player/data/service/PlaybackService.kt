@@ -246,7 +246,7 @@ class PlaybackService : MediaSessionService() {
             serviceScope.launch {
                 while (true) {
                     delay(PERIODIC_SAVE_INTERVAL_MS)
-                    if (exoPlayer.currentMediaItem != null) {
+                    if (exoPlayer.currentMediaItem != null && !castSessionManager.isConnected()) {
                         savePlaybackStateAsync(serviceScope, settingsRepository, exoPlayer)
                     }
                 }

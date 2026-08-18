@@ -57,6 +57,24 @@ class CastSessionManager @Inject constructor(
                 onRemoteStatusChanged?.invoke(client)
             }
         }
+
+        override fun onMetadataUpdated() {
+            remoteMediaClient?.let { client ->
+                onRemoteStatusChanged?.invoke(client)
+            }
+        }
+
+        override fun onPreloadStatusUpdated() {
+            remoteMediaClient?.let { client ->
+                onRemoteStatusChanged?.invoke(client)
+            }
+        }
+    }
+
+    private val progressListener = RemoteMediaClient.ProgressListener { _, _ ->
+        remoteMediaClient?.let { client ->
+            onRemoteStatusChanged?.invoke(client)
+        }
     }
 
     private val sessionManagerListener = object : SessionManagerListener<CastSession> {
@@ -131,6 +149,7 @@ class CastSessionManager @Inject constructor(
         currentCastSession = session
         remoteMediaClient = session.remoteMediaClient
         remoteMediaClient?.registerCallback(remoteMediaClientCallback)
+        remoteMediaClient?.addProgressListener(progressListener, 500L)
 
         localMediaServer.startServer()
         _castState.value = CastState.CONNECTED
@@ -141,6 +160,7 @@ class CastSessionManager @Inject constructor(
 
     private fun handleSessionDisconnected() {
         val lastPosition = remoteMediaClient?.approximateStreamPosition ?: 0L
+        remoteMediaClient?.removeProgressListener(progressListener)
         remoteMediaClient?.unregisterCallback(remoteMediaClientCallback)
         remoteMediaClient = null
         currentCastSession = null
@@ -152,6 +172,8 @@ class CastSessionManager @Inject constructor(
     }
 
     fun isConnected(): Boolean = _castState.value == CastState.CONNECTED
+
+    fun getRemoteClient(): RemoteMediaClient? = remoteMediaClient
 
     fun getRemotePositionMs(): Long {
         return remoteMediaClient?.approximateStreamPosition ?: 0L

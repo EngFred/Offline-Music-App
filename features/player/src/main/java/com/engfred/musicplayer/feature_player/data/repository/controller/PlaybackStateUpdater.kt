@@ -21,6 +21,9 @@ class PlaybackStateUpdater(
      * This method is called periodically and upon significant player events.
      */
     fun updatePlaybackState() {
+        if (playbackState.value.castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED) {
+            return
+        }
         mediaController.value?.let { controller ->
             val currentMediaItem = controller.currentMediaItem
             val playingQueue = sharedAudioDataSource.playingQueueAudioFiles.value
