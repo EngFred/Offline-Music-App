@@ -8,7 +8,7 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
@@ -56,7 +56,7 @@ import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
     @Inject lateinit var getAppSettingsUseCase: GetAppSettingsUseCase
     @Inject lateinit var playbackController: PlaybackController
@@ -265,7 +265,8 @@ class MainActivity : ComponentActivity() {
                         } else playbackState.totalDurationMs
                     } else {
                         lastPlaybackAudio?.duration ?: 0L
-                    }
+                    },
+                    castState = playbackState.castState
                 )
 
                 LaunchedEffect(externalPlaybackUri) {

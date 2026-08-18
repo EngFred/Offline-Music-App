@@ -67,7 +67,8 @@ fun AppNavHost(
     // ── driven from MainActivity so that navigateToNowPlayingOnStart ──
     // and the onNavigateToNowPlaying lambda both open the same overlay.
     showNowPlaying: Boolean,
-    onShowNowPlaying: (Boolean) -> Unit
+    onShowNowPlaying: (Boolean) -> Unit,
+    castState: com.engfred.musicplayer.core.domain.model.CastState = com.engfred.musicplayer.core.domain.model.CastState.DISCONNECTED
 ) {
     // Intercept the system back button while the overlay is open so it collapses
     // back to the mini player instead of popping the nav back stack.
@@ -124,7 +125,8 @@ fun AppNavHost(
                     totalDurationMs = totalDurationMs,
                     onNavigateToDuplicates = {
                         rootNavController.navigate(AppDestinations.FindDuplicates.route)
-                    }
+                    },
+                    castState = castState
                 )
             }
 

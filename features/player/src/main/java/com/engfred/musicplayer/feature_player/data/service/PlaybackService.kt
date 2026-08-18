@@ -80,6 +80,9 @@ class PlaybackService : MediaSessionService() {
     @Inject
     lateinit var audioFileMapper: AudioFileMapper
 
+    @Inject
+    lateinit var castSessionManager: com.engfred.musicplayer.feature_player.data.cast.CastSessionManager
+
     private lateinit var exoPlayer: ExoPlayer
     private var mediaSession: MediaSession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -285,6 +288,37 @@ class PlaybackService : MediaSessionService() {
                         lastPreset = settings.audioPreset
                         eqProcessor.setPreset(settings.audioPreset)
                     }
+                }
+            }
+
+            castSessionManager.onSessionConnected = { _, _ ->
+                serviceScope.launch(Dispatchers.Main) {
+                    val currentPos = exoPlayer.currentPosition
+                    val currentIndex = exoPlayer.currentMediaItemIndex
+                    val queue = sharedAudioDataSource.playingQueueAudioFiles.value
+
+                    if (exoPlayer.isPlaying) {
+                        exoPlayer.pause()
+                    }
+
+                    if (queue.isNotEmpty()) {
+                        val repeatAll = exoPlayer.repeatMode == Player.REPEAT_MODE_ALL
+                        castSessionManager.loadQueue(
+                            queue = queue,
+                            startIndex = currentIndex,
+                            startPositionMs = currentPos,
+                            repeatAll = repeatAll
+                        )
+                    }
+                }
+            }
+
+            castSessionManager.onSessionDisconnected = { lastRemotePos ->
+                serviceScope.launch(Dispatchers.Main) {
+                    if (lastRemotePos > 0) {
+                        exoPlayer.seekTo(lastRemotePos)
+                    }
+                    exoPlayer.play()
                 }
             }
         } catch (e: Exception) {

@@ -44,6 +44,9 @@ material = "1.13.0"
 materialIconsExtended = "1.7.8"
 splashscreen = "1.2.0"
 imageCropper = "4.7.0"
+nanohttpd = "2.3.1"
+castFramework = "22.3.1"
+mediarouter = "1.8.1"
 
 #tensorflowLite = "2.17.0"
 #tensorflowLiteSelectTfOps = "2.16.1"
@@ -129,10 +132,10 @@ androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx"
 androidx-hilt-work = { group = "androidx.hilt", name = "hilt-work", version.ref = "hiltWork" }
 androidx-hilt-compiler = { group = "androidx.hilt", name = "hilt-compiler", version.ref = "hiltWork" }
 
-#tarsos-dsp-core = { group = "be.tarsos.dsp", name = "core", version.ref = "tarsosDsp" }
-androidx-lifecycle-service = { group = "androidx.lifecycle", name = "lifecycle-service", version.ref = "lifecycleService" }
-#tensorflow-lite = { module = "org.tensorflow:tensorflow-lite", version.ref = "tensorflowLite" }
-#tensorflow-lite-select-tf-ops = { module = "org.tensorflow:tensorflow-lite-select-tf-ops", version.ref = "tensorflowLiteSelectTfOps" }
+# Cast & Streaming
+nanohttpd = { module = "org.nanohttpd:nanohttpd", version.ref = "nanohttpd" }
+cast-framework = { module = "com.google.android.gms:play-services-cast-framework", version.ref = "castFramework" }
+androidx-mediarouter = { group = "androidx.mediarouter", name = "mediarouter", version.ref = "mediarouter" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

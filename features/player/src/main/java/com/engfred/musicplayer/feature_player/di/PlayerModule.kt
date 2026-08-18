@@ -52,7 +52,9 @@ object PlayerModule {
         @ApplicationContext context: Context,
         sessionToken: SessionToken,
         settingsRepository: SettingsRepository,
-        activePlayerRegistry: ActivePlayerRegistry
+        activePlayerRegistry: ActivePlayerRegistry,
+        castSessionManager: com.engfred.musicplayer.feature_player.data.cast.CastSessionManager,
+        castPlaybackBridge: com.engfred.musicplayer.feature_player.data.cast.CastPlaybackBridge
     ): PlaybackController {
         return PlaybackControllerImpl(
             sharedAudioDataSource,
@@ -62,7 +64,9 @@ object PlayerModule {
             context,
             sessionToken,
             settingsRepository,
-            activePlayerRegistry
+            activePlayerRegistry,
+            castSessionManager,
+            castPlaybackBridge
         )
     }
 }

@@ -34,4 +34,20 @@ object CoreModule {
     ): PermissionHandlerUseCase {
         return PermissionHandlerUseCase(context)
     }
+
+    @Provides
+    @Singleton
+    fun provideContentResolver(
+        @ApplicationContext context: Context
+    ): android.content.ContentResolver {
+        return context.contentResolver
+    }
+
+    @Provides
+    @Singleton
+    fun provideLocalMediaHttpServer(
+        contentResolver: android.content.ContentResolver
+    ): com.engfred.musicplayer.core.data.server.LocalMediaHttpServer {
+        return com.engfred.musicplayer.core.data.server.LocalMediaHttpServer(contentResolver)
+    }
 }

@@ -3,7 +3,6 @@ package com.engfred.musicplayer.feature_player.data.repository
 import android.content.Context
 import android.util.Log
 import androidx.media3.common.C
-import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
@@ -58,7 +57,9 @@ class PlaybackControllerImpl @Inject constructor(
     sessionToken: SessionToken,
     private val settingsRepository: SettingsRepository,
     /** Injected for cross-feature coordination. Lives in :core — no circular dep. */
-    private val activePlayerRegistry: ActivePlayerRegistry
+    private val activePlayerRegistry: ActivePlayerRegistry,
+    private val castSessionManager: com.engfred.musicplayer.feature_player.data.cast.CastSessionManager,
+    private val castPlaybackBridge: com.engfred.musicplayer.feature_player.data.cast.CastPlaybackBridge
 ) : PlaybackController {
 
     private val mediaController    = MutableStateFlow<MediaController?>(null)
@@ -85,6 +86,7 @@ class PlaybackControllerImpl @Inject constructor(
 
     init {
         Log.d(TAG, "Initializing PlaybackControllerImpl")
+        castPlaybackBridge.attachPlaybackState(_playbackState)
 
         repositoryScope.launch {
             settingsRepository.getAppSettings()
@@ -142,6 +144,21 @@ class PlaybackControllerImpl @Inject constructor(
         initialAudioFileUri: android.net.Uri,
         startPositionMs: Long
     ) {
+        if (castSessionManager.isConnected()) {
+            val playingQueue = sharedAudioDataSource.playingQueueAudioFiles.value
+            val targetAudio = playingQueue.find { it.uri == initialAudioFileUri }
+                ?: sharedAudioDataSource.deviceAudioFiles.value.find { it.uri == initialAudioFileUri }
+            if (targetAudio != null) {
+                val startIndex = playingQueue.indexOfFirst { it.uri == initialAudioFileUri }.coerceAtLeast(0)
+                val pos = if (startPositionMs == C.TIME_UNSET) 0L else startPositionMs
+                if (playingQueue.isNotEmpty()) {
+                    castSessionManager.loadQueue(playingQueue, startIndex, pos)
+                } else {
+                    castSessionManager.loadMedia(targetAudio, pos)
+                }
+                return
+            }
+        }
         queueManager.initiatePlayback(initialAudioFileUri, intendedRepeatMode, startPositionMs)
     }
 
@@ -156,6 +173,10 @@ class PlaybackControllerImpl @Inject constructor(
     }
 
     override suspend fun playPause() {
+        if (castSessionManager.isConnected()) {
+            castSessionManager.togglePlayPause()
+            return
+        }
         withContext(Dispatchers.Main) {
             val controller = mediaController.value
             if (controller != null) {
@@ -178,6 +199,10 @@ class PlaybackControllerImpl @Inject constructor(
     }
 
     override suspend fun skipToNext() {
+        if (castSessionManager.isConnected()) {
+            castSessionManager.skipToNext()
+            return
+        }
         withContext(Dispatchers.Main) {
             val controller = mediaController.value
             if (controller != null) {
@@ -199,6 +224,10 @@ class PlaybackControllerImpl @Inject constructor(
     }
 
     override suspend fun skipToPrevious() {
+        if (castSessionManager.isConnected()) {
+            castSessionManager.skipToPrevious()
+            return
+        }
         withContext(Dispatchers.Main) {
             val controller = mediaController.value
             if (controller != null) {
@@ -221,6 +250,10 @@ class PlaybackControllerImpl @Inject constructor(
     }
 
     override suspend fun seekTo(positionMs: Long) {
+        if (castSessionManager.isConnected()) {
+            castSessionManager.seekTo(positionMs)
+            return
+        }
         withContext(Dispatchers.Main) {
             mediaController.value?.let { controller ->
                 controller.seekTo(positionMs)

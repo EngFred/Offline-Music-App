@@ -75,6 +75,7 @@ dependencies {
     implementation(libs.androidx.material.icons.extended);
 
     implementation(libs.androidx.activity.compose)
+    implementation(libs.nanohttpd)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

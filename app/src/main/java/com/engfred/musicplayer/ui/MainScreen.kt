@@ -71,7 +71,8 @@ fun MainScreen(
     onToggleStopAfterCurrent: () -> Unit,
     playbackPositionMs: Long,
     totalDurationMs: Long,
-    onNavigateToDuplicates: () -> Unit
+    onNavigateToDuplicates: () -> Unit,
+    castState: com.engfred.musicplayer.core.domain.model.CastState = com.engfred.musicplayer.core.domain.model.CastState.DISCONNECTED
 ) {
     val bottomNavController = rememberNavController()
     val bottomNavItems = listOf(
@@ -150,6 +151,7 @@ fun MainScreen(
                         stopAfterCurrent = stopAfterCurrent,
                         playbackPositionMs = playbackPositionMs,
                         totalDurationMs = totalDurationMs,
+                        castState = castState
                     )
                 } else {
                     if (audioItems.isNotEmpty()) {

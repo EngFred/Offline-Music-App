@@ -51,6 +51,7 @@ dependencies {
 
     // Android Core & Lifecycle
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     // Jetpack Compose UI
@@ -95,6 +96,10 @@ dependencies {
 
     //
     implementation(libs.accompanist.systemuicontroller)
+
+    // Google Cast & MediaRouter
+    implementation(libs.cast.framework)
+    implementation(libs.androidx.mediarouter)
 
     implementation(libs.kotlinx.coroutines.guava)
 

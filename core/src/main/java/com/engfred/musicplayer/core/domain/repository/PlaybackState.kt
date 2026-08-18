@@ -22,6 +22,7 @@ data class PlaybackState(
     val playingQueue: List<AudioFile> = emptyList(),
     val playingSongIndex: Int = 0,
     val stopAfterCurrent: Boolean = false,
+    val castState: com.engfred.musicplayer.core.domain.model.CastState = com.engfred.musicplayer.core.domain.model.CastState.DISCONNECTED,
 )
 
 enum class RepeatMode {

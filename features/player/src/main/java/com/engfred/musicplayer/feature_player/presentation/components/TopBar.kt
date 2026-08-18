@@ -103,6 +103,7 @@ fun TopBar(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    CastMediaRouteButton(tintColor = contentColor)
                     IconButton(onClick = onToggleFavorite) {
                         Icon(
                             imageVector = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
@@ -159,6 +160,7 @@ fun TopBar(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    CastMediaRouteButton(tintColor = contentColor)
                     Box {
                         IconButton(onClick = { showLayoutMenu = true }) {
                             Icon(
@@ -209,6 +211,7 @@ fun TopBar(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    CastMediaRouteButton(tintColor = contentColor)
                     if (!isLandscape) {
                         IconButton(onClick = onOpenQueue) {
                             Icon(
