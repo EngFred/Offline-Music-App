@@ -58,14 +58,12 @@ fun TrimScreen(
     )
 
     Scaffold(
-        containerColor = androidx.compose.ui.graphics.Color.Transparent,
-        modifier = Modifier
-            .fillMaxSize()
-            .background(backgroundBrush),
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             CustomTopBar(
                 modifier = Modifier.statusBarsPadding(),
                 title = "Trim Audio",
+                backgroundColor = MaterialTheme.colorScheme.background,
                 onNavigateBack = {
                     if (uiState.isTrimming) showConfirmBackDialog = true else onNavigateUp()
                 },

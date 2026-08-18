@@ -42,16 +42,14 @@ fun EditView(
     )
 
     Scaffold(
-        containerColor = androidx.compose.ui.graphics.Color.Transparent,
-        modifier = Modifier
-            .fillMaxSize()
-            .background(backgroundBrush)
-            .imePadding(),
+        containerColor = MaterialTheme.colorScheme.background,
+        modifier = Modifier.imePadding(),
         topBar = {
             CustomTopBar(
                 title = "Edit Metadata",
                 showNavigationIcon = true,
                 onNavigateBack = onCancel,
+                backgroundColor = MaterialTheme.colorScheme.background,
                 modifier = Modifier.statusBarsPadding()
             )
         },

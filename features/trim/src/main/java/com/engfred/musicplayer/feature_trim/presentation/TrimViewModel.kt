@@ -136,7 +136,9 @@ class TrimViewModel @Inject constructor(
             if (current.error?.contains("valid preview range", ignoreCase = true) == true) {
                 clearError()
             }
-            viewModelScope.launch { startPreview() }
+            if (previewPlayerManager.isPlaying.value) {
+                viewModelScope.launch { startPreview() }
+            }
         }
     }
 
@@ -149,7 +151,9 @@ class TrimViewModel @Inject constructor(
             if (current.error?.contains("valid preview range", ignoreCase = true) == true) {
                 clearError()
             }
-            viewModelScope.launch { startPreview() }
+            if (previewPlayerManager.isPlaying.value) {
+                viewModelScope.launch { startPreview() }
+            }
         }
     }
 
