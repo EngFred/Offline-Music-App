@@ -8,9 +8,11 @@ import android.os.PowerManager
 import com.engfred.musicplayer.core.data.server.LocalMediaHttpServer
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.model.CastState
+import com.engfred.musicplayer.core.domain.model.VideoFile
 import com.engfred.musicplayer.core.domain.repository.RepeatMode
 import com.engfred.musicplayer.core.domain.repository.ShuffleMode
 import com.google.android.gms.cast.MediaInfo
+import com.google.android.gms.cast.MediaLoadRequestData
 import com.google.android.gms.cast.MediaMetadata
 import com.google.android.gms.cast.MediaQueueItem
 import com.google.android.gms.cast.MediaSeekOptions
@@ -24,6 +26,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.engfred.musicplayer.core.domain.cast.VideoCastManager
+import com.engfred.musicplayer.core.domain.cast.VideoCastPlaybackState
+import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -37,10 +42,13 @@ private const val TAG = "CastSessionManager"
 class CastSessionManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val localMediaServer: LocalMediaHttpServer
-) {
+) : VideoCastManager {
 
     private val _castState = MutableStateFlow(CastState.DISCONNECTED)
     val castState: StateFlow<CastState> = _castState.asStateFlow()
+
+    private val _videoCastPlaybackState = MutableStateFlow(VideoCastPlaybackState())
+    override val videoCastPlaybackState: StateFlow<VideoCastPlaybackState> = _videoCastPlaybackState.asStateFlow()
 
     private var currentCastSession: CastSession? = null
     private var remoteMediaClient: RemoteMediaClient? = null
@@ -52,24 +60,28 @@ class CastSessionManager @Inject constructor(
     private val remoteMediaClientCallback = object : RemoteMediaClient.Callback() {
         override fun onStatusUpdated() {
             remoteMediaClient?.let { client ->
+                updateVideoCastState()
                 onRemoteStatusChanged?.invoke(client)
             }
         }
 
         override fun onQueueStatusUpdated() {
             remoteMediaClient?.let { client ->
+                updateVideoCastState()
                 onRemoteStatusChanged?.invoke(client)
             }
         }
 
         override fun onMetadataUpdated() {
             remoteMediaClient?.let { client ->
+                updateVideoCastState()
                 onRemoteStatusChanged?.invoke(client)
             }
         }
 
         override fun onPreloadStatusUpdated() {
             remoteMediaClient?.let { client ->
+                updateVideoCastState()
                 onRemoteStatusChanged?.invoke(client)
             }
         }
@@ -77,6 +89,7 @@ class CastSessionManager @Inject constructor(
 
     private val progressListener = RemoteMediaClient.ProgressListener { _, _ ->
         remoteMediaClient?.let { client ->
+            updateVideoCastState()
             onRemoteStatusChanged?.invoke(client)
         }
     }
@@ -206,11 +219,43 @@ class CastSessionManager @Inject constructor(
         releaseLocks()
         localMediaServer.stopServer()
         _castState.value = CastState.DISCONNECTED
+        _videoCastPlaybackState.value = VideoCastPlaybackState()
 
         onSessionDisconnected?.invoke(lastPosition)
     }
 
-    fun isConnected(): Boolean = _castState.value == CastState.CONNECTED
+    override fun isConnected(): Boolean = _castState.value == CastState.CONNECTED
+
+    override fun isCurrentMediaVideo(): Boolean {
+        val client = remoteMediaClient ?: return false
+        val mediaInfo = client.mediaInfo ?: client.mediaStatus?.mediaInfo ?: return false
+        val type = mediaInfo.metadata?.mediaType
+        return type == MediaMetadata.MEDIA_TYPE_MOVIE || mediaInfo.contentType?.startsWith("video/") == true
+    }
+
+    private var currentVideoFile: VideoFile? = null
+
+    private fun updateVideoCastState() {
+        val client = remoteMediaClient
+        if (client != null && isCurrentMediaVideo()) {
+            val isPlaying = client.isPlaying
+            val isBuffering = client.isBuffering
+            val playerState = client.playerState
+            val idleReason = client.idleReason
+            val isEnded = playerState == MediaStatus.PLAYER_STATE_IDLE && idleReason == MediaStatus.IDLE_REASON_FINISHED
+            val pos = client.approximateStreamPosition.coerceAtLeast(0L)
+            val dur = (client.mediaInfo?.streamDuration ?: client.streamDuration).coerceAtLeast(0L)
+            _videoCastPlaybackState.update {
+                it.copy(
+                    isPlaying = isPlaying,
+                    isBuffering = isBuffering,
+                    isEnded = isEnded,
+                    currentPositionMs = if (isEnded) dur else pos,
+                    durationMs = dur
+                )
+            }
+        }
+    }
 
     fun getRemoteClient(): RemoteMediaClient? = remoteMediaClient
 
@@ -371,19 +416,31 @@ class CastSessionManager @Inject constructor(
         }
     }
 
-    fun play() {
+    override fun play() {
         runOnMainThread {
-            remoteMediaClient?.play()
+            val client = remoteMediaClient ?: return@runOnMainThread
+            if (isCurrentMediaVideo()) {
+                val playerState = client.playerState
+                val idleReason = client.idleReason
+                if (playerState == MediaStatus.PLAYER_STATE_IDLE && idleReason == MediaStatus.IDLE_REASON_FINISHED) {
+                    val video = currentVideoFile
+                    if (video != null) {
+                        loadVideo(video, 0L)
+                        return@runOnMainThread
+                    }
+                }
+            }
+            client.play()
         }
     }
 
-    fun pause() {
+    override fun pause() {
         runOnMainThread {
             remoteMediaClient?.pause()
         }
     }
 
-    fun togglePlayPause() {
+    override fun togglePlayPause() {
         runOnMainThread {
             val client = remoteMediaClient ?: return@runOnMainThread
             if (client.isPlaying) {
@@ -394,7 +451,7 @@ class CastSessionManager @Inject constructor(
         }
     }
 
-    fun seekTo(positionMs: Long) {
+    override fun seekTo(positionMs: Long) {
         runOnMainThread {
             val options = MediaSeekOptions.Builder()
                 .setPosition(positionMs.coerceAtLeast(0L))
@@ -445,6 +502,57 @@ class CastSessionManager @Inject constructor(
             .setContentType(mimeType)
             .setMetadata(metadata)
             .setStreamDuration(audioFile.duration)
+            .build()
+    }
+
+    /**
+     * Streams a video file to the connected Cast receiver device.
+     */
+    override fun loadVideo(videoFile: VideoFile, startPositionMs: Long) {
+        currentVideoFile = videoFile
+        runOnMainThread {
+            val client = remoteMediaClient ?: return@runOnMainThread
+            val mediaInfo = buildVideoMediaInfo(videoFile)
+            val requestData = MediaLoadRequestData.Builder()
+                .setMediaInfo(mediaInfo)
+                .setAutoplay(true)
+                .setCurrentTime(startPositionMs.coerceAtLeast(0L))
+                .build()
+
+            client.load(requestData)?.setResultCallback {
+                client.requestStatus()
+            }
+        }
+    }
+
+    private fun buildVideoMediaInfo(videoFile: VideoFile): MediaInfo {
+        val mimeType = if (videoFile.mimeType.isNotBlank() && videoFile.mimeType != "video/*") {
+            videoFile.mimeType
+        } else {
+            "video/mp4"
+        }
+
+        val mediaUrl = localMediaServer.registerMedia(
+            id = videoFile.id.toString(),
+            contentUri = videoFile.uri,
+            mimeType = mimeType
+        )
+
+        val metadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
+            putString(MediaMetadata.KEY_TITLE, videoFile.title)
+            val folder = videoFile.folderName
+            if (!folder.isNullOrBlank()) {
+                putString(MediaMetadata.KEY_SUBTITLE, folder)
+            }
+            val artUrl = localMediaServer.getDefaultArtUrl()
+            addImage(WebImage(Uri.parse(artUrl)))
+        }
+
+        return MediaInfo.Builder(mediaUrl)
+            .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
+            .setContentType(mimeType)
+            .setMetadata(metadata)
+            .setStreamDuration(videoFile.duration)
             .build()
     }
 }

@@ -1,6 +1,8 @@
 package com.engfred.musicplayer.feature_player.data.cast
 
 import com.engfred.musicplayer.core.data.SharedAudioDataSource
+import com.engfred.musicplayer.core.domain.ActiveMediaType
+import com.engfred.musicplayer.core.domain.ActivePlayerRegistry
 import com.engfred.musicplayer.core.domain.model.AudioFile
 import com.engfred.musicplayer.core.domain.model.CastState
 import com.engfred.musicplayer.core.domain.repository.PlaybackState
@@ -25,7 +27,8 @@ import javax.inject.Singleton
 @Singleton
 class CastPlaybackBridge @Inject constructor(
     private val castSessionManager: CastSessionManager,
-    private val sharedAudioDataSource: SharedAudioDataSource
+    private val sharedAudioDataSource: SharedAudioDataSource,
+    private val activePlayerRegistry: ActivePlayerRegistry
 ) {
 
     private val bridgeScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -85,6 +88,15 @@ class CastPlaybackBridge @Inject constructor(
     private fun updateFromRemoteStatus(client: RemoteMediaClient) {
         val mediaStatus = client.mediaStatus ?: return
         val currentMediaInfo = mediaStatus.mediaInfo
+
+        // If a video is being cast or active, do NOT touch the audio PlaybackState!
+        val isVideo = currentMediaInfo?.metadata?.mediaType == com.google.android.gms.cast.MediaMetadata.MEDIA_TYPE_MOVIE
+            || currentMediaInfo?.contentType?.startsWith("video/") == true
+            || activePlayerRegistry.activeMediaType.value == ActiveMediaType.VIDEO
+
+        if (isVideo) {
+            return
+        }
         val queue = sharedAudioDataSource.playingQueueAudioFiles.value
         val allFiles = sharedAudioDataSource.deviceAudioFiles.value
 

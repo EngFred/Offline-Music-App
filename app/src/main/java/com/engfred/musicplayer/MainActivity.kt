@@ -35,11 +35,13 @@ import com.engfred.musicplayer.core.domain.usecases.PermissionHandlerUseCase
 import com.engfred.musicplayer.core.ui.theme.AppThemeType
 import com.engfred.musicplayer.core.ui.theme.MusicPlayerAppTheme
 import com.engfred.musicplayer.core.util.MediaUtils
+import com.engfred.musicplayer.feature_player.data.cast.CastSessionManager
 import com.engfred.musicplayer.feature_library.data.worker.NewAudioScanWorker
 import com.engfred.musicplayer.feature_playlist.data.worker.PlayEventPruneWorker
 import com.engfred.musicplayer.feature_settings.domain.usecases.GetAppSettingsUseCase
 import com.engfred.musicplayer.helpers.IntentPermissionHelper
 import com.engfred.musicplayer.helpers.PlaybackQueueHelper
+import com.engfred.musicplayer.navigation.AppDestinations
 import com.engfred.musicplayer.navigation.AppNavHost
 import com.engfred.musicplayer.ui.CustomSplashScreen
 import com.engfred.musicplayer.update.UpdateCheckWorker
@@ -66,6 +68,7 @@ class MainActivity : AppCompatActivity() {
     @Inject lateinit var permissionHandlerUseCase: PermissionHandlerUseCase
     @Inject lateinit var activePlayerRegistry: ActivePlayerRegistry
     @Inject lateinit var checkForUpdateUseCase: CheckForUpdateUseCase
+    @Inject lateinit var castSessionManager: CastSessionManager
 
     private var externalPlaybackUri by mutableStateOf<Uri?>(null)
     private var pendingPlaybackUri: Uri? = null
@@ -266,15 +269,32 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         lastPlaybackAudio?.duration ?: 0L
                     },
+                    onCastVideo = { videoFile ->
+                        castSessionManager.loadVideo(videoFile)
+                    },
                     castState = playbackState.castState
                 )
 
                 LaunchedEffect(externalPlaybackUri) {
                     val uri = externalPlaybackUri ?: return@LaunchedEffect
-                    val success = withContext(Dispatchers.IO) { initiatePlaybackFromExternalUri(uri) }
+                    val mime = try { contentResolver.getType(uri) ?: "" } catch (_: Exception) { "" }
+                    val uriStr = uri.toString()
+                    val isVideo = mime.startsWith("video/") ||
+                            uriStr.endsWith(".mp4", ignoreCase = true) ||
+                            uriStr.endsWith(".mkv", ignoreCase = true) ||
+                            uriStr.endsWith(".webm", ignoreCase = true) ||
+                            uriStr.endsWith(".3gp", ignoreCase = true) ||
+                            uriStr.endsWith(".mov", ignoreCase = true) ||
+                            uriStr.endsWith(".avi", ignoreCase = true) ||
+                            uriStr.endsWith(".ts", ignoreCase = true)
 
-                    if (success) {
-                        showNowPlaying = true
+                    if (isVideo) {
+                        navController.navigate(AppDestinations.VideoPlayer.createRoute(videoUri = uriStr))
+                    } else {
+                        val success = withContext(Dispatchers.IO) { initiatePlaybackFromExternalUri(uri) }
+                        if (success) {
+                            showNowPlaying = true
+                        }
                     }
 
                     externalPlaybackUri = null

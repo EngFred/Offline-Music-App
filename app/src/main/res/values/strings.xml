@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">F-Music</string>
+    <string name="app_name">F-Player</string>
     <string name="widget_album_art_desc">Album art</string>
     <string name="widget_prev">Previous</string>
     <string name="widget_play_pause">Play or pause</string>

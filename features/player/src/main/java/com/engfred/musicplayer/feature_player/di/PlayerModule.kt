@@ -69,4 +69,12 @@ object PlayerModule {
             castPlaybackBridge
         )
     }
+
+    @Provides
+    @Singleton
+    fun provideVideoCastManager(
+        castSessionManager: com.engfred.musicplayer.feature_player.data.cast.CastSessionManager
+    ): com.engfred.musicplayer.core.domain.cast.VideoCastManager {
+        return castSessionManager
+    }
 }

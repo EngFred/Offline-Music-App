@@ -35,6 +35,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.engfred.musicplayer.core.domain.model.AudioFile
+import com.engfred.musicplayer.core.domain.model.VideoFile
 import com.engfred.musicplayer.feature_trim.presentation.TrimScreen
 import com.engfred.musicplayer.feature_edit.presentation.screen.EditScreen
 import com.engfred.musicplayer.feature_player.presentation.screens.NowPlayingScreen
@@ -42,6 +43,7 @@ import com.engfred.musicplayer.feature_playlist.presentation.screens.CreatePlayl
 import com.engfred.musicplayer.feature_playlist.presentation.screens.PlaylistDetailScreen
 import com.engfred.musicplayer.feature_playlist.presentation.viewmodel.detail.PlaylistDetailArgs
 import com.engfred.musicplayer.feature_settings.presentation.screens.DuplicatesScreen
+import com.engfred.musicplayer.feature_video.presentation.screens.VideoPlayerScreen
 import com.engfred.musicplayer.ui.MainScreen
 
 @UnstableApi
@@ -68,6 +70,7 @@ fun AppNavHost(
     // and the onNavigateToNowPlaying lambda both open the same overlay.
     showNowPlaying: Boolean,
     onShowNowPlaying: (Boolean) -> Unit,
+    onCastVideo: ((VideoFile) -> Unit)? = null,
     castState: com.engfred.musicplayer.core.domain.model.CastState = com.engfred.musicplayer.core.domain.model.CastState.DISCONNECTED
 ) {
     // Intercept the system back button while the overlay is open so it collapses
@@ -125,6 +128,12 @@ fun AppNavHost(
                     totalDurationMs = totalDurationMs,
                     onNavigateToDuplicates = {
                         rootNavController.navigate(AppDestinations.FindDuplicates.route)
+                    },
+                    onVideoClick = { videoFile ->
+                        rootNavController.navigate(AppDestinations.VideoPlayer.createRoute(videoId = videoFile.id))
+                    },
+                    onCastVideo = { videoFile ->
+                        onCastVideo?.invoke(videoFile)
                     },
                     castState = castState
                 )
@@ -256,6 +265,28 @@ fun AppNavHost(
                 popExitTransition = { slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(400)) }
             ) {
                 TrimScreen(onNavigateUp = { rootNavController.navigateUp() })
+            }
+
+            composable(
+                route = AppDestinations.VideoPlayer.route,
+                arguments = listOf(
+                    navArgument("videoId") {
+                        type = NavType.LongType
+                        defaultValue = -1L
+                    },
+                    navArgument("videoUri") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    }
+                ),
+                enterTransition = { slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(400)) },
+                exitTransition = { slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(400)) },
+                popEnterTransition = { slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(400)) },
+                popExitTransition = { slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(400)) }
+            ) {
+                VideoPlayerScreen(
+                    onNavigateBack = { rootNavController.navigateUp() }
+                )
             }
         }
 

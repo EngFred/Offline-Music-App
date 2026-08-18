@@ -156,7 +156,7 @@ fun CustomSplashScreen(
                 label = "titleOffsetY",
             )
             Text(
-                text = "F-Music",
+                text = "F-Player",
                 style = MaterialTheme.typography.headlineLarge.copy(
                     fontWeight = FontWeight.Bold,
                     fontSize = 32.sp,

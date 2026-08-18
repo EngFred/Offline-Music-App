@@ -206,6 +206,9 @@ class PlaybackService : MediaSessionService() {
                 @RequiresApi(Build.VERSION_CODES.P)
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     super.onIsPlayingChanged(isPlaying)
+                    if (isPlaying) {
+                        activePlayerRegistry.setActiveMediaType(com.engfred.musicplayer.core.domain.ActiveMediaType.AUDIO)
+                    }
                     updateWidgetWithInfo()
                 }
 
@@ -299,6 +302,11 @@ class PlaybackService : MediaSessionService() {
 
             castSessionManager.onSessionConnected = { _, _ ->
                 serviceScope.launch(Dispatchers.Main) {
+                    if (activePlayerRegistry.activeMediaType.value == com.engfred.musicplayer.core.domain.ActiveMediaType.VIDEO) {
+                        Log.d(TAG, "Cast session connected while Video is active - skipping audio queue load")
+                        return@launch
+                    }
+
                     val currentPos = exoPlayer.currentPosition
                     val currentIndex = exoPlayer.currentMediaItemIndex
                     val queue = sharedAudioDataSource.playingQueueAudioFiles.value
@@ -307,7 +315,7 @@ class PlaybackService : MediaSessionService() {
                         exoPlayer.pause()
                     }
 
-                    if (queue.isNotEmpty()) {
+                    if (queue.isNotEmpty() && activePlayerRegistry.activeMediaType.value == com.engfred.musicplayer.core.domain.ActiveMediaType.AUDIO) {
                         castSessionManager.loadQueue(
                             queue = queue,
                             startIndex = currentIndex,
@@ -320,6 +328,9 @@ class PlaybackService : MediaSessionService() {
 
             castSessionManager.onSessionDisconnected = { lastRemotePos ->
                 serviceScope.launch(Dispatchers.Main) {
+                    if (activePlayerRegistry.activeMediaType.value != com.engfred.musicplayer.core.domain.ActiveMediaType.AUDIO) {
+                        return@launch
+                    }
                     if (lastRemotePos > 0) {
                         exoPlayer.seekTo(lastRemotePos)
                     }

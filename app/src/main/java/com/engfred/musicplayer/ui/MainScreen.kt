@@ -36,6 +36,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.engfred.musicplayer.core.domain.model.AudioFile
+import com.engfred.musicplayer.core.domain.model.VideoFile
 import com.engfred.musicplayer.core.domain.usecases.PermissionHandlerUseCase
 import com.engfred.musicplayer.core.ui.components.CustomTopBar
 import com.engfred.musicplayer.core.ui.components.MiniPlayer
@@ -43,6 +44,7 @@ import com.engfred.musicplayer.core.ui.components.PlayShuffleBar
 import com.engfred.musicplayer.core.util.TextUtils.formatCount
 import com.engfred.musicplayer.core.util.TextUtils.pluralize
 import com.engfred.musicplayer.feature_library.presentation.screens.LibraryScreen
+import com.engfred.musicplayer.feature_video.presentation.screens.VideoLibraryScreen
 import com.engfred.musicplayer.feature_playlist.presentation.screens.PlaylistsScreen
 import com.engfred.musicplayer.feature_settings.presentation.screens.SettingsScreen
 import com.engfred.musicplayer.navigation.AppDestinations
@@ -72,12 +74,15 @@ fun MainScreen(
     playbackPositionMs: Long,
     totalDurationMs: Long,
     onNavigateToDuplicates: () -> Unit,
+    onVideoClick: (VideoFile) -> Unit = {},
+    onCastVideo: (VideoFile) -> Unit = {},
     castState: com.engfred.musicplayer.core.domain.model.CastState = com.engfred.musicplayer.core.domain.model.CastState.DISCONNECTED
 ) {
     val bottomNavController = rememberNavController()
     val bottomNavItems = listOf(
         AppDestinations.BottomNavItem.Library,
         AppDestinations.BottomNavItem.Playlists,
+        AppDestinations.BottomNavItem.Videos,
         AppDestinations.BottomNavItem.Settings,
     )
     var showDropdownMenu by remember { mutableStateOf(false) }
@@ -109,9 +114,10 @@ fun MainScreen(
 
             val isOnLibrary  = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Library.baseRoute   } == true
             val isOnPlaylist = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Playlists.baseRoute  } == true
+            val isOnVideos   = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Videos.baseRoute     } == true
             val isOnSettings = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Settings.baseRoute   } == true
 
-            if (!isOnLibrary) {
+            if (!isOnLibrary && !isOnVideos) {
                 val mainTitle = when {
                     isOnPlaylist -> AppDestinations.BottomNavItem.Playlists.label
                     isOnSettings -> AppDestinations.BottomNavItem.Settings.label
@@ -223,6 +229,12 @@ fun MainScreen(
                 PlaylistsScreen(
                     onPlaylistClick = onPlaylistClick,
                     onCreatePlaylist = onCreatePlaylist
+                )
+            }
+            composable(AppDestinations.BottomNavItem.Videos.baseRoute) {
+                VideoLibraryScreen(
+                    onVideoClick = onVideoClick,
+                    onCastVideo = onCastVideo
                 )
             }
             composable(AppDestinations.BottomNavItem.Settings.baseRoute) {

@@ -77,6 +77,7 @@ dependencies {
     implementation(project(":features:settings"))
     implementation(project(":features:trim"))
     implementation(project(":features:edit"))
+    implementation(project(":features:video"))
 
     // Android Core & Lifecycle
     implementation(libs.androidx.core.ktx)

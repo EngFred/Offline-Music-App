@@ -173,7 +173,7 @@ class PlaybackControllerImpl @Inject constructor(
     }
 
     override suspend fun playPause() {
-        if (castSessionManager.isConnected()) {
+        if (castSessionManager.isConnected() && !castSessionManager.isCurrentMediaVideo()) {
             castSessionManager.togglePlayPause()
             return
         }
@@ -199,7 +199,7 @@ class PlaybackControllerImpl @Inject constructor(
     }
 
     override suspend fun skipToNext() {
-        if (castSessionManager.isConnected()) {
+        if (castSessionManager.isConnected() && !castSessionManager.isCurrentMediaVideo()) {
             castSessionManager.skipToNext()
             return
         }
@@ -224,7 +224,7 @@ class PlaybackControllerImpl @Inject constructor(
     }
 
     override suspend fun skipToPrevious() {
-        if (castSessionManager.isConnected()) {
+        if (castSessionManager.isConnected() && !castSessionManager.isCurrentMediaVideo()) {
             castSessionManager.skipToPrevious()
             return
         }
@@ -250,7 +250,7 @@ class PlaybackControllerImpl @Inject constructor(
     }
 
     override suspend fun seekTo(positionMs: Long) {
-        if (castSessionManager.isConnected()) {
+        if (castSessionManager.isConnected() && !castSessionManager.isCurrentMediaVideo()) {
             castSessionManager.seekTo(positionMs)
             return
         }

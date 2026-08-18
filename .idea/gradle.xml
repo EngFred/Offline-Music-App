@@ -19,6 +19,7 @@
             <option value="/Volumes/DevStorage/development/MusicPlayer/features/playlist" />
             <option value="/Volumes/DevStorage/development/MusicPlayer/features/settings" />
             <option value="/Volumes/DevStorage/development/MusicPlayer/features/trim" />
+            <option value="/Volumes/DevStorage/development/MusicPlayer/features/video" />
           </set>
         </option>
       </GradleProjectSettings>

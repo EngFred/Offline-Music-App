@@ -1,0 +1,1 @@
+-keep,allowobfuscation,allowshrinking class com.engfred.musicplayer.feature_video.presentation.viewmodel.VideoPlayerViewModel
