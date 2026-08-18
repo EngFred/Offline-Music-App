@@ -22,7 +22,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 
 @Composable
 fun EditableAlbumArt(
@@ -42,8 +42,11 @@ fun EditableAlbumArt(
                 .shadow(elevation = 12.dp, shape = RoundedCornerShape(24.dp), clip = false)
                 .clip(RoundedCornerShape(24.dp))
                 .background(
-                    brush = Brush.linearGradient(
-                        colors = listOf(Color(0xFF2C283E), Color(0xFF161426))
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            MaterialTheme.colorScheme.surfaceVariant
+                        )
                     )
                 )
                 .border(
@@ -54,18 +57,44 @@ fun EditableAlbumArt(
             contentAlignment = Alignment.Center
         ) {
             if (imageUri != null) {
-                AsyncImage(
+                SubcomposeAsyncImage(
                     model = imageUri,
                     contentDescription = "Album art preview",
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    contentScale = ContentScale.Crop,
+                    loading = {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MusicNote,
+                                contentDescription = "Loading album art",
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                modifier = Modifier.size(64.dp)
+                            )
+                        }
+                    },
+                    error = {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MusicNote,
+                                contentDescription = "No album art",
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                modifier = Modifier.size(64.dp)
+                            )
+                        }
+                    }
                 )
             } else {
                 Icon(
                     imageVector = Icons.Rounded.MusicNote,
                     contentDescription = "No album art",
-                    tint = Color.White.copy(alpha = 0.5f),
-                    modifier = Modifier.size(72.dp)
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                    modifier = Modifier.size(64.dp)
                 )
             }
         }

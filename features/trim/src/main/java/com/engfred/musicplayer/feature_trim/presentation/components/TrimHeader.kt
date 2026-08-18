@@ -22,7 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.engfred.musicplayer.core.domain.model.AudioFile
 
@@ -41,8 +41,11 @@ fun TrimHeader(
                 .shadow(elevation = 12.dp, shape = RoundedCornerShape(20.dp), clip = false)
                 .clip(RoundedCornerShape(20.dp))
                 .background(
-                    brush = Brush.linearGradient(
-                        colors = listOf(Color(0xFF2C283E), Color(0xFF161426))
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            MaterialTheme.colorScheme.surfaceVariant
+                        )
                     )
                 )
                 .border(
@@ -53,21 +56,47 @@ fun TrimHeader(
             contentAlignment = Alignment.Center
         ) {
             if (audioFile.albumArtUri != null) {
-                AsyncImage(
+                SubcomposeAsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(audioFile.albumArtUri)
                         .crossfade(true)
                         .build(),
                     contentDescription = "Album Art",
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    loading = {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MusicNote,
+                                contentDescription = "Loading Album Art",
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                modifier = Modifier.size(56.dp)
+                            )
+                        }
+                    },
+                    error = {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MusicNote,
+                                contentDescription = "No Album Art",
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                modifier = Modifier.size(56.dp)
+                            )
+                        }
+                    }
                 )
             } else {
                 Icon(
                     imageVector = Icons.Rounded.MusicNote,
                     contentDescription = "No Album Art",
-                    tint = Color.White.copy(alpha = 0.5f),
-                    modifier = Modifier.size(64.dp)
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                    modifier = Modifier.size(56.dp)
                 )
             }
         }
