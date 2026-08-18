@@ -77,6 +77,10 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.nanohttpd)
 
+    // Google Cast & MediaRouter
+    implementation(libs.cast.framework)
+    implementation(libs.androidx.mediarouter)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.engfred.musicplayer.core.ui.components.CastMediaRouteButton
 import com.skydoves.landscapist.ImageOptions
 import com.skydoves.landscapist.coil.CoilImage
 
@@ -107,68 +108,76 @@ fun PlaylistDetailTopBar(
             }
         }
 
-        if (!isAutomaticPlaylist) {
-            Box {
-                IconButton(onClick = { onMoreMenuExpandedChange(true) }) {
-                    Icon(
-                        imageVector = Icons.Rounded.MoreVert,
-                        contentDescription = "More options",
-                        tint = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-                DropdownMenu(
-                    expanded = moreMenuExpanded,
-                    onDismissRequest = { onMoreMenuExpandedChange(false) },
-                    offset = DpOffset(x = (-16).dp, y = 0.dp),
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(20.dp)
-                    )
-                ) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                "Add songs to playlist",
-                                fontSize = 13.5.sp
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Rounded.Add,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        onClick = {
-                            onAddSongsClick()
-                            onMoreMenuExpandedChange(false)
-                        }
-                    )
-                    if (isEditable) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CastMediaRouteButton(
+                tintColor = MaterialTheme.colorScheme.onBackground
+            )
+
+            if (!isAutomaticPlaylist) {
+                Box {
+                    IconButton(onClick = { onMoreMenuExpandedChange(true) }) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = "More options",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = moreMenuExpanded,
+                        onDismissRequest = { onMoreMenuExpandedChange(false) },
+                        offset = DpOffset(x = (-16).dp, y = 0.dp),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(20.dp)
+                        )
+                    ) {
                         DropdownMenuItem(
                             text = {
                                 Text(
-                                    "Rename playlist",
+                                    "Add songs to playlist",
                                     fontSize = 13.5.sp
                                 )
                             },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = Icons.Rounded.Edit,
+                                    imageVector = Icons.Rounded.Add,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
                                 )
                             },
                             onClick = {
-                                onRenamePlaylistClick()
+                                onAddSongsClick()
                                 onMoreMenuExpandedChange(false)
                             }
                         )
+                        if (isEditable) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Rename playlist",
+                                        fontSize = 13.5.sp
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Edit,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
+                                onClick = {
+                                    onRenamePlaylistClick()
+                                    onMoreMenuExpandedChange(false)
+                                }
+                            )
+                        }
                     }
                 }
             }
