@@ -52,6 +52,9 @@ class CastSessionManager @Inject constructor(
 
     override val castStateFlow: StateFlow<CastState> = _castState.asStateFlow()
 
+    private val _connectedDeviceName = MutableStateFlow<String?>(null)
+    override val connectedDeviceName: StateFlow<String?> = _connectedDeviceName.asStateFlow()
+
     private val _currentVideoFile = MutableStateFlow<VideoFile?>(null)
     override val currentVideoFile: StateFlow<VideoFile?> = _currentVideoFile.asStateFlow()
     override fun getCurrentVideo(): VideoFile? = _currentVideoFile.value
@@ -207,6 +210,8 @@ class CastSessionManager @Inject constructor(
         remoteMediaClient?.registerCallback(remoteMediaClientCallback)
         remoteMediaClient?.addProgressListener(progressListener, 500L)
 
+        _connectedDeviceName.value = session.castDevice?.friendlyName
+
         acquireLocks()
         localMediaServer.startServer()
         _castState.value = CastState.CONNECTED
@@ -221,6 +226,7 @@ class CastSessionManager @Inject constructor(
         remoteMediaClient?.unregisterCallback(remoteMediaClientCallback)
         remoteMediaClient = null
         currentCastSession = null
+        _connectedDeviceName.value = null
 
         releaseLocks()
         localMediaServer.stopServer()

@@ -67,6 +67,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -342,58 +343,66 @@ fun LibraryScreen(
                                 }
                             }
 
-                            // Action Buttons (Play All & Cast button)
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            // Action Buttons (Play All & Cast button unified capsule)
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+                                ),
+                                modifier = Modifier.height(38.dp)
                             ) {
-                                if (currentAudios.isNotEmpty()) {
-                                    Button(
-                                        onClick = {
-                                            val targetTrack = currentAudios.find { it.id == uiState.currentPlayingId } ?: currentAudios.firstOrNull()
-                                            targetTrack?.let {
-                                                viewModel.onEvent(LibraryEvent.PlayAudio(it))
-                                            }
-                                        },
-                                        shape = CircleShape,
-                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = MaterialTheme.colorScheme.primary
-                                        ),
-                                        modifier = Modifier.height(36.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.PlayArrow,
-                                            contentDescription = "Play all",
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Play",
-                                            style = MaterialTheme.typography.labelMedium.copy(
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 13.sp
-                                            )
-                                        )
-                                    }
-                                }
-
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        width = 1.dp,
-                                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
-                                    ),
-                                    modifier = Modifier.size(36.dp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp)
                                 ) {
+                                    if (currentAudios.isNotEmpty()) {
+                                        Surface(
+                                            onClick = {
+                                                val targetTrack = currentAudios.find { it.id == uiState.currentPlayingId } ?: currentAudios.firstOrNull()
+                                                targetTrack?.let {
+                                                    viewModel.onEvent(LibraryEvent.PlayAudio(it))
+                                                }
+                                            },
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.height(32.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 12.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.PlayArrow,
+                                                    contentDescription = "Play all",
+                                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "Play",
+                                                    style = MaterialTheme.typography.labelMedium.copy(
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 12.5.sp
+                                                    ),
+                                                    color = MaterialTheme.colorScheme.onPrimary
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                    }
+
                                     Box(
                                         contentAlignment = Alignment.Center,
-                                        modifier = Modifier.fillMaxSize()
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
                                     ) {
                                         CastMediaRouteButton(
-                                            tintColor = MaterialTheme.colorScheme.onSurface,
-                                            modifier = Modifier.size(32.dp)
+                                            tintColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(26.dp)
                                         )
                                     }
                                 }

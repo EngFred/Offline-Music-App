@@ -18,6 +18,7 @@ data class VideoCastPlaybackState(
 interface VideoCastManager {
     val videoCastPlaybackState: StateFlow<VideoCastPlaybackState>
     val castStateFlow: StateFlow<CastState>
+    val connectedDeviceName: StateFlow<String?>
     val currentVideoFile: StateFlow<VideoFile?>
     fun getCurrentVideo(): VideoFile?
     fun isConnected(): Boolean

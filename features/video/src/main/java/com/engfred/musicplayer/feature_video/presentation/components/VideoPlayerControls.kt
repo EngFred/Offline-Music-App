@@ -1,5 +1,10 @@
 package com.engfred.musicplayer.feature_video.presentation.components
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -23,9 +28,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AspectRatio
-import androidx.compose.material.icons.rounded.FastForward
-import androidx.compose.material.icons.rounded.FastRewind
+import androidx.compose.material.icons.rounded.CastConnected
 import androidx.compose.material.icons.rounded.FitScreen
+import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
@@ -33,44 +38,39 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Replay10
-import androidx.compose.material.icons.rounded.Forward10
-import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.ScreenRotation
+import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.engfred.musicplayer.core.domain.model.VideoFile
 import com.engfred.musicplayer.core.ui.components.CastMediaRouteButton
 import com.engfred.musicplayer.feature_video.presentation.viewmodel.VideoPlayerEvent
 import com.engfred.musicplayer.feature_video.presentation.viewmodel.VideoPlayerState
 import com.engfred.musicplayer.feature_video.presentation.viewmodel.VideoResizeMode
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoPlayerControls(
     state: VideoPlayerState,
@@ -78,11 +78,13 @@ fun VideoPlayerControls(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var isDraggingSlider by remember { mutableStateOf(false) }
-    var sliderDragPosition by remember { mutableFloatStateOf(0f) }
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    val currentPosition = if (isDraggingSlider) sliderDragPosition.toLong() else state.playbackState.currentPositionMs
+    val currentPosition = state.playbackState.currentPositionMs
     val totalDuration = state.playbackState.totalDurationMs.coerceAtLeast(1L)
+    val bufferedPosition = state.playbackState.bufferedPositionMs
 
     Box(
         modifier = modifier
@@ -95,15 +97,21 @@ fun VideoPlayerControls(
     ) {
         // Center Buffering Spinner
         if (state.playbackState.isLoading) {
-            CircularProgressIndicator(
-                color = MaterialTheme.colorScheme.primary,
+            Box(
                 modifier = Modifier
-                    .size(54.dp)
                     .align(Alignment.Center)
-            )
+                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    .padding(16.dp)
+            ) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 3.5.dp,
+                    modifier = Modifier.size(44.dp)
+                )
+            }
         }
 
-        // Locked Screen: Minimal Unlock Icon
+        // Locked Screen State
         if (state.isLocked) {
             AnimatedVisibility(
                 visible = state.areControlsVisible,
@@ -114,17 +122,30 @@ fun VideoPlayerControls(
                     .statusBarsPadding()
                     .padding(16.dp)
             ) {
-                IconButton(
+                Surface(
                     onClick = { onEvent(VideoPlayerEvent.ToggleLock) },
-                    modifier = Modifier
-                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                        .size(44.dp)
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.Black.copy(alpha = 0.7f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                    shadowElevation = 8.dp
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Lock,
-                        contentDescription = "Unlock Controls",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Lock,
+                            contentDescription = "Unlock Controls",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Unlock",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                    }
                 }
             }
             return@Box
@@ -140,7 +161,14 @@ fun VideoPlayerControls(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.45f))
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.55f)
+                            )
+                        )
+                    )
             ) {
                 // 1. Top Bar
                 Row(
@@ -150,13 +178,13 @@ fun VideoPlayerControls(
                         .background(
                             Brush.verticalGradient(
                                 colors = listOf(
-                                    Color.Black.copy(alpha = 0.8f),
+                                    Color.Black.copy(alpha = 0.85f),
                                     Color.Transparent
                                 )
                             )
                         )
                         .statusBarsPadding()
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -164,18 +192,27 @@ fun VideoPlayerControls(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
                     ) {
-                        IconButton(onClick = onNavigateBack) {
+                        IconButton(
+                            onClick = onNavigateBack,
+                            modifier = Modifier
+                                .background(Color.White.copy(alpha = 0.12f), CircleShape)
+                                .size(38.dp)
+                        ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                                 contentDescription = "Back",
-                                tint = Color.White
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = state.videoFile?.title ?: "Video Player",
+                            text = state.videoFile?.title?.replace('_', ' ')?.trim() ?: "Video Player",
                             color = Color.White,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 0.2.sp
+                            ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -183,82 +220,162 @@ fun VideoPlayerControls(
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Playback Speed Button
-                        IconButton(onClick = { onEvent(VideoPlayerEvent.ShowSpeedDialog(true)) }) {
-                            Text(
-                                text = "${state.playbackSpeed}x",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                        // Playback Speed Button (Pill shape)
+                        Surface(
+                            onClick = { onEvent(VideoPlayerEvent.ShowSpeedDialog(true)) },
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.White.copy(alpha = 0.14f),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(horizontal = 10.dp)
+                            ) {
+                                Text(
+                                    text = "${state.playbackSpeed}x",
+                                    color = Color.White,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
 
                         // Cast Button
-                        CastMediaRouteButton(
-                            tintColor = Color.White
-                        )
-                    }
-                }
-
-                // 2. Center Playback Controls (10s Rewind, Play/Pause, 10s Forward)
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxWidth(0.7f),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = { onEvent(VideoPlayerEvent.SeekBy(-10000L)) },
-                        modifier = Modifier
-                            .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                            .size(50.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Replay10,
-                            contentDescription = "Rewind 10s",
-                            tint = Color.White,
-                            modifier = Modifier.size(30.dp)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { onEvent(VideoPlayerEvent.TogglePlayPause) },
-                        modifier = Modifier
-                            .background(MaterialTheme.colorScheme.primary, CircleShape)
-                            .size(64.dp)
-                    ) {
-                        val icon = when {
-                            state.playbackState.isEnded -> Icons.Rounded.Replay
-                            state.playbackState.isPlaying -> Icons.Rounded.Pause
-                            else -> Icons.Rounded.PlayArrow
+                        Surface(
+                            shape = CircleShape,
+                            color = if (state.isCastConnected) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                            } else {
+                                Color.White.copy(alpha = 0.14f)
+                            },
+                            border = if (state.isCastConnected) {
+                                androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                            } else null,
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                CastMediaRouteButton(
+                                    tintColor = if (state.isCastConnected) MaterialTheme.colorScheme.primary else Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
                         }
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = if (state.playbackState.isPlaying) "Pause" else "Play",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { onEvent(VideoPlayerEvent.SeekBy(10000L)) },
-                        modifier = Modifier
-                            .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                            .size(50.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Forward10,
-                            contentDescription = "Forward 10s",
-                            tint = Color.White,
-                            modifier = Modifier.size(30.dp)
-                        )
                     }
                 }
 
-                // 3. Bottom Bar: Seekbar, Timestamp, Resize & Lock
+                // 2. Center Content: TV Cast Status or Normal Center Playback Controls
+                if (state.isCastConnected) {
+                    // Integrated TV Cast View with Controls directly below
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(horizontal = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        // TV Icon with ambient glow
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.5.dp,
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                            ),
+                            modifier = Modifier.size(80.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Tv,
+                                    contentDescription = "Casting",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(40.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Receiver Name Headline e.g. "Casting on Android TV"
+                        val deviceName = state.castDeviceName
+                        val castTitle = if (!deviceName.isNullOrBlank()) "Casting on $deviceName" else "Casting on TV"
+
+                        Text(
+                            text = castTitle,
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.3.sp
+                            ),
+                            color = Color.White
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Video Title
+                        state.videoFile?.title?.let { title ->
+                            Text(
+                                text = title.replace('_', ' ').trim(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White.copy(alpha = 0.7f),
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Cast status badge
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CastConnected,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "Connected",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // Center Playback Buttons for TV Stream
+                        PlaybackButtonsRow(
+                            state = state,
+                            onEvent = onEvent
+                        )
+                    }
+                } else {
+                    // Normal Center Playback Controls (when playing locally on phone)
+                    PlaybackButtonsRow(
+                        state = state,
+                        onEvent = onEvent,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+
+                // 3. Bottom Bar: Scrubber, Timestamps & Actions
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -267,31 +384,22 @@ fun VideoPlayerControls(
                             Brush.verticalGradient(
                                 colors = listOf(
                                     Color.Transparent,
-                                    Color.Black.copy(alpha = 0.85f)
+                                    Color.Black.copy(alpha = 0.9f)
                                 )
                             )
                         )
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    // Slider
-                    Slider(
-                        value = currentPosition.toFloat(),
-                        onValueChange = {
-                            isDraggingSlider = true
-                            sliderDragPosition = it
-                        },
-                        onValueChangeFinished = {
-                            isDraggingSlider = false
-                            onEvent(VideoPlayerEvent.SeekTo(sliderDragPosition.toLong()))
-                        },
-                        valueRange = 0f..totalDuration.toFloat(),
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                        ),
+                    // High-End Custom Video Scrubber
+                    VideoScrubber(
+                        currentPositionMs = currentPosition,
+                        totalDurationMs = totalDuration,
+                        bufferedPositionMs = bufferedPosition,
+                        onSeek = { targetMs -> onEvent(VideoPlayerEvent.SeekTo(targetMs)) },
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     // Bottom info & action buttons
                     Row(
@@ -302,13 +410,13 @@ fun VideoPlayerControls(
                         Text(
                             text = "${formatTime(currentPosition)} / ${formatTime(totalDuration)}",
                             color = Color.White.copy(alpha = 0.85f),
-                            fontSize = 12.5.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
                         )
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             // Resize Mode Button
                             IconButton(
@@ -340,6 +448,28 @@ fun VideoPlayerControls(
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
+
+                            // Orientation / Landscape Toggle Button
+                            IconButton(
+                                onClick = {
+                                    val activity = context.findActivity()
+                                    if (activity != null) {
+                                        activity.requestedOrientation = if (isLandscape) {
+                                            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                        } else {
+                                            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.ScreenRotation,
+                                    contentDescription = "Rotate Screen",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -351,26 +481,40 @@ fun VideoPlayerControls(
             val speedOptions = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
             AlertDialog(
                 onDismissRequest = { onEvent(VideoPlayerEvent.ShowSpeedDialog(false)) },
-                title = { Text("Playback Speed") },
+                containerColor = Color(0xFF1C1C24),
+                titleContentColor = Color.White,
+                textContentColor = Color.White,
+                shape = RoundedCornerShape(20.dp),
+                title = {
+                    Text(
+                        text = "Playback Speed",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 text = {
                     Column {
                         speedOptions.forEach { speed ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
                                     .clickable { onEvent(VideoPlayerEvent.SetPlaybackSpeed(speed)) }
-                                    .padding(vertical = 8.dp),
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 RadioButton(
                                     selected = state.playbackSpeed == speed,
                                     onClick = { onEvent(VideoPlayerEvent.SetPlaybackSpeed(speed)) },
-                                    colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = MaterialTheme.colorScheme.primary,
+                                        unselectedColor = Color.White.copy(alpha = 0.5f)
+                                    )
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = if (speed == 1.0f) "1.0x (Normal)" else "${speed}x",
-                                    fontSize = 14.sp
+                                    fontSize = 14.sp,
+                                    color = Color.White
                                 )
                             }
                         }
@@ -378,9 +522,78 @@ fun VideoPlayerControls(
                 },
                 confirmButton = {
                     TextButton(onClick = { onEvent(VideoPlayerEvent.ShowSpeedDialog(false)) }) {
-                        Text("Close")
+                        Text("Done", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
                 }
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlaybackButtonsRow(
+    state: VideoPlayerState,
+    onEvent: (VideoPlayerEvent) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(0.7f),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = { onEvent(VideoPlayerEvent.SeekBy(-10000L)) },
+            modifier = Modifier
+                .background(Color.White.copy(alpha = 0.12f), CircleShape)
+                .size(48.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Replay10,
+                contentDescription = "Rewind 10s",
+                tint = Color.White,
+                modifier = Modifier.size(28.dp)
+            )
+        }
+
+        IconButton(
+            onClick = { onEvent(VideoPlayerEvent.TogglePlayPause) },
+            modifier = Modifier
+                .shadow(elevation = 12.dp, shape = CircleShape, spotColor = MaterialTheme.colorScheme.primary)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary,
+                            Color(0xFFFF5722)
+                        )
+                    ),
+                    CircleShape
+                )
+                .size(64.dp)
+        ) {
+            val icon = when {
+                state.playbackState.isEnded -> Icons.Rounded.Replay
+                state.playbackState.isPlaying -> Icons.Rounded.Pause
+                else -> Icons.Rounded.PlayArrow
+            }
+            Icon(
+                imageVector = icon,
+                contentDescription = if (state.playbackState.isPlaying) "Pause" else "Play",
+                tint = Color.White,
+                modifier = Modifier.size(36.dp)
+            )
+        }
+
+        IconButton(
+            onClick = { onEvent(VideoPlayerEvent.SeekBy(10000L)) },
+            modifier = Modifier
+                .background(Color.White.copy(alpha = 0.12f), CircleShape)
+                .size(48.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Forward10,
+                contentDescription = "Forward 10s",
+                tint = Color.White,
+                modifier = Modifier.size(28.dp)
             )
         }
     }
@@ -396,4 +609,13 @@ private fun formatTime(ms: Long): String {
     } else {
         String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
     }
+}
+
+private fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }

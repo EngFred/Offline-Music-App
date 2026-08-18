@@ -178,11 +178,12 @@ fun CustomSplashScreen(
                 label = "taglineAlpha",
             )
             Text(
-                text = "Feel every beat",
+                text = "Play everything, anywhere",
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    letterSpacing = 1.5.sp,
+                    letterSpacing = 1.2.sp,
+                    fontWeight = FontWeight.Medium
                 ),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
                 modifier = Modifier.alpha(taglineAlpha),
                 textAlign = TextAlign.Center,
             )

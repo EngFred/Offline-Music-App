@@ -86,82 +86,13 @@ fun VideoPlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // If casting to TV, show a beautiful, clear Cast overlay instead of an empty/black video surface
+            // If casting to TV, show a clean dark cinematic surface behind the controls
             if (uiState.isCastConnected) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF0F0F14)),
-                    contentAlignment = androidx.compose.ui.Alignment.Center
-                ) {
-                    androidx.compose.foundation.layout.Column(
-                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-                        modifier = Modifier.padding(horizontal = 32.dp)
-                    ) {
-                        Surface(
-                            shape = androidx.compose.foundation.shape.CircleShape,
-                            color = androidx.compose.material3.MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                            modifier = Modifier.size(96.dp)
-                        ) {
-                            Box(
-                                contentAlignment = androidx.compose.ui.Alignment.Center,
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                androidx.compose.material3.Icon(
-                                    imageVector = androidx.compose.material.icons.Icons.Rounded.Tv,
-                                    contentDescription = "Casting to TV",
-                                    tint = androidx.compose.material3.MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(48.dp)
-                                )
-                            }
-                        }
-
-                        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(20.dp))
-
-                        androidx.compose.material3.Text(
-                            text = "Playing on TV",
-                            style = androidx.compose.material3.MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                            ),
-                            color = Color.White
-                        )
-
-                        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(8.dp))
-
-                        uiState.videoFile?.title?.let { title ->
-                            androidx.compose.material3.Text(
-                                text = title.replace('_', ' ').trim(),
-                                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                                color = Color.White.copy(alpha = 0.7f),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                maxLines = 2,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                            )
-                        }
-
-                        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(12.dp))
-
-                        androidx.compose.foundation.layout.Row(
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)
-                        ) {
-                            androidx.compose.material3.Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Rounded.CastConnected,
-                                contentDescription = null,
-                                tint = androidx.compose.material3.MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            androidx.compose.material3.Text(
-                                text = "Cast Connected",
-                                style = androidx.compose.material3.MaterialTheme.typography.labelMedium.copy(
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-                                ),
-                                color = androidx.compose.material3.MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
+                        .background(Color(0xFF0D0D12))
+                )
             }
 
             // Compose Controls Overlay

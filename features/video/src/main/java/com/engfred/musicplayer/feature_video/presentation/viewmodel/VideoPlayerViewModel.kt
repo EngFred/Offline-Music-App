@@ -59,6 +59,7 @@ class VideoPlayerViewModel @Inject constructor(
         val initiallyConnected = videoCastManager.isConnected()
         _uiState.update { it.copy(
             isCastConnected = initiallyConnected,
+            castDeviceName = videoCastManager.connectedDeviceName.value,
             castState = if (initiallyConnected) CastState.CONNECTED else CastState.DISCONNECTED
         ) }
 
@@ -276,6 +277,7 @@ class VideoPlayerViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isCastConnected = isConnected,
+                        castDeviceName = videoCastManager.connectedDeviceName.value,
                         castState = state
                     )
                 }
