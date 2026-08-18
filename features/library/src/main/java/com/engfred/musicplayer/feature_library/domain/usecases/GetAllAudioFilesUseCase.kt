@@ -21,12 +21,8 @@ class GetAllAudioFilesUseCase @Inject constructor(
 
     operator fun invoke(): Flow<Resource<List<AudioFile>>> {
         return repository.getAllAudioFiles()
-            .map { audioFiles ->
-                if (audioFiles.isEmpty()) {
-                    Resource.Error("No audio files found on device.")
-                } else {
-                    Resource.Success(audioFiles)
-                }
+            .map<List<AudioFile>, Resource<List<AudioFile>>> { audioFiles ->
+                Resource.Success(audioFiles)
             }
             .onStart {
                 emit(Resource.Loading())

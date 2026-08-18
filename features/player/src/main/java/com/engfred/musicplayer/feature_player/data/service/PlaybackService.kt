@@ -121,8 +121,17 @@ class PlaybackService : MediaSessionService() {
                 .setSilent(true)
                 .build()
             try {
-                startForeground(MUSIC_NOTIFICATION_ID, notification)
-            } catch (_: Exception) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(
+                        MUSIC_NOTIFICATION_ID,
+                        notification,
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                    )
+                } else {
+                    startForeground(MUSIC_NOTIFICATION_ID, notification)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "startForeground failed in onCreate: ${e.message}", e)
                 stopSelf()
                 return
             }

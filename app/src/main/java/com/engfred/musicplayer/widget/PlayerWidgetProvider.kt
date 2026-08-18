@@ -114,21 +114,11 @@ class PlayerWidgetProvider : AppWidgetProvider() {
             val refresh = Intent(context, PlaybackService::class.java).apply {
                 action = PlaybackService.ACTION_REFRESH_WIDGET
             }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                try {
-                    context.startForegroundService(refresh)
-                } catch (ise: IllegalStateException) {
-                    Log.w(TAG, "startForegroundService refused in requestServiceRefresh: ${ise.message}")
-                    safeSendUpdateBroadcast(context)
-                }
-            } else {
-                try {
-                    context.startService(refresh)
-                } catch (e: Exception) {
-                    Log.w(TAG, "startService failed in requestServiceRefresh: ${e.message}")
-                    safeSendUpdateBroadcast(context)
-                }
+            try {
+                context.startService(refresh)
+            } catch (e: Exception) {
+                Log.w(TAG, "startService failed in requestServiceRefresh: ${e.message}")
+                safeSendUpdateBroadcast(context)
             }
         } catch (e: Exception) {
             Log.e(TAG, "requestServiceRefresh failed: ${e.message}", e)
