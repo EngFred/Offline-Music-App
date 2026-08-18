@@ -261,17 +261,27 @@ fun CastingStatusPill(
     val shape = when (style) {
         CastingStatusStyle.MINIMALIST -> RoundedCornerShape(50)
         CastingStatusStyle.ETHEREAL -> RoundedCornerShape(18.dp)
-        CastingStatusStyle.IMMERSIVE -> RoundedCornerShape(14.dp)
+        CastingStatusStyle.IMMERSIVE -> RoundedCornerShape(50)
     }
     val surfaceColor = when (style) {
-        CastingStatusStyle.MINIMALIST -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        CastingStatusStyle.MINIMALIST -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f)
         CastingStatusStyle.ETHEREAL -> MaterialTheme.colorScheme.surface.copy(alpha = 0.42f)
-        CastingStatusStyle.IMMERSIVE -> Color.Black.copy(alpha = 0.34f)
+        CastingStatusStyle.IMMERSIVE -> Color.Black.copy(alpha = 0.44f)
     }
     val borderColor = when (style) {
-        CastingStatusStyle.MINIMALIST -> MaterialTheme.colorScheme.primary.copy(alpha = 0.58f)
-        CastingStatusStyle.ETHEREAL -> contentColor.copy(alpha = 0.24f)
-        CastingStatusStyle.IMMERSIVE -> MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)
+        CastingStatusStyle.MINIMALIST -> MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)
+        CastingStatusStyle.ETHEREAL -> MaterialTheme.colorScheme.primary.copy(alpha = 0.48f)
+        CastingStatusStyle.IMMERSIVE -> Color.White.copy(alpha = 0.24f)
+    }
+    val iconColor = when (style) {
+        CastingStatusStyle.MINIMALIST -> MaterialTheme.colorScheme.primary.copy(alpha = 0.88f)
+        CastingStatusStyle.ETHEREAL -> MaterialTheme.colorScheme.primary
+        CastingStatusStyle.IMMERSIVE -> Color.White.copy(alpha = 0.88f)
+    }
+    val labelColor = when (style) {
+        CastingStatusStyle.MINIMALIST -> contentColor.copy(alpha = 0.78f)
+        CastingStatusStyle.ETHEREAL -> contentColor.copy(alpha = 0.9f)
+        CastingStatusStyle.IMMERSIVE -> Color.White.copy(alpha = 0.92f)
     }
     Surface(
         modifier = modifier,
@@ -284,21 +294,31 @@ fun CastingStatusPill(
     ) {
         Row(
             modifier = Modifier.padding(
-                horizontal = if (style == CastingStatusStyle.IMMERSIVE) 11.dp else 10.dp,
-                vertical = if (style == CastingStatusStyle.MINIMALIST) 5.dp else 6.dp
+                horizontal = when (style) {
+                    CastingStatusStyle.MINIMALIST -> 12.dp
+                    CastingStatusStyle.ETHEREAL -> 10.dp
+                    CastingStatusStyle.IMMERSIVE -> 12.dp
+                },
+                vertical = when (style) {
+                    CastingStatusStyle.MINIMALIST -> 5.dp
+                    CastingStatusStyle.ETHEREAL -> 6.dp
+                    CastingStatusStyle.IMMERSIVE -> 6.dp
+                }
             ),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(
+                if (style == CastingStatusStyle.MINIMALIST) 6.dp else 5.dp
+            )
         ) {
             Icon(
                 imageVector = Icons.Rounded.CastConnected,
                 contentDescription = "Casting to $destination",
-                tint = MaterialTheme.colorScheme.primary,
+                tint = iconColor,
                 modifier = Modifier.size(14.dp)
             )
             Text(
                 text = "Casting to $destination",
-                color = contentColor.copy(alpha = 0.9f),
+                color = labelColor,
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

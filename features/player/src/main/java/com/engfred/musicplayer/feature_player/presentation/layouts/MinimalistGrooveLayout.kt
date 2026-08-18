@@ -137,41 +137,48 @@ fun MinimalistGrooveLayout(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            TopBar(
-                onNavigateUp = onNavigateUp,
-                currentSongIndex = currentSongIndex,
-                totalQueueSize = totalSongsInQueue,
-                onOpenQueue = {
-                    coroutineScope.launch { sheetState.show() }
-                    showQueueBottomSheet = true
-                },
-                selectedLayout = selectedLayout,
-                onLayoutSelected = onLayoutSelected,
-                isFavorite = uiState.isFavorite,
-                onToggleFavorite = {
-                    uiState.currentAudioFile?.let {
-                        if (uiState.isFavorite) {
-                            onEvent(PlayerEvent.RemoveFromFavorites(it.id))
-                        } else {
-                            onEvent(PlayerEvent.AddToFavorites(it))
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                TopBar(
+                    onNavigateUp = onNavigateUp,
+                    currentSongIndex = currentSongIndex,
+                    totalQueueSize = totalSongsInQueue,
+                    onOpenQueue = {
+                        coroutineScope.launch { sheetState.show() }
+                        showQueueBottomSheet = true
+                    },
+                    selectedLayout = selectedLayout,
+                    onLayoutSelected = onLayoutSelected,
+                    isFavorite = uiState.isFavorite,
+                    onToggleFavorite = {
+                        uiState.currentAudioFile?.let {
+                            if (uiState.isFavorite) {
+                                onEvent(PlayerEvent.RemoveFromFavorites(it.id))
+                            } else {
+                                onEvent(PlayerEvent.AddToFavorites(it))
+                            }
+                        }
+                        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    onShareAudio = {
+                        uiState.currentAudioFile?.let {
+                            shareAudioFile(context, it)
                         }
                     }
-                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                },
-                modifier = Modifier.fillMaxWidth(),
-                onShareAudio = {
-                    uiState.currentAudioFile?.let {
-                        shareAudioFile(context, it)
-                    }
-                }
-            )
+                )
 
-            CastingStatusPill(
-                visible = uiState.castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED,
-                deviceName = uiState.castDeviceName,
-                contentColor = MaterialTheme.colorScheme.onBackground,
-                style = CastingStatusStyle.MINIMALIST
-            )
+                Spacer(modifier = Modifier.height(18.dp))
+
+                CastingStatusPill(
+                    visible = uiState.castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED,
+                    deviceName = uiState.castDeviceName,
+                    contentColor = MaterialTheme.colorScheme.onBackground,
+                    style = CastingStatusStyle.MINIMALIST
+                )
+            }
 
             if (isLandscape) {
                 val artAndControlsSpacing = if (isTablet) 80.dp else 48.dp

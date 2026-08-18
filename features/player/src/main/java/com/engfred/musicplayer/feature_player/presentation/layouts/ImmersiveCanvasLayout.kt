@@ -332,7 +332,7 @@ fun ImmersiveCanvasLayout(
                     style = CastingStatusStyle.IMMERSIVE,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .offset(y = 72.dp)
+                        .offset(y = 96.dp)
                 )
 
                 // Translucent Frosted Glass Control Card at bottom
@@ -550,6 +550,9 @@ fun ImmersiveCanvasLayout(
                             onLayoutSelected = onLayoutSelected,
                             dynamicContentColor = Color.White,
                         )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
                         CastingStatusPill(
                             visible = uiState.castState == com.engfred.musicplayer.core.domain.model.CastState.CONNECTED,
                             deviceName = uiState.castDeviceName,
