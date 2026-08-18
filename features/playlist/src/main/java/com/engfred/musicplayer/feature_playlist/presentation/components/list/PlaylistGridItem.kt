@@ -1,6 +1,5 @@
 package com.engfred.musicplayer.feature_playlist.presentation.components.list
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -39,14 +37,12 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.engfred.musicplayer.core.domain.model.Playlist
 import com.engfred.musicplayer.core.util.TextUtils
-import com.engfred.musicplayer.feature_playlist.R
 import com.engfred.musicplayer.feature_playlist.presentation.components.DeleteConfirmationDialog
 import com.engfred.musicplayer.feature_playlist.utils.findFirstAlbumArtUri
 import com.skydoves.landscapist.ImageOptions
@@ -107,28 +103,13 @@ fun PlaylistGridItem(
                         )
                     },
                     failure = {
-                        Icon(
-                            imageVector = Icons.Rounded.MusicNote,
-                            contentDescription = "No album art available",
-                            tint = Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.size(36.dp)
-                        )
+                        PlaylistGridArtworkPlaceholder()
                     }
                 )
             } else if (!isDeletable) {
-                Image(
-                    painter = painterResource(id = R.drawable.favorites),
-                    contentDescription = "Favorites",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
+                PlaylistGridArtworkPlaceholder()
             } else {
-                Icon(
-                    imageVector = Icons.Rounded.MusicNote,
-                    contentDescription = "No album art available",
-                    tint = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.size(36.dp)
-                )
+                PlaylistGridArtworkPlaceholder()
             }
 
             if (isDeletable) {

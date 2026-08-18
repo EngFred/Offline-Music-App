@@ -13,9 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -84,21 +81,11 @@ fun AutomaticPlaylistItem(
                         )
                     },
                     failure = {
-                        Icon(
-                            imageVector = Icons.Rounded.MusicNote,
-                            contentDescription = "No album art available",
-                            tint = Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.size(36.dp)
-                        )
+                        PlaylistGridArtworkPlaceholder()
                     }
                 )
             } else {
-                Icon(
-                    imageVector = Icons.Rounded.MusicNote,
-                    contentDescription = "No album art available",
-                    tint = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.size(36.dp)
-                )
+                PlaylistGridArtworkPlaceholder()
             }
         }
 

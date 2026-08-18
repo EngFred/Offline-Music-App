@@ -1,6 +1,5 @@
 package com.engfred.musicplayer.feature_playlist.presentation.components.list
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,7 +17,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -37,7 +35,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -45,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.engfred.musicplayer.core.domain.model.Playlist
 import com.engfred.musicplayer.core.util.TextUtils
-import com.engfred.musicplayer.feature_playlist.R
 import com.engfred.musicplayer.feature_playlist.presentation.components.DeleteConfirmationDialog
 import com.engfred.musicplayer.feature_playlist.utils.findFirstAlbumArtUri
 import com.engfred.musicplayer.feature_playlist.utils.formatDate
@@ -100,28 +96,13 @@ fun PlaylistListItem(
                             )
                         },
                         failure = {
-                            Icon(
-                                imageVector = Icons.Rounded.MusicNote,
-                                contentDescription = "No album art available",
-                                tint = Color.White.copy(alpha = 0.6f),
-                                modifier = Modifier.size(28.dp)
-                            )
+                            PlaylistListArtworkPlaceholder()
                         }
                     )
                 } else if (!isDeletable) {
-                    Image(
-                        painter = painterResource(id = R.drawable.favorites),
-                        contentDescription = "Favorites",
-                        modifier = Modifier.size(56.dp),
-                        contentScale = ContentScale.Crop
-                    )
+                    PlaylistListArtworkPlaceholder()
                 } else {
-                    Icon(
-                        imageVector = Icons.Rounded.MusicNote,
-                        contentDescription = "No album art available",
-                        tint = Color.White.copy(alpha = 0.6f),
-                        modifier = Modifier.size(28.dp)
-                    )
+                    PlaylistListArtworkPlaceholder()
                 }
             }
 
