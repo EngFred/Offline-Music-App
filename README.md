@@ -1,4 +1,4 @@
-# Music - Modern Offline Media Player
+# F-Player - Modern Offline Media Player
 
 ![Android](https://img.shields.io/badge/Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
@@ -13,7 +13,7 @@
 A test APK is available for download via the GitHub Releases section.
 👉 You can find the latest build under **Releases** on this repository to try out the app without building it locally.
 
-**Music** is a modern, modularized media player built with **Kotlin** and **Jetpack Compose**, focused on local audio and video playback with a polished offline-first experience.
+**F-Player** is a modern, modularized media player built with **Kotlin** and **Jetpack Compose**, focused on local audio and video playback with a polished offline-first experience.
 
 Designed with **Clean Architecture** principles, it features a robust playback engine powered by **Media3 (ExoPlayer)**, Google Cast support for both audio and video, seamless modular navigation, and advanced features like audio trimming and tag editing. This project serves as a showcase for modern Android development best practices.
 
@@ -48,7 +48,7 @@ Designed with **Clean Architecture** principles, it features a robust playback e
 
 ## Project Overview
 
-Music is an offline-first media player focused on a clean, modular architecture. It showcases:
+F-Player is an offline-first media player focused on a clean, modular architecture. It showcases:
 
 * Feature-first modularization (each feature lives in its own Gradle module).
 * Clean Architecture (data, domain, presentation layers per feature).
