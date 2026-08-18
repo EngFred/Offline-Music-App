@@ -1,0 +1,16 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /Volumes/DevStorage/development/MusicPlayer/features/video/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest15714269482275049437.xml:2:13-83
+INJECTED from /Volumes/DevStorage/development/MusicPlayer/features/video/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest15714269482275049437.xml:2:13-83
+	package
+		INJECTED from /Volumes/DevStorage/development/MusicPlayer/features/video/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest15714269482275049437.xml
+	xmlns:android
+		ADDED from /Volumes/DevStorage/development/MusicPlayer/features/video/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest15714269482275049437.xml:2:23-81
+uses-sdk
+INJECTED from /Volumes/DevStorage/development/MusicPlayer/features/video/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest15714269482275049437.xml reason: use-sdk injection requested
+INJECTED from /Volumes/DevStorage/development/MusicPlayer/features/video/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest15714269482275049437.xml
+INJECTED from /Volumes/DevStorage/development/MusicPlayer/features/video/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest15714269482275049437.xml
+	android:targetSdkVersion
+		INJECTED from /Volumes/DevStorage/development/MusicPlayer/features/video/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest15714269482275049437.xml
+	android:minSdkVersion
+		INJECTED from /Volumes/DevStorage/development/MusicPlayer/features/video/build/intermediates/tmp/ProcessLibraryManifest/release/tempAndroidManifest15714269482275049437.xml

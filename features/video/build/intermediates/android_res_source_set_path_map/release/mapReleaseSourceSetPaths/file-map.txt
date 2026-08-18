@@ -1,0 +1,9 @@
+com.engfred.musicplayer.feature_video-pngs-0 /Volumes/DevStorage/development/MusicPlayer/features/video/build/generated/res/pngs/release
+com.engfred.musicplayer.feature_video-resValues-1 /Volumes/DevStorage/development/MusicPlayer/features/video/build/generated/res/resValues/release
+com.engfred.musicplayer.feature_video-updated_navigation_xml-2 /Volumes/DevStorage/development/MusicPlayer/features/video/build/generated/updated_navigation_xml/release
+com.engfred.musicplayer.feature_video-mergeReleaseResources-3 /Volumes/DevStorage/development/MusicPlayer/features/video/build/intermediates/incremental/release/mergeReleaseResources/merged.dir
+com.engfred.musicplayer.feature_video-mergeReleaseResources-4 /Volumes/DevStorage/development/MusicPlayer/features/video/build/intermediates/incremental/release/mergeReleaseResources/stripped.dir
+com.engfred.musicplayer.feature_video-release-5 /Volumes/DevStorage/development/MusicPlayer/features/video/build/intermediates/merged_res/release/mergeReleaseResources
+com.engfred.musicplayer.feature_video-release-6 /Volumes/DevStorage/development/MusicPlayer/features/video/build/intermediates/packaged_res/release/packageReleaseResources
+com.engfred.musicplayer.feature_video-main-7 /Volumes/DevStorage/development/MusicPlayer/features/video/src/main/res
+com.engfred.musicplayer.feature_video-release-8 /Volumes/DevStorage/development/MusicPlayer/features/video/src/release/res

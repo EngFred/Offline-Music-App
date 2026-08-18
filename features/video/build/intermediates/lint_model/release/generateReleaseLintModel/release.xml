@@ -1,0 +1,32 @@
+<variant
+    name="release"
+    package="com.engfred.musicplayer.feature_video"
+    minSdkVersion="24"
+    targetSdkVersion="24"
+    mergedManifest="build/intermediates/merged_manifest/release/processReleaseManifest/AndroidManifest.xml"
+    manifestMergeReport="build/outputs/logs/manifest-merger-release-report.txt"
+    proguardFiles="build/intermediates/default_proguard_files/global/proguard-android-optimize.txt-9.1.0:proguard-rules.pro"
+    consumerProguardFiles="consumer-rules.pro"
+    partialResultsDir="build/intermediates/lint_partial_results/release/lintAnalyzeRelease/out">
+  <buildFeatures/>
+  <sourceProviders>
+    <sourceProvider
+        manifests="src/main/AndroidManifest.xml"
+        javaDirectories="src/main/java:src/release/java:src/main/kotlin:src/release/kotlin"
+        resDirectories="src/main/res:src/release/res"
+        assetsDirectories="src/main/assets:src/release/assets"
+        keepRulesDirectories="src/main/keepRules:src/release/keepRules"/>
+  </sourceProviders>
+  <testSourceProviders>
+  </testSourceProviders>
+  <testFixturesSourceProviders>
+  </testFixturesSourceProviders>
+  <artifact
+      classOutputs="build/intermediates/javac/release/compileReleaseJavaWithJavac/classes:build/tmp/kotlin-classes/release:build/generated/ksp/release/resources:build/intermediates/compile_r_class_jar/release/generateReleaseRFile/R.jar"
+      type="MAIN"
+      applicationId="com.engfred.musicplayer.feature_video"
+      generatedSourceFolders="build/generated/ksp/release/java/hilt_aggregated_deps/_com_engfred_musicplayer_feature_video_presentation_viewmodel_VideoLibraryViewModel_HiltModules_BindsModule.java:build/generated/ksp/release/java/hilt_aggregated_deps/_com_engfred_musicplayer_feature_video_presentation_viewmodel_VideoLibraryViewModel_HiltModules_KeyModule.java:build/generated/ksp/release/java/hilt_aggregated_deps/_com_engfred_musicplayer_feature_video_di_VideoModule.java:build/generated/ksp/release/java/hilt_aggregated_deps/_com_engfred_musicplayer_feature_video_presentation_viewmodel_VideoPlayerViewModel_HiltModules_BindsModule.java:build/generated/ksp/release/java/hilt_aggregated_deps/_com_engfred_musicplayer_feature_video_presentation_viewmodel_VideoPlayerViewModel_HiltModules_KeyModule.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/di/VideoModule_ProvideVideoContentResolverDataSourceFactory.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/di/VideoModule_ProvideVideoPlaybackControllerFactory.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/di/VideoModule_ProvideVideoRepositoryFactory.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/data/repository/VideoRepositoryImpl_Factory.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/data/repository/VideoPlaybackControllerImpl_Factory.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/data/source/local/VideoContentResolverDataSource_Factory.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/presentation/viewmodel/VideoLibraryViewModel_Factory.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/presentation/viewmodel/VideoLibraryViewModel_HiltModules_KeyModule_Provide_LazyMapKey.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/presentation/viewmodel/VideoLibraryViewModel_HiltModules_BindsModule_Binds_LazyMapKey.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/presentation/viewmodel/VideoPlayerViewModel_HiltModules_KeyModule_ProvideFactory.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/presentation/viewmodel/VideoPlayerViewModel_HiltModules.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/presentation/viewmodel/VideoLibraryViewModel_HiltModules_KeyModule_ProvideFactory.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/presentation/viewmodel/VideoLibraryViewModel_HiltModules.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/presentation/viewmodel/VideoPlayerViewModel_HiltModules_KeyModule_Provide_LazyMapKey.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/presentation/viewmodel/VideoPlayerViewModel_HiltModules_BindsModule_Binds_LazyMapKey.java:build/generated/ksp/release/java/com/engfred/musicplayer/feature_video/presentation/viewmodel/VideoPlayerViewModel_Factory.java:build/generated/ksp/release/kotlin:build/generated/ap_generated_sources/release/out"
+      generatedResourceFolders="build/generated/res/resValues/release"
+      desugaredMethodsFiles="/Volumes/DevStorage/gradle/caches/9.3.1/transforms/5a3dffeccd123996a606c9139f98e2de/transformed/D8BackportedDesugaredMethods.txt">
+  </artifact>
+</variant>
