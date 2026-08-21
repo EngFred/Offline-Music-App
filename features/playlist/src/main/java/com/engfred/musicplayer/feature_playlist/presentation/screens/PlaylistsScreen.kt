@@ -125,6 +125,14 @@ fun PlaylistsScreen(
                         .padding(top = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    Text(
+                        text = "Playlists",
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(horizontal = 24.dp)
+                    )
+
                     // 1. Shimmer Automatic Playlists (Row)
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -231,6 +239,16 @@ fun PlaylistsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
+                    item {
+                        Text(
+                            text = "Playlists",
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
+                    }
+
                     // Automatic playlists row (unchanged)
                     if (uiState.automaticPlaylists.isNotEmpty()) {
                         item {

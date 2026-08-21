@@ -101,6 +101,7 @@ fun VideoPlayerScreen(
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val isImmersivePlayback = isLandscape || uiState.isFullscreen
 
     // Show resume toast if video resumed from a previous timestamp
     LaunchedEffect(uiState.resumeMessage) {
@@ -111,13 +112,13 @@ fun VideoPlayerScreen(
     }
 
     // Keep screen ON and manage System Bars visibility for true full-screen in landscape
-    DisposableEffect(isLandscape) {
+    DisposableEffect(isImmersivePlayback) {
         val activity = context.findActivity()
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val window = activity?.window
         if (window != null) {
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
-            if (isLandscape) {
+            if (isImmersivePlayback) {
                 insetsController.systemBarsBehavior =
                     WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 insetsController.hide(WindowInsetsCompat.Type.systemBars())
@@ -136,7 +137,9 @@ fun VideoPlayerScreen(
 
     // Smart Back Handler: If in landscape, exit landscape to portrait first.
     BackHandler {
-        if (isLandscape) {
+        if (uiState.isFullscreen && !isLandscape) {
+            viewModel.onEvent(VideoPlayerEvent.SetFullscreen(false))
+        } else if (isLandscape) {
             val activity = context.findActivity()
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         } else {
@@ -145,7 +148,9 @@ fun VideoPlayerScreen(
     }
 
     val handleBackAction: () -> Unit = {
-        if (isLandscape) {
+        if (uiState.isFullscreen && !isLandscape) {
+            viewModel.onEvent(VideoPlayerEvent.SetFullscreen(false))
+        } else if (isLandscape) {
             val activity = context.findActivity()
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         } else {
@@ -157,8 +162,8 @@ fun VideoPlayerScreen(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
-        if (isLandscape) {
-            // ── Full-Screen Landscape View (100% video display, hidden system bars) ──
+        if (isImmersivePlayback) {
+            // ── Immersive View (landscape for wide media, portrait for tall media) ──
             Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                 VideoPlayerSurface(
                     uiState = uiState,
@@ -179,7 +184,7 @@ fun VideoPlayerScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
+                        .aspectRatio(16f / 10f)
                         .background(Color.Black)
                 ) {
                     VideoPlayerSurface(

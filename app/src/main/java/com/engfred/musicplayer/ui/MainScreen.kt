@@ -1,6 +1,11 @@
 package com.engfred.musicplayer.ui
 
 import android.widget.Toast
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -119,33 +124,7 @@ fun MainScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            val navBackStackEntry by bottomNavController.currentBackStackEntryAsState()
-            val currentDestination = navBackStackEntry?.destination
-
-            val isOnLibrary  = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Library.baseRoute   } == true
-            val isOnPlaylist = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Playlists.baseRoute  } == true
-            val isOnVideos   = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Videos.baseRoute     } == true
-            val isOnSettings = currentDestination?.hierarchy?.any { it.route == AppDestinations.BottomNavItem.Settings.baseRoute   } == true
-
-            if (!isOnLibrary && !isOnVideos) {
-                val mainTitle = when {
-                    isOnPlaylist -> AppDestinations.BottomNavItem.Playlists.label
-                    isOnSettings -> AppDestinations.BottomNavItem.Settings.label
-                    else         -> "Music"
-                }
-
-                Box(modifier = Modifier.statusBarsPadding()) {
-                    CustomTopBar(
-                        modifier = Modifier.padding(start = 10.dp),
-                        title = mainTitle,
-                        subtitle = null,
-                        showNavigationIcon = false,
-                        onNavigateBack = null,
-                    )
-                }
-            } else {
-                Spacer(modifier = Modifier.statusBarsPadding())
-            }
+            Spacer(modifier = Modifier.statusBarsPadding())
         },
         bottomBar = {
             Column(
@@ -239,7 +218,47 @@ fun MainScreen(
             startDestination = AppDestinations.BottomNavItem.Library.baseRoute,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(innerPadding),
+            enterTransition = {
+                val direction = bottomNavSlideDirection(
+                    initialState.destination.route,
+                    targetState.destination.route
+                )
+                slideInHorizontally(
+                    animationSpec = tween(durationMillis = 240),
+                    initialOffsetX = { fullWidth -> fullWidth * direction }
+                ) + fadeIn(animationSpec = tween(durationMillis = 180))
+            },
+            exitTransition = {
+                val direction = bottomNavSlideDirection(
+                    initialState.destination.route,
+                    targetState.destination.route
+                )
+                slideOutHorizontally(
+                    animationSpec = tween(durationMillis = 240),
+                    targetOffsetX = { fullWidth -> -fullWidth * direction / 3 }
+                ) + fadeOut(animationSpec = tween(durationMillis = 140))
+            },
+            popEnterTransition = {
+                val direction = bottomNavSlideDirection(
+                    initialState.destination.route,
+                    targetState.destination.route
+                )
+                slideInHorizontally(
+                    animationSpec = tween(durationMillis = 240),
+                    initialOffsetX = { fullWidth -> fullWidth * direction }
+                ) + fadeIn(animationSpec = tween(durationMillis = 180))
+            },
+            popExitTransition = {
+                val direction = bottomNavSlideDirection(
+                    initialState.destination.route,
+                    targetState.destination.route
+                )
+                slideOutHorizontally(
+                    animationSpec = tween(durationMillis = 240),
+                    targetOffsetX = { fullWidth -> -fullWidth * direction / 3 }
+                ) + fadeOut(animationSpec = tween(durationMillis = 140))
+            }
         ) {
             composable(AppDestinations.BottomNavItem.Library.baseRoute) {
                 LibraryScreen(
@@ -265,5 +284,21 @@ fun MainScreen(
                 )
             }
         }
+    }
+}
+
+private fun bottomNavSlideDirection(fromRoute: String?, toRoute: String?): Int {
+    val fromIndex = bottomNavRouteIndex(fromRoute)
+    val toIndex = bottomNavRouteIndex(toRoute)
+    return if (toIndex >= fromIndex) 1 else -1
+}
+
+private fun bottomNavRouteIndex(route: String?): Int {
+    return when (route) {
+        AppDestinations.BottomNavItem.Library.baseRoute -> 0
+        AppDestinations.BottomNavItem.Playlists.baseRoute -> 1
+        AppDestinations.BottomNavItem.Videos.baseRoute -> 2
+        AppDestinations.BottomNavItem.Settings.baseRoute -> 3
+        else -> 0
     }
 }

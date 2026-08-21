@@ -21,6 +21,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.core.graphics.scale
 import com.engfred.musicplayer.core.domain.model.AudioFile
+import com.engfred.musicplayer.core.domain.model.VideoFile
 import com.engfred.musicplayer.core.domain.usecases.PermissionHandlerUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -166,6 +167,75 @@ object MediaUtils {
             }
         } catch (e: Exception) {
             val message = "Error initiating batch deletion: ${e.message}"
+            Log.e(TAG, message, e)
+            onPreQDeletionResult(false, message)
+            return null
+        }
+    }
+
+    /**
+     * Deletes a video file from device storage using the same MediaStore flow as audio deletion.
+     */
+    fun deleteVideoFile(
+        context: Context,
+        videoFile: VideoFile,
+        onPreQDeletionResult: (Boolean, String?) -> Unit
+    ): IntentSender? {
+        return deleteVideoFiles(context, listOf(videoFile), onPreQDeletionResult)
+    }
+
+    /**
+     * Deletes multiple video files from device storage. Android Q+ returns an IntentSender
+     * so the system can ask the user for scoped-storage consent.
+     */
+    fun deleteVideoFiles(
+        context: Context,
+        videoFiles: List<VideoFile>,
+        onPreQDeletionResult: (Boolean, String?) -> Unit
+    ): IntentSender? {
+        if (videoFiles.isEmpty()) {
+            onPreQDeletionResult(false, "No videos to delete")
+            return null
+        }
+
+        val contentUris = videoFiles.map {
+            ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, it.id)
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, contentUris)
+                return pendingIntent.intentSender
+            } else {
+                var allSuccess = true
+                val failedFiles = mutableListOf<String>()
+                videoFiles.forEach { videoFile ->
+                    val uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, videoFile.id)
+                    try {
+                        val rowsDeleted = context.contentResolver.delete(uri, null, null)
+                        if (rowsDeleted > 0) {
+                            Log.d(TAG, "Successfully deleted video: ${videoFile.title}")
+                        } else {
+                            allSuccess = false
+                            failedFiles.add(videoFile.title)
+                            Log.w(TAG, "Failed to delete video: ${videoFile.title}")
+                        }
+                    } catch (e: Exception) {
+                        allSuccess = false
+                        failedFiles.add(videoFile.title)
+                        Log.e(TAG, "Error deleting video ${videoFile.title}: ${e.message}", e)
+                    }
+                }
+                if (allSuccess) {
+                    onPreQDeletionResult(true, null)
+                } else {
+                    val message = "Failed to delete ${failedFiles.size} out of ${videoFiles.size} videos: ${failedFiles.joinToString()}"
+                    onPreQDeletionResult(false, message)
+                }
+                return null
+            }
+        } catch (e: Exception) {
+            val message = "Error initiating video deletion: ${e.message}"
             Log.e(TAG, message, e)
             onPreQDeletionResult(false, message)
             return null

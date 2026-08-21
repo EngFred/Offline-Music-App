@@ -114,11 +114,16 @@ private fun ArtworkContent(albumArtUri: Any?) {
                 )
             },
             loading = {
-                CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                    strokeWidth = 3.dp,
-                    modifier = Modifier.size(36.dp)
-                )
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                        strokeWidth = 2.5.dp,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
         )
     } else {

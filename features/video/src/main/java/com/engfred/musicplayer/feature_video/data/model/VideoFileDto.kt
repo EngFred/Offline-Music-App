@@ -12,6 +12,8 @@ data class VideoFileDto(
     val uri: Uri,
     val thumbnailUri: Uri? = null,
     val resolution: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
     val size: Long? = null,
     val dateAdded: Long = 0L,
     val dateModified: Long = 0L,

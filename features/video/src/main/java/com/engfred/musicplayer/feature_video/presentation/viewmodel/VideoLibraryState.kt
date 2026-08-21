@@ -23,5 +23,7 @@ data class VideoLibraryState(
     val castState: CastState = CastState.DISCONNECTED,
     val selectedFolder: String? = null,
     val availableFolders: List<String> = emptyList(),
+    val videoFileToDelete: VideoFile? = null,
+    val showDeleteConfirmationDialog: Boolean = false,
     val error: String? = null
 )

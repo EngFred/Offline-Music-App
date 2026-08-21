@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.CastConnected
 import androidx.compose.material.icons.rounded.FitScreen
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Pause
@@ -101,7 +102,7 @@ fun VideoPlayerControls(
             Column(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .offset(y = (-46).dp)
+                    .offset(y = if (isLandscape) (-46).dp else 0.dp)
                     .padding(horizontal = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
@@ -445,19 +446,31 @@ fun VideoPlayerControls(
                             IconButton(
                                 onClick = {
                                     val activity = context.findActivity()
-                                    if (activity != null) {
-                                        activity.requestedOrientation = if (isLandscape) {
-                                            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                        } else {
-                                            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                    when {
+                                        isLandscape && activity != null -> {
+                                            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                        }
+                                        state.videoFile?.isPortraitVideo() == true -> {
+                                            onEvent(VideoPlayerEvent.SetFullscreen(!state.isFullscreen))
+                                        }
+                                        activity != null -> {
+                                            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                                         }
                                     }
                                 },
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Rounded.ScreenRotation,
-                                    contentDescription = "Rotate Screen",
+                                    imageVector = when {
+                                        state.isFullscreen && !isLandscape -> Icons.Rounded.FullscreenExit
+                                        state.videoFile?.isPortraitVideo() == true && !isLandscape -> Icons.Rounded.Fullscreen
+                                        else -> Icons.Rounded.ScreenRotation
+                                    },
+                                    contentDescription = when {
+                                        state.isFullscreen && !isLandscape -> "Exit Fullscreen"
+                                        state.videoFile?.isPortraitVideo() == true && !isLandscape -> "Fullscreen"
+                                        else -> "Rotate Screen"
+                                    },
                                     tint = Color.White,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -591,4 +604,19 @@ private fun Context.findActivity(): Activity? {
         ctx = ctx.baseContext
     }
     return null
+}
+
+private fun com.engfred.musicplayer.core.domain.model.VideoFile.isPortraitVideo(): Boolean {
+    val measuredWidth = width
+    val measuredHeight = height
+    if (measuredWidth != null && measuredHeight != null) {
+        return measuredHeight > measuredWidth
+    }
+
+    val dimensions = resolution
+        ?.lowercase(Locale.getDefault())
+        ?.split("x", "×")
+        ?.mapNotNull { it.trim().toIntOrNull() }
+
+    return dimensions?.takeIf { it.size == 2 }?.let { (w, h) -> h > w } == true
 }

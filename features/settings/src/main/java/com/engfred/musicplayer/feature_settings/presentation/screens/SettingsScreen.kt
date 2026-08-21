@@ -85,6 +85,13 @@ fun SettingsScreen(
             .padding(top = 8.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
+        Text(
+            text = "Settings",
+            style = MaterialTheme.typography.headlineLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(horizontal = 24.dp)
+        )
+
         if (uiState.error != null) {
             Surface(
                 modifier = Modifier

@@ -54,6 +54,8 @@ class VideoRepositoryImpl @Inject constructor(
             uri = uri,
             thumbnailUri = thumbnailUri,
             resolution = resolution,
+            width = width,
+            height = height,
             size = size,
             dateAdded = dateAdded,
             dateModified = dateModified,

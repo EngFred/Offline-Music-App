@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cast
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.DropdownMenu
@@ -55,6 +56,7 @@ fun VideoFileItem(
     videoFile: VideoFile,
     onClick: () -> Unit,
     onCastVideo: ((VideoFile) -> Unit)? = null,
+    onDeleteVideo: ((VideoFile) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -214,6 +216,24 @@ fun VideoFileItem(
                                 onClick = {
                                     menuExpanded = false
                                     onCastVideo(videoFile)
+                                }
+                            )
+                        }
+
+                        if (onDeleteVideo != null) {
+                            DropdownMenuItem(
+                                text = { Text("Delete Video", fontSize = 13.5.sp) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Delete,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDeleteVideo(videoFile)
                                 }
                             )
                         }

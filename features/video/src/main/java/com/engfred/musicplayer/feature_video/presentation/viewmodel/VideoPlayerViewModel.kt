@@ -23,6 +23,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+private const val MIN_RESUMABLE_VIDEO_DURATION_MS = 60_000L
+private const val MIN_RESUME_POSITION_MS = 5_000L
+private const val MAX_RESUME_FRACTION = 0.95
+
 sealed interface VideoPlayerEvent {
     data object TogglePlayPause : VideoPlayerEvent
     data class SeekTo(val positionMs: Long) : VideoPlayerEvent
@@ -170,12 +174,17 @@ class VideoPlayerViewModel @Inject constructor(
             }
             is VideoPlayerEvent.SelectVideo -> {
                 saveCurrentPosition()
-                _uiState.update { it.copy(videoFile = event.video) }
+                _uiState.update { current ->
+                    current.copy(
+                        videoFile = event.video,
+                        relatedVideos = current.relatedVideos.filter { it.id != event.video.id }
+                    )
+                }
                 viewModelScope.launch {
                     val savedPos = settingsRepository.getVideoPlaybackPosition(event.video.id)
-                    val resumePos = if (savedPos > 5000L && (event.video.duration <= 0 || savedPos < event.video.duration * 0.95)) savedPos else 0L
+                    val resumePos = resolveResumePosition(event.video, savedPos)
                     if (resumePos > 0) {
-                        _uiState.update { it.copy(resumeMessage = "Resumed from ${formatTime(resumePos)}") }
+                        _uiState.update { it.copy(resumeMessage = "Resuming from ${formatTime(resumePos)}...") }
                     }
                     startVideoPlayback(event.video, resumePos)
                     resetControlsTimer()
@@ -212,6 +221,7 @@ class VideoPlayerViewModel @Inject constructor(
 
     private fun saveCurrentPosition() {
         val video = _uiState.value.videoFile ?: return
+        if (video.duration in 1 until MIN_RESUMABLE_VIDEO_DURATION_MS) return
         val pos = _uiState.value.playbackState.currentPositionMs
         if (pos > 3000L) {
             viewModelScope.launch {
@@ -220,13 +230,26 @@ class VideoPlayerViewModel @Inject constructor(
         }
     }
 
+    private fun resolveResumePosition(video: VideoFile, savedPositionMs: Long): Long {
+        if (video.duration in 1 until MIN_RESUMABLE_VIDEO_DURATION_MS) return 0L
+        val hasUsefulPosition = savedPositionMs > MIN_RESUME_POSITION_MS
+        val isBeforeEnding = video.duration <= 0 ||
+            savedPositionMs < (video.duration * MAX_RESUME_FRACTION).toLong()
+        return if (hasUsefulPosition && isBeforeEnding) savedPositionMs else 0L
+    }
+
     private fun loadVideoById(id: Long) {
         viewModelScope.launch {
             when (val res = videoRepository.getVideoById(id)) {
                 is Resource.Success -> {
                     val video = res.data
                     if (video != null) {
-                        _uiState.update { it.copy(videoFile = video) }
+                        _uiState.update { current ->
+                            current.copy(
+                                videoFile = video,
+                                relatedVideos = current.relatedVideos.filter { it.id != video.id }
+                            )
+                        }
                         val castState = videoCastManager.videoCastPlaybackState.value
                         val alreadyCasting = videoCastManager.isConnected()
                             && videoCastManager.isCurrentMediaVideo()
@@ -244,9 +267,9 @@ class VideoPlayerViewModel @Inject constructor(
                             }
                         } else {
                             val savedPos = settingsRepository.getVideoPlaybackPosition(video.id)
-                            val resumePos = if (savedPos > 5000L && (video.duration <= 0 || savedPos < video.duration * 0.95)) savedPos else 0L
+                            val resumePos = resolveResumePosition(video, savedPos)
                             if (resumePos > 0) {
-                                _uiState.update { it.copy(resumeMessage = "Resumed from ${formatTime(resumePos)}") }
+                                _uiState.update { it.copy(resumeMessage = "Resuming from ${formatTime(resumePos)}...") }
                             }
                             startVideoPlayback(video, resumePos)
                         }
@@ -267,7 +290,12 @@ class VideoPlayerViewModel @Inject constructor(
                 is Resource.Success -> {
                     val video = res.data
                     if (video != null) {
-                        _uiState.update { it.copy(videoFile = video) }
+                        _uiState.update { current ->
+                            current.copy(
+                                videoFile = video,
+                                relatedVideos = current.relatedVideos.filter { it.id != video.id }
+                            )
+                        }
                         val castState = videoCastManager.videoCastPlaybackState.value
                         val alreadyCasting = videoCastManager.isConnected()
                             && videoCastManager.isCurrentMediaVideo()
@@ -285,9 +313,9 @@ class VideoPlayerViewModel @Inject constructor(
                             }
                         } else {
                             val savedPos = settingsRepository.getVideoPlaybackPosition(video.id)
-                            val resumePos = if (savedPos > 5000L && (video.duration <= 0 || savedPos < video.duration * 0.95)) savedPos else 0L
+                            val resumePos = resolveResumePosition(video, savedPos)
                             if (resumePos > 0) {
-                                _uiState.update { it.copy(resumeMessage = "Resumed from ${formatTime(resumePos)}") }
+                                _uiState.update { it.copy(resumeMessage = "Resuming from ${formatTime(resumePos)}...") }
                             }
                             startVideoPlayback(video, resumePos)
                         }
@@ -306,7 +334,12 @@ class VideoPlayerViewModel @Inject constructor(
                 thumbnailUri = null,
                 mimeType = sharedMimeType?.takeIf { it.isNotBlank() } ?: inferVideoMimeType(uri)
             )
-            _uiState.update { it.copy(videoFile = fallbackVideo) }
+            _uiState.update { current ->
+                current.copy(
+                    videoFile = fallbackVideo,
+                    relatedVideos = current.relatedVideos.filter { it.id != fallbackVideo.id }
+                )
+            }
             startVideoPlayback(fallbackVideo, 0L)
             resetControlsTimer()
         }

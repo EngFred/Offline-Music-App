@@ -36,7 +36,9 @@ class VideoContentResolverDataSource @Inject constructor(
         MediaStore.Video.Media.DATE_MODIFIED,
         MediaStore.Video.Media.MIME_TYPE,
         MediaStore.Video.Media.DATA,
-        MediaStore.Video.Media.BUCKET_DISPLAY_NAME
+        MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
+        MediaStore.Video.Media.WIDTH,
+        MediaStore.Video.Media.HEIGHT
     )
 
     fun getAllVideosFlow(): Flow<List<VideoFileDto>> = callbackFlow {
@@ -63,6 +65,8 @@ class VideoContentResolverDataSource @Inject constructor(
                     val mimeCol = it.getColumnIndexOrThrow(MediaStore.Video.Media.MIME_TYPE)
                     val dataCol = it.getColumnIndexOrThrow(MediaStore.Video.Media.DATA)
                     val bucketCol = it.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
+                    val widthCol = it.getColumnIndexOrThrow(MediaStore.Video.Media.WIDTH)
+                    val heightCol = it.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT)
 
                     while (it.moveToNext()) {
                         val id = it.getLong(idCol)
@@ -76,6 +80,8 @@ class VideoContentResolverDataSource @Inject constructor(
                         val mime = it.getString(mimeCol) ?: "video/*"
                         val dataPath = it.getString(dataCol)
                         val bucketName = it.getString(bucketCol)
+                        val width = it.getInt(widthCol).takeIf { value -> value > 0 }
+                        val height = it.getInt(heightCol).takeIf { value -> value > 0 }
 
                         val contentUri = ContentUris.withAppendedId(
                             MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
@@ -89,7 +95,9 @@ class VideoContentResolverDataSource @Inject constructor(
                                 duration = duration,
                                 uri = contentUri,
                                 thumbnailUri = contentUri, // Coil video decoder loads thumbnail directly from content URI
-                                resolution = null,
+                                resolution = formatResolution(width, height),
+                                width = width,
+                                height = height,
                                 size = size,
                                 dateAdded = dateAdded,
                                 dateModified = dateModified,
@@ -156,6 +164,8 @@ class VideoContentResolverDataSource @Inject constructor(
                     val mimeCol = it.getColumnIndexOrThrow(MediaStore.Video.Media.MIME_TYPE)
                     val dataCol = it.getColumnIndexOrThrow(MediaStore.Video.Media.DATA)
                     val bucketCol = it.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
+                    val widthCol = it.getColumnIndexOrThrow(MediaStore.Video.Media.WIDTH)
+                    val heightCol = it.getColumnIndexOrThrow(MediaStore.Video.Media.HEIGHT)
 
                     val id = it.getLong(idCol)
                     val rawTitle = it.getString(titleCol)
@@ -168,6 +178,8 @@ class VideoContentResolverDataSource @Inject constructor(
                     val mime = it.getString(mimeCol) ?: "video/*"
                     val dataPath = it.getString(dataCol)
                     val bucketName = it.getString(bucketCol)
+                    val width = it.getInt(widthCol).takeIf { value -> value > 0 }
+                    val height = it.getInt(heightCol).takeIf { value -> value > 0 }
 
                     val contentUri = ContentUris.withAppendedId(
                         MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
@@ -180,7 +192,9 @@ class VideoContentResolverDataSource @Inject constructor(
                         duration = duration,
                         uri = contentUri,
                         thumbnailUri = contentUri,
-                        resolution = null,
+                        resolution = formatResolution(width, height),
+                        width = width,
+                        height = height,
                         size = size,
                         dateAdded = dateAdded,
                         dateModified = dateModified,
@@ -197,5 +211,9 @@ class VideoContentResolverDataSource @Inject constructor(
         } finally {
             cursor?.close()
         }
+    }
+
+    private fun formatResolution(width: Int?, height: Int?): String? {
+        return if (width != null && height != null) "${width}x$height" else null
     }
 }
