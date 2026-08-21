@@ -84,6 +84,8 @@ import coil.request.videoFrameMillis
 import com.engfred.musicplayer.core.domain.model.VideoFile
 import com.engfred.musicplayer.core.ui.components.CastMediaRouteButton
 import com.engfred.musicplayer.feature_video.data.repository.VideoPlaybackControllerImpl
+import com.engfred.musicplayer.feature_video.presentation.components.SubtitleOverlay
+import com.engfred.musicplayer.feature_video.presentation.components.SubtitleSelectionDialog
 import com.engfred.musicplayer.feature_video.presentation.components.VideoPlayerControls
 import com.engfred.musicplayer.feature_video.presentation.viewmodel.VideoPlayerEvent
 import com.engfred.musicplayer.feature_video.presentation.viewmodel.VideoPlayerState
@@ -163,6 +165,20 @@ fun VideoPlayerScreen(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
+        // Subtitle selection dialog
+        if (uiState.showSubtitleDialog) {
+            SubtitleSelectionDialog(
+                availableTracks = uiState.availableSubtitleTracks,
+                selectedTrackId = uiState.playbackState.selectedSubtitleTrackId,
+                onTrackSelected = { trackId ->
+                    viewModel.onEvent(VideoPlayerEvent.SelectSubtitleTrack(trackId))
+                },
+                onDismiss = {
+                    viewModel.onEvent(VideoPlayerEvent.HideSubtitleDialog)
+                }
+            )
+        }
+        
         if (isImmersivePlayback) {
             // ── Immersive View (landscape for wide media, portrait for tall media) ──
             Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -176,6 +192,12 @@ fun VideoPlayerScreen(
                     state = uiState,
                     onEvent = viewModel::onEvent,
                     onNavigateBack = handleBackAction
+                )
+
+                // Subtitle overlay
+                SubtitleOverlay(
+                    subtitleText = uiState.playbackState.currentSubtitleText,
+                    modifier = Modifier.fillMaxSize()
                 )
             }
         } else {
@@ -199,6 +221,12 @@ fun VideoPlayerScreen(
                         state = uiState,
                         onEvent = viewModel::onEvent,
                         onNavigateBack = handleBackAction
+                    )
+
+                    // Subtitle overlay
+                    SubtitleOverlay(
+                        subtitleText = uiState.playbackState.currentSubtitleText,
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
 

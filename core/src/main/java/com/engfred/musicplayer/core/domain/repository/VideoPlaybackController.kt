@@ -1,6 +1,7 @@
 package com.engfred.musicplayer.core.domain.repository
 
 import android.net.Uri
+import com.engfred.musicplayer.core.domain.model.SubtitleTrack
 import com.engfred.musicplayer.core.domain.model.VideoPlaybackState
 import kotlinx.coroutines.flow.StateFlow
 
@@ -17,4 +18,9 @@ interface VideoPlaybackController {
     fun seekTo(positionMs: Long)
     fun setPlaybackSpeed(speed: Float)
     fun release()
+    
+    // Subtitle-related methods
+    fun setSubtitleTracks(tracks: List<SubtitleTrack>)
+    fun selectSubtitleTrack(trackId: String?)
+    fun getAvailableSubtitleTracks(): List<SubtitleTrack>
 }

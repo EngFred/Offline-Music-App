@@ -7,6 +7,7 @@ import com.engfred.musicplayer.core.domain.repository.PlaybackController;
 import com.engfred.musicplayer.core.domain.repository.SettingsRepository;
 import com.engfred.musicplayer.core.domain.repository.VideoPlaybackController;
 import com.engfred.musicplayer.core.domain.repository.VideoRepository;
+import com.engfred.musicplayer.feature_video.data.subtitle.SubtitleDiscoveryService;
 import dagger.internal.DaggerGenerated;
 import dagger.internal.Factory;
 import dagger.internal.Provider;
@@ -43,6 +44,8 @@ public final class VideoPlayerViewModel_Factory implements Factory<VideoPlayerVi
 
   private final Provider<ActivePlayerRegistry> activePlayerRegistryProvider;
 
+  private final Provider<SubtitleDiscoveryService> subtitleDiscoveryServiceProvider;
+
   private final Provider<SavedStateHandle> savedStateHandleProvider;
 
   private VideoPlayerViewModel_Factory(Provider<VideoRepository> videoRepositoryProvider,
@@ -51,6 +54,7 @@ public final class VideoPlayerViewModel_Factory implements Factory<VideoPlayerVi
       Provider<PlaybackController> musicPlaybackControllerProvider,
       Provider<VideoCastManager> videoCastManagerProvider,
       Provider<ActivePlayerRegistry> activePlayerRegistryProvider,
+      Provider<SubtitleDiscoveryService> subtitleDiscoveryServiceProvider,
       Provider<SavedStateHandle> savedStateHandleProvider) {
     this.videoRepositoryProvider = videoRepositoryProvider;
     this.settingsRepositoryProvider = settingsRepositoryProvider;
@@ -58,12 +62,13 @@ public final class VideoPlayerViewModel_Factory implements Factory<VideoPlayerVi
     this.musicPlaybackControllerProvider = musicPlaybackControllerProvider;
     this.videoCastManagerProvider = videoCastManagerProvider;
     this.activePlayerRegistryProvider = activePlayerRegistryProvider;
+    this.subtitleDiscoveryServiceProvider = subtitleDiscoveryServiceProvider;
     this.savedStateHandleProvider = savedStateHandleProvider;
   }
 
   @Override
   public VideoPlayerViewModel get() {
-    return newInstance(videoRepositoryProvider.get(), settingsRepositoryProvider.get(), videoPlaybackControllerProvider.get(), musicPlaybackControllerProvider.get(), videoCastManagerProvider.get(), activePlayerRegistryProvider.get(), savedStateHandleProvider.get());
+    return newInstance(videoRepositoryProvider.get(), settingsRepositoryProvider.get(), videoPlaybackControllerProvider.get(), musicPlaybackControllerProvider.get(), videoCastManagerProvider.get(), activePlayerRegistryProvider.get(), subtitleDiscoveryServiceProvider.get(), savedStateHandleProvider.get());
   }
 
   public static VideoPlayerViewModel_Factory create(
@@ -73,14 +78,16 @@ public final class VideoPlayerViewModel_Factory implements Factory<VideoPlayerVi
       Provider<PlaybackController> musicPlaybackControllerProvider,
       Provider<VideoCastManager> videoCastManagerProvider,
       Provider<ActivePlayerRegistry> activePlayerRegistryProvider,
+      Provider<SubtitleDiscoveryService> subtitleDiscoveryServiceProvider,
       Provider<SavedStateHandle> savedStateHandleProvider) {
-    return new VideoPlayerViewModel_Factory(videoRepositoryProvider, settingsRepositoryProvider, videoPlaybackControllerProvider, musicPlaybackControllerProvider, videoCastManagerProvider, activePlayerRegistryProvider, savedStateHandleProvider);
+    return new VideoPlayerViewModel_Factory(videoRepositoryProvider, settingsRepositoryProvider, videoPlaybackControllerProvider, musicPlaybackControllerProvider, videoCastManagerProvider, activePlayerRegistryProvider, subtitleDiscoveryServiceProvider, savedStateHandleProvider);
   }
 
   public static VideoPlayerViewModel newInstance(VideoRepository videoRepository,
       SettingsRepository settingsRepository, VideoPlaybackController videoPlaybackController,
       PlaybackController musicPlaybackController, VideoCastManager videoCastManager,
-      ActivePlayerRegistry activePlayerRegistry, SavedStateHandle savedStateHandle) {
-    return new VideoPlayerViewModel(videoRepository, settingsRepository, videoPlaybackController, musicPlaybackController, videoCastManager, activePlayerRegistry, savedStateHandle);
+      ActivePlayerRegistry activePlayerRegistry, SubtitleDiscoveryService subtitleDiscoveryService,
+      SavedStateHandle savedStateHandle) {
+    return new VideoPlayerViewModel(videoRepository, settingsRepository, videoPlaybackController, musicPlaybackController, videoCastManager, activePlayerRegistry, subtitleDiscoveryService, savedStateHandle);
   }
 }

@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.ScreenRotation
+import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -335,6 +336,28 @@ fun VideoPlayerControls(
                                     fontWeight = FontWeight.Bold
                                 )
                             }
+                        }
+
+                        // Subtitle Button
+                        IconButton(
+                            onClick = { onEvent(VideoPlayerEvent.ShowSubtitleDialog) },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            val hasSubtitles = state.playbackState.availableSubtitleTracks.isNotEmpty()
+                            Icon(
+                                imageVector = Icons.Rounded.Subtitles,
+                                contentDescription = "Subtitles",
+                                tint = if (hasSubtitles) {
+                                    if (state.playbackState.selectedSubtitleTrackId != null) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        Color.White
+                                    }
+                                } else {
+                                    Color.White.copy(alpha = 0.5f)
+                                },
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
 
                         // Cast Button (Transparent background, pure icon)

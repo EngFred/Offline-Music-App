@@ -1,6 +1,7 @@
 package com.engfred.musicplayer.feature_video.presentation.viewmodel
 
 import com.engfred.musicplayer.core.domain.model.CastState
+import com.engfred.musicplayer.core.domain.model.SubtitleTrack
 import com.engfred.musicplayer.core.domain.model.VideoFile
 import com.engfred.musicplayer.core.domain.model.VideoPlaybackState
 
@@ -24,5 +25,7 @@ data class VideoPlayerState(
     val error: String? = null,
     val relatedVideos: List<VideoFile> = emptyList(),
     val isFullscreen: Boolean = false,
-    val resumeMessage: String? = null
+    val resumeMessage: String? = null,
+    val showSubtitleDialog: Boolean = false,
+    val availableSubtitleTracks: List<SubtitleTrack> = emptyList()
 )

@@ -9,10 +9,12 @@ import com.engfred.musicplayer.core.domain.ActiveMediaType
 import com.engfred.musicplayer.core.domain.ActivePlayerRegistry
 import com.engfred.musicplayer.core.domain.cast.VideoCastManager
 import com.engfred.musicplayer.core.domain.model.CastState
+import com.engfred.musicplayer.core.domain.model.SubtitleTrack
 import com.engfred.musicplayer.core.domain.model.VideoFile
 import com.engfred.musicplayer.core.domain.repository.PlaybackController
 import com.engfred.musicplayer.core.domain.repository.VideoPlaybackController
 import com.engfred.musicplayer.core.domain.repository.VideoRepository
+import com.engfred.musicplayer.feature_video.data.subtitle.SubtitleDiscoveryService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -40,6 +42,9 @@ sealed interface VideoPlayerEvent {
     data class SelectVideo(val video: VideoFile) : VideoPlayerEvent
     data class SetFullscreen(val isFullscreen: Boolean) : VideoPlayerEvent
     data object ClearResumeMessage : VideoPlayerEvent
+    data class SelectSubtitleTrack(val trackId: String?) : VideoPlayerEvent
+    data object ShowSubtitleDialog : VideoPlayerEvent
+    data object HideSubtitleDialog : VideoPlayerEvent
 }
 
 @HiltViewModel
@@ -50,6 +55,7 @@ class VideoPlayerViewModel @Inject constructor(
     private val musicPlaybackController: PlaybackController,
     private val videoCastManager: VideoCastManager,
     private val activePlayerRegistry: ActivePlayerRegistry,
+    private val subtitleDiscoveryService: SubtitleDiscoveryService,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -191,6 +197,15 @@ class VideoPlayerViewModel @Inject constructor(
             }
             is VideoPlayerEvent.ClearResumeMessage -> {
                 _uiState.update { it.copy(resumeMessage = null) }
+            }
+            is VideoPlayerEvent.SelectSubtitleTrack -> {
+                selectSubtitleTrack(event.trackId)
+            }
+            is VideoPlayerEvent.ShowSubtitleDialog -> {
+                _uiState.update { it.copy(showSubtitleDialog = true) }
+            }
+            is VideoPlayerEvent.HideSubtitleDialog -> {
+                _uiState.update { it.copy(showSubtitleDialog = false) }
             }
         }
     }
@@ -361,7 +376,29 @@ class VideoPlayerViewModel @Inject constructor(
         } else if (videoPlaybackController.currentMediaUri != video.uri) {
             // Keep the existing player through configuration changes. Re-preparing
             // the same source would restart it and can surface an older player.
-            videoPlaybackController.prepare(video.uri, startPos, true)
+            viewModelScope.launch {
+                // Discover external subtitles before starting playback
+                val externalSubtitles = subtitleDiscoveryService.findMatchingSubtitlesWithLanguage(video.uri)
+                
+                // Set subtitle tracks in the controller
+                videoPlaybackController.setSubtitleTracks(externalSubtitles)
+                
+                // Update UI state with available subtitle tracks
+                _uiState.update { it.copy(availableSubtitleTracks = externalSubtitles) }
+                
+                // Prepare the video with subtitle tracks
+                videoPlaybackController.prepare(video.uri, startPos, true)
+            }
+        }
+    }
+
+    private fun selectSubtitleTrack(trackId: String?) {
+        videoPlaybackController.selectSubtitleTrack(trackId)
+        _uiState.update { 
+            it.copy(
+                playbackState = it.playbackState.copy(selectedSubtitleTrackId = trackId),
+                showSubtitleDialog = false
+            )
         }
     }
 
@@ -376,7 +413,12 @@ class VideoPlayerViewModel @Inject constructor(
         viewModelScope.launch {
             videoPlaybackController.playbackState.collect { pbState ->
                 if (!videoCastManager.isConnected()) {
-                    _uiState.update { it.copy(playbackState = pbState) }
+                    _uiState.update { 
+                        it.copy(
+                            playbackState = pbState,
+                            availableSubtitleTracks = pbState.availableSubtitleTracks
+                        )
+                    }
                 }
             }
         }

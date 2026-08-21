@@ -11,5 +11,8 @@ data class VideoPlaybackState(
     val playbackSpeed: Float = 1.0f,
     val isLoading: Boolean = false,
     val error: String? = null,
-    val isEnded: Boolean = false
+    val isEnded: Boolean = false,
+    val availableSubtitleTracks: List<SubtitleTrack> = emptyList(),
+    val selectedSubtitleTrackId: String? = null,
+    val currentSubtitleText: String = ""
 )
