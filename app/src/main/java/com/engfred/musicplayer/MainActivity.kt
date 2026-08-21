@@ -92,6 +92,7 @@ class MainActivity : AppCompatActivity() {
     private var showNowPlaying by mutableStateOf(false)
 
     private var navigateToNowPlayingOnStart by mutableStateOf(false)
+    private var navigateToVideoCastOnStart by mutableStateOf(false)
 
     private val uiScope get() = lifecycleScope
 
@@ -245,6 +246,13 @@ class MainActivity : AppCompatActivity() {
                     if (navigateToNowPlayingOnStart) {
                         showNowPlaying = true
                         navigateToNowPlayingOnStart = false
+                    }
+                }
+
+                LaunchedEffect(navigateToVideoCastOnStart, videoCastVideoId) {
+                    if (navigateToVideoCastOnStart && videoCastVideoId != null) {
+                        navController.navigate(AppDestinations.VideoPlayer.createRoute(videoId = videoCastVideoId))
+                        navigateToVideoCastOnStart = false
                     }
                 }
 
@@ -437,6 +445,15 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        when {
+            intent?.getBooleanExtra(EXTRA_OPEN_VIDEO_CAST, false) == true -> {
+                navigateToVideoCastOnStart = true
+            }
+            intent?.getBooleanExtra(EXTRA_OPEN_AUDIO_PLAYER, false) == true -> {
+                navigateToNowPlayingOnStart = true
+            }
+        }
     }
 
     private fun tryOpenUriStream(uri: Uri): Boolean {
@@ -551,6 +568,8 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+        const val EXTRA_OPEN_AUDIO_PLAYER = "com.engfred.musicplayer.extra.OPEN_AUDIO_PLAYER"
+        const val EXTRA_OPEN_VIDEO_CAST = "com.engfred.musicplayer.extra.OPEN_VIDEO_CAST"
         // Keeps track of the splash screen across the entire app process lifecycle
         private var hasShownSplashThisSession = false
     }

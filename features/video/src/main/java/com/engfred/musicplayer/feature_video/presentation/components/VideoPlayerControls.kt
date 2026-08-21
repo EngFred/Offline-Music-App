@@ -195,7 +195,7 @@ fun VideoPlayerControls(
                 exit = fadeOut(),
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .offset(y = 110.dp)
+                    .offset(y = if (isLandscape) 110.dp else 62.dp)
             ) {
                 PlaybackButtonsRow(
                     state = state,

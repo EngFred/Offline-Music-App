@@ -15,6 +15,7 @@ class CastOptionsProvider : OptionsProvider {
 
     override fun getCastOptions(context: Context): CastOptions {
         val notificationOptions = NotificationOptions.Builder()
+            .setTargetActivityClassName("com.engfred.musicplayer.MainActivity")
             .build()
 
         val mediaOptions = CastMediaOptions.Builder()

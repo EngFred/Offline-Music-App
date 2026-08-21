@@ -58,6 +58,7 @@ class VideoPlayerViewModel @Inject constructor(
 
     private var autoHideControlsJob: Job? = null
     private var progressSavingJob: Job? = null
+    private var deviceVideos: List<VideoFile> = emptyList()
 
     init {
         // Set active media to VIDEO and request normal audio player to pause
@@ -174,12 +175,7 @@ class VideoPlayerViewModel @Inject constructor(
             }
             is VideoPlayerEvent.SelectVideo -> {
                 saveCurrentPosition()
-                _uiState.update { current ->
-                    current.copy(
-                        videoFile = event.video,
-                        relatedVideos = current.relatedVideos.filter { it.id != event.video.id }
-                    )
-                }
+                setCurrentVideo(event.video)
                 viewModelScope.launch {
                     val savedPos = settingsRepository.getVideoPlaybackPosition(event.video.id)
                     val resumePos = resolveResumePosition(event.video, savedPos)
@@ -202,10 +198,26 @@ class VideoPlayerViewModel @Inject constructor(
     private fun observeDeviceVideos() {
         viewModelScope.launch {
             videoRepository.getAllVideoFiles().collect { videos ->
-                val currentId = _uiState.value.videoFile?.id
-                val filtered = videos.filter { it.id != currentId }
-                _uiState.update { it.copy(relatedVideos = filtered) }
+                deviceVideos = videos
+                updateRelatedVideos()
             }
+        }
+    }
+
+    private fun setCurrentVideo(video: VideoFile) {
+        _uiState.update { it.copy(videoFile = video) }
+        updateRelatedVideos(video.id)
+    }
+
+    private fun updateRelatedVideos(currentVideoId: Long? = _uiState.value.videoFile?.id) {
+        _uiState.update { state ->
+            state.copy(
+                relatedVideos = if (currentVideoId == null) {
+                    deviceVideos
+                } else {
+                    deviceVideos.filter { it.id != currentVideoId }
+                }
+            )
         }
     }
 
@@ -244,12 +256,7 @@ class VideoPlayerViewModel @Inject constructor(
                 is Resource.Success -> {
                     val video = res.data
                     if (video != null) {
-                        _uiState.update { current ->
-                            current.copy(
-                                videoFile = video,
-                                relatedVideos = current.relatedVideos.filter { it.id != video.id }
-                            )
-                        }
+                        setCurrentVideo(video)
                         val castState = videoCastManager.videoCastPlaybackState.value
                         val alreadyCasting = videoCastManager.isConnected()
                             && videoCastManager.isCurrentMediaVideo()
@@ -290,12 +297,7 @@ class VideoPlayerViewModel @Inject constructor(
                 is Resource.Success -> {
                     val video = res.data
                     if (video != null) {
-                        _uiState.update { current ->
-                            current.copy(
-                                videoFile = video,
-                                relatedVideos = current.relatedVideos.filter { it.id != video.id }
-                            )
-                        }
+                        setCurrentVideo(video)
                         val castState = videoCastManager.videoCastPlaybackState.value
                         val alreadyCasting = videoCastManager.isConnected()
                             && videoCastManager.isCurrentMediaVideo()
@@ -334,12 +336,7 @@ class VideoPlayerViewModel @Inject constructor(
                 thumbnailUri = null,
                 mimeType = sharedMimeType?.takeIf { it.isNotBlank() } ?: inferVideoMimeType(uri)
             )
-            _uiState.update { current ->
-                current.copy(
-                    videoFile = fallbackVideo,
-                    relatedVideos = current.relatedVideos.filter { it.id != fallbackVideo.id }
-                )
-            }
+            setCurrentVideo(fallbackVideo)
             startVideoPlayback(fallbackVideo, 0L)
             resetControlsTimer()
         }

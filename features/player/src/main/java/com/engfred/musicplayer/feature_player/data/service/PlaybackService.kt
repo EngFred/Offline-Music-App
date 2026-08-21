@@ -52,6 +52,8 @@ private const val MUSIC_NOTIFICATION_CHANNEL_ID = "music_player_channel"
 private const val MUSIC_NOTIFICATION_ID = 1001
 private const val UNKNOWN_ARTIST = "Unknown Artist"
 private const val PERIODIC_SAVE_INTERVAL_MS = 5000L
+private const val EXTRA_OPEN_AUDIO_PLAYER = "com.engfred.musicplayer.extra.OPEN_AUDIO_PLAYER"
+private const val EXTRA_OPEN_VIDEO_CAST = "com.engfred.musicplayer.extra.OPEN_VIDEO_CAST"
 
 @UnstableApi
 @AndroidEntryPoint
@@ -103,6 +105,27 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_REFRESH_WIDGET = "com.engfred.musicplayer.ACTION_REFRESH_WIDGET"
         const val ACTION_WIDGET_REPEAT = "com.engfred.musicplayer.ACTION_WIDGET_REPEAT"
         const val ACTION_WIDGET_SHUFFLE = "com.engfred.musicplayer.ACTION_WIDGET_SHUFFLE"
+    }
+
+    private fun openPlayerPendingIntent(isVideo: Boolean): PendingIntent {
+        val intent = Intent().setClassName(this, "${packageName}.MainActivity").apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(
+                if (isVideo) EXTRA_OPEN_VIDEO_CAST else EXTRA_OPEN_AUDIO_PLAYER,
+                true
+            )
+        }
+        val requestCode = if (isVideo) 7102 else 7101
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        return PendingIntent.getActivity(this, requestCode, intent, flags)
+    }
+
+    private fun serviceActionPendingIntent(action: String, requestCode: Int): PendingIntent {
+        val intent = Intent(this, PlaybackService::class.java).apply { this.action = action }
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        return PendingIntent.getService(this, requestCode, intent, flags)
     }
 
     override fun onCreate() {
@@ -479,13 +502,49 @@ class PlaybackService : MediaSessionService() {
                 castPlaybackBridge.getLatestPlaybackState().currentAudioFile?.title ?: "Audio Track"
             }
 
-            val notification = NotificationCompat.Builder(this, MUSIC_NOTIFICATION_CHANNEL_ID)
+            val builder = NotificationCompat.Builder(this, MUSIC_NOTIFICATION_CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText("Casting to $deviceName")
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setPriority(NotificationManager.IMPORTANCE_LOW)
                 .setOngoing(true)
-                .build()
+                .setContentIntent(openPlayerPendingIntent(isVideo))
+
+            if (!isVideo) {
+                builder
+                    .addAction(
+                        android.R.drawable.ic_media_previous,
+                        "Previous",
+                        serviceActionPendingIntent(ACTION_WIDGET_PREV, 7201)
+                    )
+                    .addAction(
+                        if (castSessionManager.isRemotePlaying()) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+                        if (castSessionManager.isRemotePlaying()) "Pause" else "Play",
+                        serviceActionPendingIntent(ACTION_WIDGET_PLAY_PAUSE, 7202)
+                    )
+                    .addAction(
+                        android.R.drawable.ic_media_next,
+                        "Next",
+                        serviceActionPendingIntent(ACTION_WIDGET_NEXT, 7203)
+                    )
+                    .setStyle(
+                        androidx.media.app.NotificationCompat.MediaStyle()
+                            .setShowActionsInCompactView(0, 1, 2)
+                    )
+            } else {
+                builder
+                    .addAction(
+                        if (castSessionManager.isRemotePlaying()) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+                        if (castSessionManager.isRemotePlaying()) "Pause" else "Play",
+                        serviceActionPendingIntent(ACTION_WIDGET_PLAY_PAUSE, 7202)
+                    )
+                    .setStyle(
+                        androidx.media.app.NotificationCompat.MediaStyle()
+                            .setShowActionsInCompactView(0)
+                    )
+            }
+
+            val notification = builder.build()
 
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -515,7 +574,13 @@ class PlaybackService : MediaSessionService() {
         }
 
         when (action) {
-            ACTION_WIDGET_PLAY_PAUSE -> serviceScope.launch { handleWidgetPlayPause() }
+            ACTION_WIDGET_PLAY_PAUSE -> serviceScope.launch {
+                if (castSessionManager.isConnected()) {
+                    castSessionManager.togglePlayPause()
+                } else {
+                    handleWidgetPlayPause()
+                }
+            }
             ACTION_WIDGET_NEXT -> serviceScope.launch { playbackController.skipToNext() }
             ACTION_WIDGET_PREV -> serviceScope.launch { playbackController.skipToPrevious() }
             ACTION_REFRESH_WIDGET -> updateWidgetWithInfo()

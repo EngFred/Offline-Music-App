@@ -19,6 +19,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -82,6 +83,8 @@ fun AppNavHost(
     videoCastVideoId: Long? = null,
     onVideoCastPlayPause: () -> Unit = {}
 ) {
+    var openVideoPlayerFromMini by remember { mutableStateOf(false) }
+
     // Intercept the system back button while the overlay is open so it collapses
     // back to the mini player instead of popping the nav back stack.
     BackHandler(enabled = showNowPlaying) {
@@ -154,6 +157,7 @@ fun AppNavHost(
                     onVideoCastPlayPause = onVideoCastPlayPause,
                     onNavigateToVideoCast = {
                         if (videoCastVideoId != null) {
+                            openVideoPlayerFromMini = true
                             rootNavController.navigate(AppDestinations.VideoPlayer.createRoute(videoId = videoCastVideoId))
                         }
                     }
@@ -304,11 +308,41 @@ fun AppNavHost(
                         defaultValue = ""
                     }
                 ),
-                enterTransition = { slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(400)) },
-                exitTransition = { slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(400)) },
+                enterTransition = {
+                    if (openVideoPlayerFromMini) {
+                        slideInVertically(
+                            initialOffsetY = { it },
+                            animationSpec = tween(350, easing = FastOutSlowInEasing)
+                        )
+                    } else {
+                        slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(400))
+                    }
+                },
+                exitTransition = {
+                    if (openVideoPlayerFromMini) {
+                        slideOutVertically(
+                            targetOffsetY = { it },
+                            animationSpec = tween(250, easing = FastOutLinearInEasing)
+                        )
+                    } else {
+                        slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(400))
+                    }
+                },
                 popEnterTransition = { slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(400)) },
-                popExitTransition = { slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(400)) }
+                popExitTransition = {
+                    if (openVideoPlayerFromMini) {
+                        slideOutVertically(
+                            targetOffsetY = { it },
+                            animationSpec = tween(250, easing = FastOutLinearInEasing)
+                        )
+                    } else {
+                        slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(400))
+                    }
+                }
             ) {
+                LaunchedEffect(Unit) {
+                    openVideoPlayerFromMini = false
+                }
                 VideoPlayerScreen(
                     onNavigateBack = { rootNavController.navigateUp() }
                 )
