@@ -82,6 +82,7 @@ fun VideoPlayerControls(
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val isImmersivePlayback = isLandscape || state.isFullscreen
 
     val currentPosition = state.playbackState.currentPositionMs
     val totalDuration = state.playbackState.totalDurationMs.coerceAtLeast(1L)
@@ -102,7 +103,6 @@ fun VideoPlayerControls(
             Column(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .offset(y = if (isLandscape) (-46).dp else 0.dp)
                     .padding(horizontal = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
@@ -188,20 +188,6 @@ fun VideoPlayerControls(
                 }
             }
 
-            // Anchor 2: Playback Buttons Row positioned at fixed slot below TV info (zero layout shift)
-            AnimatedVisibility(
-                visible = state.areControlsVisible && !state.isLocked && !state.playbackState.isLoading,
-                enter = fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .offset(y = if (isLandscape) 110.dp else 62.dp)
-            ) {
-                PlaybackButtonsRow(
-                    state = state,
-                    onEvent = onEvent
-                )
-            }
         }
 
         // Center Buffering Spinner
@@ -359,16 +345,17 @@ fun VideoPlayerControls(
                     }
                 }
 
-                // Center Controls for Local Phone Playback (when NOT casting)
-                if (!state.isCastConnected && !state.playbackState.isLoading) {
+                // Immersive center controls — only when there is enough vertical room
+                if (isImmersivePlayback && !state.playbackState.isLoading) {
                     PlaybackButtonsRow(
                         state = state,
                         onEvent = onEvent,
+                        compact = false,
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
 
-                // Bottom Bar: Scrubber, Timestamps & Quick Actions
+                // Bottom Bar: Playback (embedded), Scrubber, Timestamps & Quick Actions
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -381,8 +368,20 @@ fun VideoPlayerControls(
                                 )
                             )
                         )
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // Embedded portrait: dedicated playback row above scrubber (no overlap)
+                    if (!isImmersivePlayback && !state.playbackState.isLoading) {
+                        PlaybackButtonsRow(
+                            state = state,
+                            onEvent = onEvent,
+                            compact = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+
                     // High-End Custom Video Scrubber
                     VideoScrubber(
                         currentPositionMs = currentPosition,
@@ -539,10 +538,16 @@ fun VideoPlayerControls(
 private fun PlaybackButtonsRow(
     state: VideoPlayerState,
     onEvent: (VideoPlayerEvent) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
+    val skipButtonSize = if (compact) 40.dp else 46.dp
+    val skipIconSize = if (compact) 22.dp else 26.dp
+    val playButtonSize = if (compact) 52.dp else 62.dp
+    val rowWidthFraction = if (compact) 0.85f else 0.7f
+
     Row(
-        modifier = modifier.fillMaxWidth(0.7f),
+        modifier = modifier.fillMaxWidth(rowWidthFraction),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -550,35 +555,34 @@ private fun PlaybackButtonsRow(
             onClick = { onEvent(VideoPlayerEvent.SeekBy(-10000L)) },
             modifier = Modifier
                 .background(Color.White.copy(alpha = 0.12f), CircleShape)
-                .size(46.dp)
+                .size(skipButtonSize)
         ) {
             Icon(
                 imageVector = Icons.Rounded.Replay10,
                 contentDescription = "Rewind 10s",
                 tint = Color.White,
-                modifier = Modifier.size(26.dp)
+                modifier = Modifier.size(skipIconSize)
             )
         }
 
-        // High-end frosted glow play button
         VideoPlayButton(
             isPlaying = state.playbackState.isPlaying,
             isEnded = state.playbackState.isEnded,
             onClick = { onEvent(VideoPlayerEvent.TogglePlayPause) },
-            size = 62.dp
+            size = playButtonSize
         )
 
         IconButton(
             onClick = { onEvent(VideoPlayerEvent.SeekBy(10000L)) },
             modifier = Modifier
                 .background(Color.White.copy(alpha = 0.12f), CircleShape)
-                .size(46.dp)
+                .size(skipButtonSize)
         ) {
             Icon(
                 imageVector = Icons.Rounded.Forward10,
                 contentDescription = "Forward 10s",
                 tint = Color.White,
-                modifier = Modifier.size(26.dp)
+                modifier = Modifier.size(skipIconSize)
             )
         }
     }
