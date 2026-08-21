@@ -17,7 +17,7 @@ android {
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 9
-        versionName = "2.17.0"
+        versionName = "2.17.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
