@@ -249,13 +249,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                LaunchedEffect(navigateToVideoCastOnStart, videoCastVideoId) {
-                    if (navigateToVideoCastOnStart && videoCastVideoId != null) {
-                        navController.navigate(AppDestinations.VideoPlayer.createRoute(videoId = videoCastVideoId))
-                        navigateToVideoCastOnStart = false
-                    }
-                }
-
                 var isInitialResume by remember { mutableStateOf(true) }
                 LaunchedEffect(playbackState.isLoading, playbackState.currentAudioFile) {
                     if (!playbackState.isLoading && playbackState.currentAudioFile != null) {
@@ -319,6 +312,10 @@ class MainActivity : AppCompatActivity() {
                     videoCastVideoId = videoCastVideoId,
                     onVideoCastPlayPause = {
                         castSessionManager.togglePlayPause()
+                    },
+                    navigateToVideoCastOnStart = navigateToVideoCastOnStart,
+                    onNavigateToVideoCastOnStartConsumed = {
+                        navigateToVideoCastOnStart = false
                     }
                 )
 
@@ -436,6 +433,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (intent?.getBooleanExtra("SHOW_UPDATE_DIALOG", false) == true) {
+            intent.removeExtra("SHOW_UPDATE_DIALOG")
             uiScope.launch {
                 try {
                     val info = checkForUpdateUseCase(BuildConfig.VERSION_NAME)
@@ -449,9 +447,11 @@ class MainActivity : AppCompatActivity() {
         when {
             intent?.getBooleanExtra(EXTRA_OPEN_VIDEO_CAST, false) == true -> {
                 navigateToVideoCastOnStart = true
+                intent.removeExtra(EXTRA_OPEN_VIDEO_CAST)
             }
             intent?.getBooleanExtra(EXTRA_OPEN_AUDIO_PLAYER, false) == true -> {
                 navigateToNowPlayingOnStart = true
+                intent.removeExtra(EXTRA_OPEN_AUDIO_PLAYER)
             }
         }
     }

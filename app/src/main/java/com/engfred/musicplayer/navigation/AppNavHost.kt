@@ -81,9 +81,22 @@ fun AppNavHost(
     videoCastDurationMs: Long = 0L,
     videoCastDeviceName: String? = null,
     videoCastVideoId: Long? = null,
-    onVideoCastPlayPause: () -> Unit = {}
+    onVideoCastPlayPause: () -> Unit = {},
+    navigateToVideoCastOnStart: Boolean = false,
+    onNavigateToVideoCastOnStartConsumed: () -> Unit = {}
 ) {
     var openVideoPlayerFromMini by remember { mutableStateOf(false) }
+
+    LaunchedEffect(navigateToVideoCastOnStart, videoCastVideoId) {
+        if (navigateToVideoCastOnStart && videoCastVideoId != null) {
+            rootNavController.navigate(
+                AppDestinations.VideoPlayer.createRoute(videoId = videoCastVideoId)
+            ) {
+                launchSingleTop = true
+            }
+            onNavigateToVideoCastOnStartConsumed()
+        }
+    }
 
     // Intercept the system back button while the overlay is open so it collapses
     // back to the mini player instead of popping the nav back stack.
