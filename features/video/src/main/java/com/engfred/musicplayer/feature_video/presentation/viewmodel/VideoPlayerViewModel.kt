@@ -33,11 +33,15 @@ sealed interface VideoPlayerEvent {
     data object ToggleResizeMode : VideoPlayerEvent
     data class ShowSpeedDialog(val show: Boolean) : VideoPlayerEvent
     data class LoadVideo(val videoId: Long?, val uri: Uri?) : VideoPlayerEvent
+    data class SelectVideo(val video: VideoFile) : VideoPlayerEvent
+    data class SetFullscreen(val isFullscreen: Boolean) : VideoPlayerEvent
+    data object ClearResumeMessage : VideoPlayerEvent
 }
 
 @HiltViewModel
 class VideoPlayerViewModel @Inject constructor(
     private val videoRepository: VideoRepository,
+    private val settingsRepository: com.engfred.musicplayer.core.domain.repository.SettingsRepository,
     val videoPlaybackController: VideoPlaybackController,
     private val musicPlaybackController: PlaybackController,
     private val videoCastManager: VideoCastManager,
@@ -49,6 +53,7 @@ class VideoPlayerViewModel @Inject constructor(
     val uiState: StateFlow<VideoPlayerState> = _uiState.asStateFlow()
 
     private var autoHideControlsJob: Job? = null
+    private var progressSavingJob: Job? = null
 
     init {
         // Set active media to VIDEO and request normal audio player to pause
@@ -66,6 +71,8 @@ class VideoPlayerViewModel @Inject constructor(
         observePlaybackState()
         observeCastState()
         observeCastVideoPlaybackState()
+        observeDeviceVideos()
+        startPeriodicProgressSaving()
 
         val rawVideoId = savedStateHandle.get<Long>("videoId")
         val rawVideoUriStr = savedStateHandle.get<String>("videoUri")
@@ -161,6 +168,55 @@ class VideoPlayerViewModel @Inject constructor(
                     loadVideoByUri(event.uri)
                 }
             }
+            is VideoPlayerEvent.SelectVideo -> {
+                saveCurrentPosition()
+                _uiState.update { it.copy(videoFile = event.video) }
+                viewModelScope.launch {
+                    val savedPos = settingsRepository.getVideoPlaybackPosition(event.video.id)
+                    val resumePos = if (savedPos > 5000L && (event.video.duration <= 0 || savedPos < event.video.duration * 0.95)) savedPos else 0L
+                    if (resumePos > 0) {
+                        _uiState.update { it.copy(resumeMessage = "Resumed from ${formatTime(resumePos)}") }
+                    }
+                    startVideoPlayback(event.video, resumePos)
+                    resetControlsTimer()
+                }
+            }
+            is VideoPlayerEvent.SetFullscreen -> {
+                _uiState.update { it.copy(isFullscreen = event.isFullscreen) }
+            }
+            is VideoPlayerEvent.ClearResumeMessage -> {
+                _uiState.update { it.copy(resumeMessage = null) }
+            }
+        }
+    }
+
+    private fun observeDeviceVideos() {
+        viewModelScope.launch {
+            videoRepository.getAllVideoFiles().collect { videos ->
+                val currentId = _uiState.value.videoFile?.id
+                val filtered = videos.filter { it.id != currentId }
+                _uiState.update { it.copy(relatedVideos = filtered) }
+            }
+        }
+    }
+
+    private fun startPeriodicProgressSaving() {
+        progressSavingJob?.cancel()
+        progressSavingJob = viewModelScope.launch {
+            while (true) {
+                delay(4000)
+                saveCurrentPosition()
+            }
+        }
+    }
+
+    private fun saveCurrentPosition() {
+        val video = _uiState.value.videoFile ?: return
+        val pos = _uiState.value.playbackState.currentPositionMs
+        if (pos > 3000L) {
+            viewModelScope.launch {
+                settingsRepository.saveVideoPlaybackPosition(video.id, pos)
+            }
         }
     }
 
@@ -171,14 +227,11 @@ class VideoPlayerViewModel @Inject constructor(
                     val video = res.data
                     if (video != null) {
                         _uiState.update { it.copy(videoFile = video) }
-                        // If Cast is already playing THIS video, resume from its current position
-                        // instead of reloading from 0 (which would annoyingly reset a 45-min movie)
                         val castState = videoCastManager.videoCastPlaybackState.value
                         val alreadyCasting = videoCastManager.isConnected()
                             && videoCastManager.isCurrentMediaVideo()
                             && videoCastManager.getCurrentVideo()?.id == video.id
                         if (alreadyCasting) {
-                            // Just sync UI state from cast — don't reload
                             _uiState.update { state ->
                                 state.copy(
                                     playbackState = state.playbackState.copy(
@@ -190,7 +243,12 @@ class VideoPlayerViewModel @Inject constructor(
                                 )
                             }
                         } else {
-                            startVideoPlayback(video, 0L)
+                            val savedPos = settingsRepository.getVideoPlaybackPosition(video.id)
+                            val resumePos = if (savedPos > 5000L && (video.duration <= 0 || savedPos < video.duration * 0.95)) savedPos else 0L
+                            if (resumePos > 0) {
+                                _uiState.update { it.copy(resumeMessage = "Resumed from ${formatTime(resumePos)}") }
+                            }
+                            startVideoPlayback(video, resumePos)
                         }
                         resetControlsTimer()
                     }
@@ -226,7 +284,12 @@ class VideoPlayerViewModel @Inject constructor(
                                 )
                             }
                         } else {
-                            startVideoPlayback(video, 0L)
+                            val savedPos = settingsRepository.getVideoPlaybackPosition(video.id)
+                            val resumePos = if (savedPos > 5000L && (video.duration <= 0 || savedPos < video.duration * 0.95)) savedPos else 0L
+                            if (resumePos > 0) {
+                                _uiState.update { it.copy(resumeMessage = "Resumed from ${formatTime(resumePos)}") }
+                            }
+                            startVideoPlayback(video, resumePos)
                         }
                         resetControlsTimer()
                         return@launch
@@ -246,6 +309,18 @@ class VideoPlayerViewModel @Inject constructor(
             _uiState.update { it.copy(videoFile = fallbackVideo) }
             startVideoPlayback(fallbackVideo, 0L)
             resetControlsTimer()
+        }
+    }
+
+    private fun formatTime(ms: Long): String {
+        val totalSec = (ms / 1000).coerceAtLeast(0L)
+        val hours = totalSec / 3600
+        val minutes = (totalSec % 3600) / 60
+        val seconds = totalSec % 60
+        return if (hours > 0) {
+            String.format(java.util.Locale.getDefault(), "%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format(java.util.Locale.getDefault(), "%02d:%02d", minutes, seconds)
         }
     }
 
@@ -348,6 +423,8 @@ class VideoPlayerViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         autoHideControlsJob?.cancel()
+        progressSavingJob?.cancel()
+        saveCurrentPosition()
         videoPlaybackController.release()
         if (!videoCastManager.isConnected() || !videoCastManager.isCurrentMediaVideo()) {
             activePlayerRegistry.setActiveMediaType(ActiveMediaType.NONE)

@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle;
 import com.engfred.musicplayer.core.domain.ActivePlayerRegistry;
 import com.engfred.musicplayer.core.domain.cast.VideoCastManager;
 import com.engfred.musicplayer.core.domain.repository.PlaybackController;
+import com.engfred.musicplayer.core.domain.repository.SettingsRepository;
 import com.engfred.musicplayer.core.domain.repository.VideoPlaybackController;
 import com.engfred.musicplayer.core.domain.repository.VideoRepository;
 import dagger.internal.DaggerGenerated;
@@ -32,6 +33,8 @@ import javax.annotation.processing.Generated;
 public final class VideoPlayerViewModel_Factory implements Factory<VideoPlayerViewModel> {
   private final Provider<VideoRepository> videoRepositoryProvider;
 
+  private final Provider<SettingsRepository> settingsRepositoryProvider;
+
   private final Provider<VideoPlaybackController> videoPlaybackControllerProvider;
 
   private final Provider<PlaybackController> musicPlaybackControllerProvider;
@@ -43,12 +46,14 @@ public final class VideoPlayerViewModel_Factory implements Factory<VideoPlayerVi
   private final Provider<SavedStateHandle> savedStateHandleProvider;
 
   private VideoPlayerViewModel_Factory(Provider<VideoRepository> videoRepositoryProvider,
+      Provider<SettingsRepository> settingsRepositoryProvider,
       Provider<VideoPlaybackController> videoPlaybackControllerProvider,
       Provider<PlaybackController> musicPlaybackControllerProvider,
       Provider<VideoCastManager> videoCastManagerProvider,
       Provider<ActivePlayerRegistry> activePlayerRegistryProvider,
       Provider<SavedStateHandle> savedStateHandleProvider) {
     this.videoRepositoryProvider = videoRepositoryProvider;
+    this.settingsRepositoryProvider = settingsRepositoryProvider;
     this.videoPlaybackControllerProvider = videoPlaybackControllerProvider;
     this.musicPlaybackControllerProvider = musicPlaybackControllerProvider;
     this.videoCastManagerProvider = videoCastManagerProvider;
@@ -58,23 +63,24 @@ public final class VideoPlayerViewModel_Factory implements Factory<VideoPlayerVi
 
   @Override
   public VideoPlayerViewModel get() {
-    return newInstance(videoRepositoryProvider.get(), videoPlaybackControllerProvider.get(), musicPlaybackControllerProvider.get(), videoCastManagerProvider.get(), activePlayerRegistryProvider.get(), savedStateHandleProvider.get());
+    return newInstance(videoRepositoryProvider.get(), settingsRepositoryProvider.get(), videoPlaybackControllerProvider.get(), musicPlaybackControllerProvider.get(), videoCastManagerProvider.get(), activePlayerRegistryProvider.get(), savedStateHandleProvider.get());
   }
 
   public static VideoPlayerViewModel_Factory create(
       Provider<VideoRepository> videoRepositoryProvider,
+      Provider<SettingsRepository> settingsRepositoryProvider,
       Provider<VideoPlaybackController> videoPlaybackControllerProvider,
       Provider<PlaybackController> musicPlaybackControllerProvider,
       Provider<VideoCastManager> videoCastManagerProvider,
       Provider<ActivePlayerRegistry> activePlayerRegistryProvider,
       Provider<SavedStateHandle> savedStateHandleProvider) {
-    return new VideoPlayerViewModel_Factory(videoRepositoryProvider, videoPlaybackControllerProvider, musicPlaybackControllerProvider, videoCastManagerProvider, activePlayerRegistryProvider, savedStateHandleProvider);
+    return new VideoPlayerViewModel_Factory(videoRepositoryProvider, settingsRepositoryProvider, videoPlaybackControllerProvider, musicPlaybackControllerProvider, videoCastManagerProvider, activePlayerRegistryProvider, savedStateHandleProvider);
   }
 
   public static VideoPlayerViewModel newInstance(VideoRepository videoRepository,
-      VideoPlaybackController videoPlaybackController, PlaybackController musicPlaybackController,
-      VideoCastManager videoCastManager, ActivePlayerRegistry activePlayerRegistry,
-      SavedStateHandle savedStateHandle) {
-    return new VideoPlayerViewModel(videoRepository, videoPlaybackController, musicPlaybackController, videoCastManager, activePlayerRegistry, savedStateHandle);
+      SettingsRepository settingsRepository, VideoPlaybackController videoPlaybackController,
+      PlaybackController musicPlaybackController, VideoCastManager videoCastManager,
+      ActivePlayerRegistry activePlayerRegistry, SavedStateHandle savedStateHandle) {
+    return new VideoPlayerViewModel(videoRepository, settingsRepository, videoPlaybackController, musicPlaybackController, videoCastManager, activePlayerRegistry, savedStateHandle);
   }
 }

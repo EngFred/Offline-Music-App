@@ -214,4 +214,20 @@ class SettingsRepositoryImpl @Inject constructor(
             else prefs.remove(CUSTOM_PLAYER_BACKGROUND_URI)
         }
     }
+
+    override suspend fun getVideoPlaybackPosition(videoId: Long): Long {
+        val key = longPreferencesKey("video_pos_$videoId")
+        return dataStore.data.first()[key] ?: 0L
+    }
+
+    override suspend fun saveVideoPlaybackPosition(videoId: Long, positionMs: Long) {
+        val key = longPreferencesKey("video_pos_$videoId")
+        dataStore.edit { prefs ->
+            if (positionMs > 1000L) {
+                prefs[key] = positionMs
+            } else {
+                prefs.remove(key)
+            }
+        }
+    }
 }

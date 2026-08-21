@@ -241,6 +241,9 @@ class PlaybackService : MediaSessionService() {
 
             castPlaybackBridge.onCastStateUpdated = {
                 updateWidgetWithInfo()
+                if (castSessionManager.isConnected()) {
+                    updateCastForegroundState()
+                }
             }
 
             serviceScope.launch {
@@ -302,6 +305,7 @@ class PlaybackService : MediaSessionService() {
 
             castSessionManager.onSessionConnected = { _, _ ->
                 serviceScope.launch(Dispatchers.Main) {
+                    updateCastForegroundState()
                     if (activePlayerRegistry.activeMediaType.value == com.engfred.musicplayer.core.domain.ActiveMediaType.VIDEO) {
                         Log.d(TAG, "Cast session connected while Video is active - skipping audio queue load")
                         return@launch
@@ -316,9 +320,6 @@ class PlaybackService : MediaSessionService() {
                         exoPlayer.pause()
                     }
 
-                    // A saved mini-player may be paused, which leaves the active type as NONE.
-                    // Still transfer it so the receiver owns the selected track; preserve its
-                    // paused/playing state so connecting never starts music unexpectedly.
                     if (queue.isNotEmpty()) {
                         castSessionManager.loadQueue(
                             queue = queue,
@@ -334,6 +335,9 @@ class PlaybackService : MediaSessionService() {
             castSessionManager.onSessionDisconnected = { lastRemotePos ->
                 serviceScope.launch(Dispatchers.Main) {
                     if (activePlayerRegistry.activeMediaType.value != com.engfred.musicplayer.core.domain.ActiveMediaType.AUDIO) {
+                        if (!exoPlayer.isPlaying) {
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                        }
                         return@launch
                     }
                     if (lastRemotePos > 0) {
@@ -464,9 +468,51 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private fun updateCastForegroundState() {
+        val isCastActive = castSessionManager.isConnected()
+        if (isCastActive) {
+            val isVideo = castSessionManager.isCurrentMediaVideo() || activePlayerRegistry.activeMediaType.value == com.engfred.musicplayer.core.domain.ActiveMediaType.VIDEO
+            val deviceName = castSessionManager.connectedDeviceName.value ?: "Smart TV"
+            val title = if (isVideo) {
+                castSessionManager.getCurrentVideo()?.title ?: "Video"
+            } else {
+                castPlaybackBridge.getLatestPlaybackState().currentAudioFile?.title ?: "Audio Track"
+            }
+
+            val notification = NotificationCompat.Builder(this, MUSIC_NOTIFICATION_CHANNEL_ID)
+                .setContentTitle(title)
+                .setContentText("Casting to $deviceName")
+                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setPriority(NotificationManager.IMPORTANCE_LOW)
+                .setOngoing(true)
+                .build()
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val foregroundType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
+                            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                    } else {
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                    }
+                    startForeground(MUSIC_NOTIFICATION_ID, notification, foregroundType)
+                } else {
+                    startForeground(MUSIC_NOTIFICATION_ID, notification)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to startForeground during cast: ${e.message}")
+            }
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val superResult = super.onStartCommand(intent, flags, startId)
-        val action = intent?.action ?: return superResult
+        val action = intent?.action
+
+        if (action == "com.engfred.musicplayer.ACTION_CAST_ACTIVE") {
+            updateCastForegroundState()
+            return START_STICKY
+        }
 
         when (action) {
             ACTION_WIDGET_PLAY_PAUSE -> serviceScope.launch { handleWidgetPlayPause() }
@@ -511,11 +557,14 @@ class PlaybackService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player
-        if (player != null && (player.playWhenReady || player.isPlaying)) {
-            Log.d(TAG, "Task removed while playing — service remains in foreground for audio")
+        val isCastActive = castSessionManager.isConnected()
+        val isLocalAudioPlaying = player != null && (player.playWhenReady || player.isPlaying)
+
+        if (isLocalAudioPlaying || isCastActive) {
+            Log.d(TAG, "Task removed while playing or casting (isCast=$isCastActive) — service remains alive")
             return
         }
-        Log.d(TAG, "Task removed while paused — stopping service")
+        Log.d(TAG, "Task removed while idle and not casting — stopping service")
         stopSelf()
     }
 

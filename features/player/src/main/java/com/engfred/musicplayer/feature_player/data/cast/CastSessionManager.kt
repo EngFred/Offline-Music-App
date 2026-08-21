@@ -69,6 +69,7 @@ class CastSessionManager @Inject constructor(
     private val remoteMediaClientCallback = object : RemoteMediaClient.Callback() {
         override fun onStatusUpdated() {
             remoteMediaClient?.let { client ->
+                if (client.isPlaying) acquireWakeLock() else releaseWakeLock()
                 updateVideoCastState()
                 onRemoteStatusChanged?.invoke(client)
             }
@@ -76,6 +77,7 @@ class CastSessionManager @Inject constructor(
 
         override fun onQueueStatusUpdated() {
             remoteMediaClient?.let { client ->
+                if (client.isPlaying) acquireWakeLock() else releaseWakeLock()
                 updateVideoCastState()
                 onRemoteStatusChanged?.invoke(client)
             }
@@ -174,33 +176,70 @@ class CastSessionManager @Inject constructor(
     private var wifiLock: WifiManager.WifiLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
-    private fun acquireLocks() {
+    private fun acquireWifiLock() {
         try {
-            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-            wifiLock = wifiManager?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "MusicPlayer:CastWifiLock")?.apply {
-                setReferenceCounted(false)
-                acquire()
+            if (wifiLock == null) {
+                val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                wifiLock = wifiManager?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "MusicPlayer:CastWifiLock")?.apply {
+                    setReferenceCounted(false)
+                }
             }
-            val powerManager = context.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
-            wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MusicPlayer:CastWakeLock")?.apply {
-                setReferenceCounted(false)
-                acquire(12 * 60 * 60 * 1000L)
+            if (wifiLock?.isHeld == false) {
+                wifiLock?.acquire()
+                Log.d(TAG, "Acquired WifiLock (FULL_HIGH_PERF) for Cast session")
             }
-            Log.d(TAG, "Acquired WifiLock and WakeLock for active Cast session")
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to acquire locks: ${e.message}")
+            Log.w(TAG, "Failed to acquire WifiLock: ${e.message}")
         }
     }
 
-    private fun releaseLocks() {
+    private fun releaseWifiLock() {
         try {
             wifiLock?.let { if (it.isHeld) it.release() }
             wifiLock = null
+            Log.d(TAG, "Released WifiLock")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to release WifiLock: ${e.message}")
+        }
+    }
+
+    private fun acquireWakeLock() {
+        try {
+            if (wakeLock == null) {
+                val powerManager = context.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MusicPlayer:CastWakeLock")?.apply {
+                    setReferenceCounted(false)
+                }
+            }
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire(60 * 60 * 1000L) // 1 hour sliding safety timeout
+                Log.d(TAG, "Acquired partial WakeLock for active streaming")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to acquire WakeLock: ${e.message}")
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
             wakeLock?.let { if (it.isHeld) it.release() }
             wakeLock = null
-            Log.d(TAG, "Released WifiLock and WakeLock")
+            Log.d(TAG, "Released partial WakeLock")
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to release locks: ${e.message}")
+            Log.w(TAG, "Failed to release WakeLock: ${e.message}")
+        }
+    }
+
+    private fun triggerPlaybackServiceForeground() {
+        try {
+            val intent = android.content.Intent().apply {
+                setClassName(context.packageName, "com.engfred.musicplayer.feature_player.data.service.PlaybackService")
+                action = "com.engfred.musicplayer.ACTION_CAST_ACTIVE"
+            }
+            androidx.core.content.ContextCompat.startForegroundService(context, intent)
+            Log.d(TAG, "Triggered PlaybackService foreground for Cast session")
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not start PlaybackService for cast: ${e.message}")
         }
     }
 
@@ -212,9 +251,11 @@ class CastSessionManager @Inject constructor(
 
         _connectedDeviceName.value = session.castDevice?.friendlyName
 
-        acquireLocks()
+        acquireWifiLock()
         localMediaServer.startServer()
         _castState.value = CastState.CONNECTED
+
+        triggerPlaybackServiceForeground()
 
         val currentPosition = remoteMediaClient?.approximateStreamPosition ?: 0L
         onSessionConnected?.invoke(session, currentPosition)
@@ -228,7 +269,8 @@ class CastSessionManager @Inject constructor(
         currentCastSession = null
         _connectedDeviceName.value = null
 
-        releaseLocks()
+        releaseWakeLock()
+        releaseWifiLock()
         localMediaServer.stopServer()
         _castState.value = CastState.DISCONNECTED
         _videoCastPlaybackState.value = VideoCastPlaybackState()
@@ -535,6 +577,8 @@ class CastSessionManager @Inject constructor(
             isBuffering = true,
             currentPositionMs = startPositionMs
         )
+        acquireWakeLock()
+        triggerPlaybackServiceForeground()
         remoteMediaClient?.let { client ->
             onRemoteStatusChanged?.invoke(client)
         }

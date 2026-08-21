@@ -35,4 +35,8 @@ interface SettingsRepository {
     suspend fun updateLastUpdateCheckTimestamp(timestamp: Long)
 
     suspend fun updateCustomPlayerBackground(uri: String?)
+
+    // ── Video Resume / Last Played ──────────────────────────────────────────
+    suspend fun getVideoPlaybackPosition(videoId: Long): Long
+    suspend fun saveVideoPlaybackPosition(videoId: Long, positionMs: Long)
 }

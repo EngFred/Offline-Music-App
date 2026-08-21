@@ -21,5 +21,8 @@ data class VideoPlayerState(
     val isCastConnected: Boolean = false,
     val castDeviceName: String? = null,
     val castState: CastState = CastState.DISCONNECTED,
-    val error: String? = null
+    val error: String? = null,
+    val relatedVideos: List<VideoFile> = emptyList(),
+    val isFullscreen: Boolean = false,
+    val resumeMessage: String? = null
 )

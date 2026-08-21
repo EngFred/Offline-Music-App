@@ -537,54 +537,40 @@ private fun PlaybackButtonsRow(
             onClick = { onEvent(VideoPlayerEvent.SeekBy(-10000L)) },
             modifier = Modifier
                 .background(Color.White.copy(alpha = 0.12f), CircleShape)
-                .size(48.dp)
+                .size(46.dp)
         ) {
             Icon(
                 imageVector = Icons.Rounded.Replay10,
                 contentDescription = "Rewind 10s",
                 tint = Color.White,
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(26.dp)
             )
         }
 
-        Surface(
+        // High-end frosted glow play button
+        VideoPlayButton(
+            isPlaying = state.playbackState.isPlaying,
+            isEnded = state.playbackState.isEnded,
             onClick = { onEvent(VideoPlayerEvent.TogglePlayPause) },
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primary,
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)),
-            shadowElevation = 6.dp,
-            modifier = Modifier.size(60.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                val icon = when {
-                    state.playbackState.isEnded -> Icons.Rounded.Replay
-                    state.playbackState.isPlaying -> Icons.Rounded.Pause
-                    else -> Icons.Rounded.PlayArrow
-                }
-                Icon(
-                    imageVector = icon,
-                    contentDescription = if (state.playbackState.isPlaying) "Pause" else "Play",
-                    tint = Color.White,
-                    modifier = Modifier.size(32.dp)
-                )
-            }
-        }
+            size = 62.dp
+        )
 
         IconButton(
             onClick = { onEvent(VideoPlayerEvent.SeekBy(10000L)) },
             modifier = Modifier
                 .background(Color.White.copy(alpha = 0.12f), CircleShape)
-                .size(48.dp)
+                .size(46.dp)
         ) {
             Icon(
                 imageVector = Icons.Rounded.Forward10,
                 contentDescription = "Forward 10s",
                 tint = Color.White,
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(26.dp)
             )
         }
     }
 }
+
 
 private fun formatTime(ms: Long): String {
     val totalSec = (ms / 1000).coerceAtLeast(0L)
